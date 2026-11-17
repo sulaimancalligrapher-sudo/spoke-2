@@ -1,0 +1,3466 @@
+export type SupportedLang = 'ar' | 'th' | 'en';
+
+export interface TranslationItem {
+  id: string; // unique key e.g. 'home_title'
+  category: 'home' | 'lessons' | 'practice' | 'matching' | 'dictation'; // 1- نافذة التسجيل والرئيسية | 2- صفحة الدروس | 3- تسجيل الصوت والنتائج | 4- تمرين وصل الكلمات (2) | 5- تمرين الإملاء (3)
+  categoryLabel: string;
+  ar: string; // النص العربي الأصلي
+  th: string; // الترجمة التايلاندية
+  en: string; // الترجمة الإنجليزية
+  isSheetLinked?: boolean; // هل النص مرتبط أصلاً بورقة شيت أخرى مثل "الرئيسية"
+  sheetSourceNote?: string; // ملاحظة للمستخدم لتعديل الأصل العربي من الورقة المخصصة
+}
+
+export const LANGUAGE_OPTIONS: { code: SupportedLang; name: string; nativeName: string; flag: string }[] = [
+  { code: 'ar', name: 'العربية', nativeName: 'العربية', flag: '🇸🇦' },
+  { code: 'th', name: 'التايلاندية', nativeName: 'ภาษาไทย', flag: '🇹🇭' },
+  { code: 'en', name: 'الإنجليزية', nativeName: 'English', flag: '🇬🇧' },
+];
+
+export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
+  // ==========================================
+  // الموضع الأول: نافذة التسجيل والصفحة الرئيسية (home)
+  // ==========================================
+  {
+    id: 'nav_platform_title',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'فَصِيح',
+    th: 'ฟะซีฮ์ (Faseeh)',
+    en: 'Faseeh',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط بعنوان المنصة في ورقة الرئيسية (B3)',
+  },
+  {
+    id: 'nav_smart_eval_badge',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تقييم النطق الذكي',
+    th: 'ประเมินการออกเสียงอัจฉริยะ',
+    en: 'Smart Pronunciation Evaluation',
+  },
+  {
+    id: 'nav_platform_subtitle',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية',
+    th: 'เรียนรู้การออกเสียง การฟัง และประเมินฐานเกิดเสียงภาษาอาหรับ',
+    en: 'Learn Arabic pronunciation, listening, and phoneme articulation',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط بوصف المنصة في ورقة الرئيسية (B4)',
+  },
+  {
+    id: 'nav_lessons_menu',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'دروس',
+    th: 'บทเรียน',
+    en: 'Lessons',
+  },
+  {
+    id: 'nav_pronunciation_training',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تدريب النطق',
+    th: 'ฝึกออกเสียง',
+    en: 'Pronunciation Training',
+  },
+  {
+    id: 'nav_matching_exercises',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تمارين الوصل',
+    th: 'แบบฝึกหัดจับคู่',
+    en: 'Matching Exercises',
+  },
+  {
+    id: 'nav_dictation_exercise',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تمرين الإملاء',
+    th: 'แบบฝึกหัดสะกดคำ',
+    en: 'Dictation Exercise',
+  },
+  {
+    id: 'nav_writing_exercise',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تمرين الكتابة',
+    th: 'แบบฝึกหัดการเขียน',
+    en: 'Writing Exercise',
+  },
+  {
+    id: 'nav_open_lessons',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تدريب النطق',
+    th: 'ฝึกออกเสียง',
+    en: 'Pronunciation Training',
+  },
+  {
+    id: 'nav_student_login',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'دخول المشترك',
+    th: 'เข้าสู่ระบบผู้เรียน',
+    en: 'Student Login',
+  },
+  {
+    id: 'nav_eval_history',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'سجل التقييمات والإنجاز',
+    th: 'บันทึกการประเมินและความสำเร็จ',
+    en: 'Evaluation & Achievement Log',
+  },
+  {
+    id: 'nav_logout',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تسجيل الخروج',
+    th: 'ออกจากระบบ',
+    en: 'Logout',
+  },
+  {
+    id: 'home_badge',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '',
+    th: '',
+    en: '',
+  },
+  {
+    id: 'home_card_title',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '',
+    th: '',
+    en: '',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط ببطاقة ورقة الرئيسية (B23)',
+  },
+  {
+    id: 'home_card_subtitle',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '',
+    th: '',
+    en: '',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط بوصف بطاقة ورقة الرئيسية (B24)',
+  },
+  {
+    id: 'home_card_extra1',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '',
+    th: '',
+    en: '',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط بالنص الإضافي 1 في ورقة الرئيسية (B25)',
+  },
+  {
+    id: 'home_card_extra2',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '',
+    th: '',
+    en: '',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط بالنص الإضافي 2 في ورقة الرئيسية (B26)',
+  },
+  {
+    id: 'home_card_extra3',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '',
+    th: '',
+    en: '',
+    isSheetLinked: true,
+    sheetSourceNote: 'مرتبط بالنص الإضافي 3 في ورقة الرئيسية (B27)',
+  },
+  {
+    id: 'home_start_btn',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'ابدأ التدريب الآن مجاناً 🚀',
+    th: 'เริ่มฝึกฝนตอนนี้ฟรี 🚀',
+    en: 'Start Practice Now Free 🚀',
+  },
+  {
+    id: 'home_guide_btn',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'دليل ومواصفات المنصة',
+    th: 'คู่มือและข้อมูลจำเพาะ',
+    en: 'Platform Guide',
+  },
+  {
+    id: 'login_modal_title',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تسجيل دخول المشترك',
+    th: 'เข้าสู่ระบบผู้เรียน',
+    en: 'Student Registration / Login',
+  },
+  {
+    id: 'login_modal_desc',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'سجّل اسمك ورقمك لتوثيق إنجازاتك في ورقة الدرجات (answers 1)',
+    th: 'กรอกชื่อและรหัสของคุณเพื่อบันทึกผลการเรียนลงในชีต answers 1',
+    en: 'Enter your name and ID to record your achievements in answers 1',
+  },
+  {
+    id: 'login_name_label',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'اسم المشترك:',
+    th: 'ชื่อผู้เรียน:',
+    en: 'Student Name:',
+  },
+  {
+    id: 'login_id_label',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'رقم المشترك (ID) أو رقم الجوال:',
+    th: 'รหัสผู้เรียน (ID) หรือเบอร์โทรศัพท์:',
+    en: 'Student ID or Mobile Number:',
+  },
+  {
+    id: 'login_submit_btn',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تسجيل ومتابعة التدريب',
+    th: 'ลงทะเบียนและเริ่มฝึกฝน',
+    en: 'Register & Continue Practice',
+  },
+  {
+    id: 'stats_modal_title',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'سجل إنجازات وتقييمات المشترك',
+    th: 'บันทึกความสำเร็จและการประเมินของผู้เรียน',
+    en: 'Student Achievements & Evaluation Log',
+  },
+
+  // ==========================================
+  // الموضع الثاني: صفحة الدروس (lessons)
+  // ==========================================
+  {
+    id: 'lessons_modal_title',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'فهرس الدروس والكلمات',
+    th: 'ดัชนีบทเรียนและคำศัพท์',
+    en: 'Lessons & Vocabulary Index',
+  },
+  {
+    id: 'lessons_modal_desc',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'اختر الدرس أو الموضوع للتدرب على كلماته ونطقه',
+    th: 'เลือกบทเรียนหรือหัวข้อเพื่อฝึกออกเสียงคำศัพท์',
+    en: 'Select a lesson or subject to practice pronunciation',
+  },
+  {
+    id: 'lessons_filter_all',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'الكل',
+    th: 'ทั้งหมด',
+    en: 'All',
+  },
+  {
+    id: 'lessons_search_placeholder',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'بحث عن كلمة أو حرف...',
+    th: 'ค้นหาคำหรือพยัญชนะ...',
+    en: 'Search for a word or letter...',
+  },
+  {
+    id: 'lessons_prev_btn',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'السابق',
+    th: 'ก่อนหน้า',
+    en: 'Previous',
+  },
+  {
+    id: 'lessons_next_btn',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'التالي',
+    th: 'ถัดไป',
+    en: 'Next',
+  },
+  {
+    id: 'lessons_word_count',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'كلمات',
+    th: 'คำ',
+    en: 'words',
+  },
+  {
+    id: 'category_letter',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'الحرف',
+    th: 'พยัญชนะ',
+    en: 'Letter',
+  },
+  {
+    id: 'category_word',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'الكلمة',
+    th: 'คำศัพท์',
+    en: 'Word',
+  },
+  {
+    id: 'category_sentence',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'الجملة',
+    th: 'ประโยค',
+    en: 'Sentence',
+  },
+  {
+    id: 'lessons_subject_label',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'موضوع الدرس:',
+    th: 'หัวข้อบทเรียน:',
+    en: 'Lesson Subject:',
+  },
+  {
+    id: 'lessons_empty_search',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'لا توجد كلمات أو تمارين تطابق البحث في هذا الدرس.',
+    th: 'ไม่พบคำศัพท์หรือแบบฝึกหัดที่ตรงกับการค้นหาในบทเรียนนี้',
+    en: 'No words or exercises match your search in this lesson.',
+  },
+  {
+    id: 'lessons_total_exercises',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'إجمالي التدريبات: {count} كلمة وتمرين',
+    th: 'การฝึกทั้งหมด: {count} คำและแบบฝึกหัด',
+    en: 'Total practices: {count} words & exercises',
+  },
+  {
+    id: 'btn_close',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس',
+    ar: 'إغلاق',
+    th: 'ปิด',
+    en: 'Close',
+  },
+
+  // ==========================================
+  // الموضع الثالث: صفحة تسجيل الصوت والنتائج (practice)
+  // ==========================================
+  {
+    id: 'practice_retry_prompt',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'هل ترغب في إعادة المحاولة وتوثيق تسجيل ودرجة جديدة؟',
+    th: 'คุณต้องการบันทึกเสียงใหม่และบันทึกคะแนนใหม่หรือไม่?',
+    en: 'Would you like to try again and record a new score?',
+  },
+  {
+    id: 'eval_grade_mastered',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'متقن',
+    th: 'เชี่ยวชาญ',
+    en: 'Mastered',
+  },
+  {
+    id: 'eval_open_lessons_btn',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'فتح الدروس',
+    th: 'เปิดบทเรียน',
+    en: 'Open Lessons',
+  },
+  {
+    id: 'practice_listen_btn',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'استمع للصوت',
+    th: 'ฟังเสียงต้นแบบ',
+    en: 'Listen to Audio',
+  },
+  {
+    id: 'practice_slow_listen_btn',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'بطيء',
+    th: 'ช้า',
+    en: 'Slow (0.7x)',
+  },
+  {
+    id: 'practice_teacher_audio',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'صوت المعلم',
+    th: 'เสียงครูผู้สอน',
+    en: "Teacher's Voice",
+  },
+  {
+    id: 'practice_record_btn',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'اضغط وتحدث الآن',
+    th: 'กดแล้วพูดเลย',
+    en: 'Tap & Speak Now',
+  },
+  {
+    id: 'practice_recording_active',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جاري التسجيل... انطق الكلمة بوضوح',
+    th: 'กำลังบันทึกเสียง... กรุณาออกเสียงให้ชัดเจน',
+    en: 'Recording... Speak clearly',
+  },
+  {
+    id: 'practice_evaluating',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جاري تحليل النطق والتقييم...',
+    th: 'กำลังวิเคราะห์และประเมินการออกเสียง...',
+    en: 'Analyzing & Evaluating pronunciation...',
+  },
+  {
+    id: 'practice_submitted_and_locked',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تم التسجيل و التقييم',
+    th: 'บันทึกและประเมินผลเรียบร้อยแล้ว',
+    en: 'Recorded & Evaluated',
+  },
+  {
+    id: 'practice_score_label',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'درجة النطق',
+    th: 'คะแนนการออกเสียง',
+    en: 'Pronunciation Score',
+  },
+  {
+    id: 'grade_excellent',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز',
+    th: 'ยอดเยี่ยม',
+    en: 'Excellent',
+  },
+  {
+    id: 'grade_very_good',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جيد جداً',
+    th: 'ดีมาก',
+    en: 'Very Good',
+  },
+  {
+    id: 'grade_good',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جيد',
+    th: 'ดี',
+    en: 'Good',
+  },
+  {
+    id: 'grade_needs_practice',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'يحتاج تدريب',
+    th: 'ต้องฝึกฝنเพิ่มเติม',
+    en: 'Needs Practice',
+  },
+  {
+    id: 'practice_makhraj_tip_title',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مخرج الحرف وكيفية نطقه:',
+    th: 'ฐานเกิดเสียงและวิธีการออกเสียง:',
+    en: 'Articulation Point & Guidance:',
+  },
+  {
+    id: 'practice_meaning_title',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'المعنى والتوضيح:',
+    th: 'ความหมายและคำอธิบาย:',
+    en: 'Meaning & Explanation:',
+  },
+  {
+    id: 'practice_detected_text',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ما نطق به المشترك:',
+    th: 'เสียงที่ระบบตรวจพบ:',
+    en: 'Detected Speech:',
+  },
+  {
+    id: 'practice_re_record_btn',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'إعادة التسجيل',
+    th: 'บันทึกเสียงใหม่',
+    en: 'Re-record',
+  },
+  {
+    id: 'practice_send_sheets',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'توثيق النتيجة في Google Sheets',
+    th: 'บันทึกคะแนนลง Google Sheets',
+    en: 'Save score to Google Sheets',
+  },
+  {
+    id: 'eval_score_badge',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الدرجة',
+    th: 'คะแนน',
+    en: 'Score',
+  },
+  {
+    id: 'eval_theme_excellent',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز جداً! نطق فصيح ومتقن',
+    th: 'ยอดเยี่ยมมาก! การออกเสียงถูกต้องและแม่นยำ',
+    en: 'Excellent! Accurate and fluent articulation',
+  },
+  {
+    id: 'eval_theme_very_good',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نطق جيد جداً!',
+    th: 'การออกเสียงดีมาก!',
+    en: 'Very Good Pronunciation!',
+  },
+  {
+    id: 'eval_theme_acceptable',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نطق مقبول مع ملاحظات',
+    th: 'การออกเสียงพอใช้ มีข้อควรปรับปรุง',
+    en: 'Acceptable pronunciation with notes',
+  },
+  {
+    id: 'eval_theme_needs_practice',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'يحتاج إلى مزيد من التمرين',
+    th: 'ต้องฝึกฝนเพิ่มเติม',
+    en: 'Needs more practice',
+  },
+  {
+    id: 'eval_target_word_label',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الكلمة المستهدفة:',
+    th: 'คำเป้าหมาย:',
+    en: 'Target Word:',
+  },
+  {
+    id: 'eval_detected_speech_label',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ما سُمع من النطق:',
+    th: 'เสียงที่ระบบตรวจพบ:',
+    en: 'Detected Speech:',
+  },
+  {
+    id: 'eval_match_success',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: '✓ نطق مطابق ومقبول',
+    th: '✓ ออกเสียงถูกต้องสอดคล้อง',
+    en: '✓ Matched and accepted',
+  },
+  {
+    id: 'eval_match_warning',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: '⚠ يحتاج تدقيق في بعض الحروف',
+    th: '⚠ ควรระวังบางพยัญชนะ',
+    en: '⚠ Check specific letters',
+  },
+  {
+    id: 'eval_listen_teacher',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'استماع لنطق المعلم',
+    th: 'ฟังเสียงครูต้นแบบ',
+    en: 'Listen to Teacher',
+  },
+  {
+    id: 'eval_listen_student',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'استماع لصوت الطالب المسجل',
+    th: 'ฟังเสียงที่บันทึกไว้',
+    en: 'Listen to Student',
+  },
+  {
+    id: 'eval_stop_audio',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'إيقاف صوتي',
+    th: 'หยุดเสียง',
+    en: 'Stop Audio',
+  },
+  {
+    id: 'eval_tab_acoustic',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مقارنة صوتية',
+    th: 'เปรียบเทียบเสียง',
+    en: 'Acoustic Match',
+  },
+  {
+    id: 'eval_tab_letters',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تحليل الحروف',
+    th: 'วิเคราะห์พยัญชนะ',
+    en: 'Letter Breakdown',
+  },
+  {
+    id: 'eval_tab_visual',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'المقارنة المرئية',
+    th: 'เปรียบเทียบคลื่นเสียง',
+    en: 'Visual Spectrum',
+  },
+  {
+    id: 'eval_mfcc_comparison',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مقارنة البصمة الصوتية مع تسجيل المعلم:',
+    th: 'เปรียบเทียบลายพิมพ์เสียงกับครูผู้สอน:',
+    en: 'Voice fingerprint comparison with teacher:',
+  },
+  {
+    id: 'eval_char_match',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تطابق الحروف',
+    th: 'ความตรงของตัวอักษร',
+    en: 'Letter match',
+  },
+  {
+    id: 'eval_fingerprint_match',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تطابق البصمة',
+    th: 'ความตรงของลายพิมพ์เสียง',
+    en: 'Fingerprint match',
+  },
+  {
+    id: 'eval_pronunciation_duration',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'زمن النطق',
+    th: 'ระยะเวลาออกเสียง',
+    en: 'Duration',
+  },
+  {
+    id: 'eval_no_teacher_audio_note',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'لم يُسجل صوت المعلم النموذجي لهذا التمرين بعد. تم التقييم عبر التحليل الفيزيائي المباشر للترددات ومخارج الحروف.',
+    th: 'ยังไม่มีเสียงบันทึกของครูต้นแบบสำหรับแบบฝึกหัดนี้ ระบบประเมินด้วยการวิเคราะห์คลื่นความถี่โดยตรง',
+    en: 'No teacher model audio registered yet. Evaluated via direct acoustic and phoneme analysis.',
+  },
+  {
+    id: 'eval_voice_power',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'قوة ونقاء الصوت',
+    th: 'ความชัดเจนของเสียง',
+    en: 'Voice clarity & energy',
+  },
+  {
+    id: 'eval_actual_duration',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'زمن النطق الفعلي',
+    th: 'ระยะเวลาออกเสียงจริง',
+    en: 'Actual speech duration',
+  },
+  {
+    id: 'eval_elongation_match',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تطابق المدود',
+    th: 'ความตรงของสระเสียงยาว',
+    en: 'Vowel elongation match',
+  },
+  {
+    id: 'eval_articulation_clarity',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'وضوح المخرج',
+    th: 'ความชัดเจนของฐานเกิดเสียง',
+    en: 'Articulation clarity',
+  },
+  {
+    id: 'eval_all_letters_sound',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جميع مخارج الحروف الأساسية مكتملة ومطابقة.',
+    th: 'ฐานเกิดเสียงพยัญชนะทั้งหมดครบถ้วนและถูกต้อง',
+    en: 'All primary letter phonemes are accurate and complete.',
+  },
+  {
+    id: 'eval_articulation_guide',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'إرشاد المخرج الصوتي:',
+    th: 'คำแนะนำฐานเกิดเสียง:',
+    en: 'Articulation guidance:',
+  },
+  {
+    id: 'eval_vowel_accuracy',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'دقة الحركات والمدود:',
+    th: 'ความถูกต้องของสระและเสียงยาว:',
+    en: 'Vowels & diacritics accuracy:',
+  },
+  {
+    id: 'eval_letter_sound',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: '✓ سليم',
+    th: '✓ ถูกต้อง',
+    en: '✓ Sound',
+  },
+  {
+    id: 'eval_letter_needs_work',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: '⚠ يحتاج ضبط',
+    th: '⚠ ต้องปรับปรุง',
+    en: '⚠ Needs work',
+  },
+  {
+    id: 'eval_submitting_audio',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جارٍ رفع الصوت وتوثيق الدرجة... ⏳',
+    th: 'กำลังอัปโหลดเสียงและบันทึกคะแนน... ⏳',
+    en: 'Uploading audio and saving score... ⏳',
+  },
+  {
+    id: 'eval_submit_success',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تم إرسال إجابتك واعتمادها بنجاح! ✅',
+    th: 'ส่งคำตอบและรับรองผลเรียบร้อยแล้ว! ✅',
+    en: 'Your answer was submitted and approved! ✅',
+  },
+  {
+    id: 'eval_repetitions_label',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'التكرار:',
+    th: 'การทำซ้ำ:',
+    en: 'Repetitions:',
+  },
+  {
+    id: 'eval_difficulty_easy',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'سهل 🟢',
+    th: 'ง่าย 🟢',
+    en: 'Easy 🟢',
+  },
+  {
+    id: 'eval_difficulty_medium',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'متوسط 🟡',
+    th: 'ปานกลาง 🟡',
+    en: 'Medium 🟡',
+  },
+  {
+    id: 'eval_difficulty_hard',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'متقدم 🔴',
+    th: 'ขั้นสูง 🔴',
+    en: 'Advanced 🔴',
+  },
+  {
+    id: 'practice_makhraj_how_to',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: '💡 كيف تنطق هذا الحرف؟',
+    th: '💡 วิธีออกเสียงพยัญชนะนี้?',
+    en: '💡 How to pronounce this letter?',
+  },
+  {
+    id: 'practice_harakat_label',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الحركات:',
+    th: 'สระ:',
+    en: 'Vowels:',
+  },
+  {
+    id: 'practice_analyzing_modal_title',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جاري تحليل نطقك وتدقيق الحركات...',
+    th: 'กำลังวิเคราะห์การออกเสียงและตรวจสระ...',
+    en: 'Analyzing your pronunciation & vowels...',
+  },
+  {
+    id: 'practice_analyzing_modal_desc',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'يقوم محرك الذكاء بفحص مخارج الحركات ومطابقة الكلمة، استعد لرؤية النتيجة!',
+    th: 'ระบบกำลังตรวจฐานเสียงและเปรียบเทียบคำศัพท์ โปรดรอผลการประเมิน!',
+    en: 'Checking phonemes and matching word, get ready for results!',
+  },
+  {
+    id: 'practice_analyzing_modal_sub',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'لحظات قليلة وتظهر النتيجة...',
+    th: 'รอสักครู่ ผลลัพธ์กำลังจะแสดง...',
+    en: 'A few moments and results will appear...',
+  },
+
+  // ==========================================
+  // الموضع الرابع: المقارنة المرئية وسجل الإنجازات والتقييمات المتغيرة
+  // ==========================================
+  {
+    id: 'eval_theme_excellent_full',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نطق ممتاز ومتقن!',
+    th: 'การออกเสียงยอดเยี่ยมและแม่นยำ!',
+    en: 'Excellent and accurate pronunciation!',
+  },
+  {
+    id: 'eval_theme_wonderful',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز ورائع!',
+    th: 'ยอดเยี่ยมและน่าประทับใจ!',
+    en: 'Excellent and wonderful!',
+  },
+  {
+    id: 'eval_spectrum_banner_title',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مقارنة البصرية والسمعية',
+    th: 'เปรียบเทียบคลื่นเสียงและการได้ยิน',
+    en: 'Visual & Audio Spectrum Comparison',
+  },
+  {
+    id: 'eval_spectrum_auto_update',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'تحديث تلقائي',
+    th: 'อัปเดตอัตโนมัติ',
+    en: 'Auto-updating',
+  },
+  {
+    id: 'eval_spectrum_inspect_point',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'مؤشر الفحص:',
+    th: 'ตำแหน่งตรวจสอบ:',
+    en: 'Inspection Point:',
+  },
+  {
+    id: 'eval_spectrum_freq_range',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نطاق التردد (0 – 3,000 Hz)',
+    th: 'ช่วงความถี่ (0 – 3,000 Hz)',
+    en: 'Frequency Range (0 – 3,000 Hz)',
+  },
+  {
+    id: 'eval_spectrum_original_sound',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الصوت الأصلي:',
+    th: 'เสียงต้นแบบ:',
+    en: 'Original Voice:',
+  },
+  {
+    id: 'eval_spectrum_user_sound',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'صوت المستخدم:',
+    th: 'เสียงผู้เรียน:',
+    en: 'User Voice:',
+  },
+  {
+    id: 'eval_spectrum_diff',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الفرق:',
+    th: 'ความต่าง:',
+    en: 'Difference:',
+  },
+  {
+    id: 'eval_spectrum_teacher_legend',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الصوت الأصلي (المعلم)',
+    th: 'เสียงต้นแบบ (ครู)',
+    en: 'Original Voice (Teacher)',
+  },
+  {
+    id: 'eval_spectrum_user_legend',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'صوت المستخدم (المسجل)',
+    th: 'เสียงผู้เรียน (บันทึกไว้)',
+    en: 'User Voice (Recorded)',
+  },
+  {
+    id: 'eval_spectrum_intensity',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'الشدة',
+    th: 'ความดัง',
+    en: 'Intensity',
+  },
+  {
+    id: 'eval_spectrum_result_badge',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نتيجة المقارنة',
+    th: 'ผลการเปรียบเทียบ',
+    en: 'Comparison Result',
+  },
+  {
+    id: 'eval_spectrum_tone_match',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'التشابه في النغمة:',
+    th: 'ความสอดคล้องของน้ำเสียง:',
+    en: 'Tone Similarity:',
+  },
+  {
+    id: 'eval_spectrum_match_ratio',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'نسبة التطابق:',
+    th: 'อัตราความตรงกัน:',
+    en: 'Match Ratio:',
+  },
+  {
+    id: 'eval_spectrum_match_very_excellent',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز جداً',
+    th: 'ยอดเยี่ยมมาก',
+    en: 'Very Excellent',
+  },
+  {
+    id: 'eval_spectrum_match_excellent',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'ممتاز',
+    th: 'ยอดเยี่ยม',
+    en: 'Excellent',
+  },
+  {
+    id: 'eval_spectrum_match_good',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'جيد',
+    th: 'ดี',
+    en: 'Good',
+  },
+  {
+    id: 'eval_spectrum_match_medium',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'متوسط',
+    th: 'ปานกลาง',
+    en: 'Medium',
+  },
+  {
+    id: 'eval_spectrum_match_repeat',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: 'يحتاج تكرار',
+    th: 'ต้องทำซ้ำ',
+    en: 'Needs Repetition',
+  },
+  {
+    id: 'stats_syncing_answers1',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'جاري مزامنة الإنجازات مباشرة من ورقة answers 1...',
+    th: 'กำลังซิงค์บันทึกความสำเร็จจากชีต answers 1...',
+    en: 'Syncing achievements directly from sheet answers 1...',
+  },
+  {
+    id: 'stats_total_practices',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'إجمالي التدريبات',
+    th: 'การฝึกทั้งหมด',
+    en: 'Total Practices',
+  },
+  {
+    id: 'stats_accuracy_rate',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'معدل الدقة',
+    th: 'ความแม่นยำเฉลี่ย',
+    en: 'Accuracy Rate',
+  },
+  {
+    id: 'stats_mastered_words',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'كلمات متقنة (ممتاز)',
+    th: 'คำศัพท์ที่เชี่ยวชาญ (ยอดเยี่ยม)',
+    en: 'Mastered Words (Excellent)',
+  },
+  {
+    id: 'stats_recent_attempts',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'آخر المحاولات الصوتية:',
+    th: 'การฝึกออกเสียงล่าสุด:',
+    en: 'Recent Voice Attempts:',
+  },
+  {
+    id: 'stats_clear_btn',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'مسح السجل',
+    th: 'ล้างประวัติ',
+    en: 'Clear History',
+  },
+  {
+    id: 'stats_empty_note',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'لم تقم بأي تسجيل صوتي بعد. ابدأ بنطق الكلمات لترى تقييماتك هنا!',
+    th: 'ยังไม่มีประวัติการบันทึกเสียง เริ่มฝึกออกเสียงคำศัพท์เพื่อดูผลการประเมินที่นี่!',
+    en: 'No voice recordings yet. Start practicing words to view evaluations here!',
+  },
+  {
+    id: 'stats_verified_in_sheet',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: '(موثق في ورقة answers 1)',
+    th: '(บันทึกในชีต answers 1 แล้ว)',
+    en: '(Recorded in answers 1 sheet)',
+  },
+  {
+    id: 'stats_detected_label',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'سُمع:',
+    th: 'ตรวจพบ:',
+    en: 'Detected:',
+  },
+  // ==========================================
+  // الموضع الرابع: تمرين وصل الكلمات (matching - الترجمة 2)
+  // ==========================================
+  {
+    id: 'nav_matching_lessons',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمارين الوصل',
+    th: 'แบบฝึกหัดจับคู่',
+    en: 'Matching Exercises',
+  },
+  {
+    id: 'matching_back_pronunciation',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'العودة لتمرين النطق',
+    th: 'กลับสู่แบบฝึกหัดออกเสียง',
+    en: 'Back to Pronunciation',
+  },
+  {
+    id: 'matching_subject_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الموضوع:',
+    th: 'หัวข้อ:',
+    en: 'Subject:',
+  },
+  {
+    id: 'matching_lessons_list_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'قائمة الدروس 📑',
+    th: 'รายการบทเรียน 📑',
+    en: 'Lessons List 📑',
+  },
+  {
+    id: 'matching_exercise_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'التمرين',
+    th: 'ข้อที่',
+    en: 'Exercise',
+  },
+  {
+    id: 'matching_of_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'من',
+    th: 'จาก',
+    en: 'of',
+  },
+  {
+    id: 'matching_question_badge',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سؤال التوصيل',
+    th: 'คำถามจับคู่คำ',
+    en: 'Matching Question',
+  },
+  {
+    id: 'matching_listen_question',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع لصوت السؤال 🔊',
+    th: 'ฟังเสียงคำถาม 🔊',
+    en: 'Listen to Question 🔊',
+  },
+  {
+    id: 'matching_stop_audio',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إيقاف',
+    th: 'หยุด',
+    en: 'Stop',
+  },
+  {
+    id: 'matching_listen_card',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع 🔊',
+    th: 'ฟัง 🔊',
+    en: 'Listen 🔊',
+  },
+  {
+    id: 'matching_zoom_image',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تكبير الصورة',
+    th: 'ขยายรูปภาพ',
+    en: 'Zoom image',
+  },
+  {
+    id: 'matching_mouse_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تشغيل الفأرة 🖱️',
+    th: 'ใช้เมาส์/สัมผัส 🖱️',
+    en: 'Mouse / Touch 🖱️',
+  },
+  {
+    id: 'matching_record_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تسجيل نطق 🎙️',
+    th: 'บันทึกเสียงพูด 🎙️',
+    en: 'Record Voice 🎙️',
+  },
+  {
+    id: 'matching_listening_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري الاستماع...',
+    th: 'กำลังฟัง...',
+    en: 'Listening...',
+  },
+  {
+    id: 'matching_analyzing_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري التحليل... ⏳',
+    th: 'กำลังวิเคราะห์... ⏳',
+    en: 'Analyzing... ⏳',
+  },
+  {
+    id: 'matching_right_col',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'العمود الأيمن',
+    th: 'คอลัมน์ขวา',
+    en: 'Right Column',
+  },
+  {
+    id: 'matching_left_col',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'العمود الأيسر',
+    th: 'คอลัมน์ซ้าย',
+    en: 'Left Column',
+  },
+  {
+    id: 'matching_init_voice_only',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'اضغط زر تسجيل النطق 🎙️ وانطق العنصر المستهدف بالعمود الأيمن',
+    th: 'กดปุ่มบันทึกเสียง 🎙️ แล้วออกเสียงคำเป้าหมายในคอลัมน์ขวา',
+    en: 'Press Record Voice 🎙️ and pronounce the target item in the right column',
+  },
+  {
+    id: 'matching_init_both',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'ابدأ التوصيل: انقر بالفأرة واللمس 🖱️ أو اضغط زر تسجيل النطق 🎙️',
+    th: 'เริ่มจับคู่: คลิก/แตะ 🖱️ หรือกดปุ่มบันทึกเสียง 🎙️',
+    en: 'Start matching: click/tap 🖱️ or press Record Voice 🎙️',
+  },
+  {
+    id: 'matching_rule_lock',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🔒 محاولة واحدة بدون تراجع',
+    th: '🔒 ตอบได้ครั้งเดียว ไม่สามารถแก้ไขได้',
+    en: '🔒 Single attempt (no undo)',
+  },
+  {
+    id: 'matching_rule_hide_mistake',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🙈 كشف الخطأ في نهاية التمرين',
+    th: '🙈 แสดงเฉลยเมื่อจบแบบฝึกหัด',
+    en: '🙈 Reveal mistakes at the end',
+  },
+  {
+    id: 'matching_rule_smart_reassign',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🧠 تبديل الإجابة والتصحيح الذكي متاح',
+    th: '🧠 สามารถเปลี่ยนคำตอบและแก้ไขอัจฉริยะได้',
+    en: '🧠 Smart answer swap enabled',
+  },
+  {
+    id: 'matching_rule_voice_only',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🎙️ إدخال صوتي فقط (النقر معطّل)',
+    th: '🎙️ ใช้เสียงเท่านั้น (ปิดการคลิก)',
+    en: '🎙️ Voice input only (clicks disabled)',
+  },
+  {
+    id: 'matching_msg_mouse_active',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'وضع الفأرة واللمس مفعّل: انقر على الكلمة في اليمين أولاً ثم مقابلتها في اليسار 🖱️',
+    th: 'โหมดเมาส์/สัมผัสเปิดอยู่: เลือกคำทางขวาแล้วเลือกคำคู่ทางซ้าย 🖱️',
+    en: 'Mouse/touch active: tap the right item first, then its match on the left 🖱️',
+  },
+  {
+    id: 'matching_msg_voice_only_block',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'هذا التمرين بنظام الصوت فقط 🎙️ — استخدم زر «تسجيل نطق» بدلاً من النقر على الكلمات.',
+    th: 'แบบฝึกหัดนี้ใช้เสียงเท่านั้น 🎙️ กรุณากดปุ่มบันทึกเสียงแทนการคลิก',
+    en: 'This exercise is voice-only 🎙️ — use Record Voice instead of clicking.',
+  },
+  {
+    id: 'matching_msg_pick_right_first',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '👈 يرجى اختيار أو نطق الكلمة من العمود الأيمن أولاً!',
+    th: '👈 กรุณาเลือกหรือออกเสียงคำจากคอลัมน์ขวาก่อน!',
+    en: '👈 Please select or pronounce an item from the right column first!',
+  },
+  {
+    id: 'matching_msg_right_selected_prefix',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم اختيار',
+    th: 'เลือกแล้ว:',
+    en: 'Selected:',
+  },
+  {
+    id: 'matching_msg_right_selected_suffix',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الآن اختر ما يقابلها بالعمود الأيسر 👈',
+    th: 'ตอนนี้เลือกคำคู่ในคอลัมน์ซ้าย 👈',
+    en: 'Now select its match in the left column 👈',
+  },
+  {
+    id: 'matching_msg_correct_prefix',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '✓ أحسنت! إجابة صحيحة:',
+    th: '✓ ยอดเยี่ยม! คำตอบถูกต้อง:',
+    en: '✓ Well done! Correct match:',
+  },
+  {
+    id: 'matching_msg_hidden_next',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم التوصيل بنجاح. تابع توصيل العناصر المتبقية.',
+    th: 'จับคู่สำเร็จ กรุณาจับคู่รายการที่เหลือต่อ',
+    en: 'Connected! Continue matching the remaining items.',
+  },
+  {
+    id: 'matching_msg_wrong_locked',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '❌ إجابة غير صحيحة! تم تثبيت النتيجة ولا يمكن التراجع عنها.',
+    th: '❌ คำตอบไม่ถูกต้อง! บันทึกผลแล้วไม่สามารถแก้ไขได้',
+    en: '❌ Incorrect! Answer locked and cannot be undone.',
+  },
+  {
+    id: 'matching_msg_wrong_smart',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '❌ إجابة غير صحيحة. يمكنك إعادة التوصيل لتصحيح الخطأ الذكي!',
+    th: '❌ คำตอบไม่ถูกต้อง คุณสามารถจับคู่ใหม่เพื่อแก้ไขได้!',
+    en: '❌ Incorrect match. You can re-link to correct your answer!',
+  },
+  {
+    id: 'matching_msg_wrong_retry',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '❌ إجابة غير صحيحة، حاول مجدداً!',
+    th: '❌ คำตอบไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง!',
+    en: '❌ Incorrect match, please try again!',
+  },
+  {
+    id: 'matching_msg_listen_right',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع لصوتك... انطق الكلمة المستهدفة من العمود الأيمن أولاً 🎙️',
+    th: 'กำลังฟัง... ออกเสียงคำเป้าหมายจากคอลัมน์ขวาก่อน 🎙️',
+    en: 'Listening... pronounce the target word from the right column first 🎙️',
+  },
+  {
+    id: 'matching_msg_listen_left',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'استمع لصوتك... انطق الكلمة المقابلة من العمود الأيسر 🎙️',
+    th: 'กำลังฟัง... ออกเสียงคำคู่จากคอลัมน์ซ้าย 🎙️',
+    en: 'Listening... pronounce the matching word from the left column 🎙️',
+  },
+  {
+    id: 'matching_msg_analyzing_speech',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري التعرف على الكلمة المنطوقة... ⏳',
+    th: 'กำลังประมวลผลคำที่ออกเสียง... ⏳',
+    en: 'Recognizing spoken word... ⏳',
+  },
+  {
+    id: 'matching_msg_no_speech',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لم يتم التقاط كلمة واضحة، انطق إحدى الكلمات المعروضة وحاول مجدداً.',
+    th: 'ไม่ได้ยินคำที่ชัดเจน กรุณาออกเสียงคำที่แสดงและลองใหม่',
+    en: 'No clear word detected. Please pronounce one of the items and retry.',
+  },
+  {
+    id: 'matching_msg_stopped',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم إيقاف التسجيل. اضغط تسجيل نطق مجدداً أو استخدم الفأرة.',
+    th: 'หยุดบันทึกแล้ว กดบันทึกเสียงอีกครั้งหรือใช้เมาส์',
+    en: 'Recording stopped. Press Record Voice again or use mouse.',
+  },
+  {
+    id: 'matching_done_badge',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم إنهاء التوصيل بنجاح!',
+    th: 'จับคู่คำเสร็จสมบูรณ์!',
+    en: 'Matching Completed!',
+  },
+  {
+    id: 'matching_result_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'نتيجة التمرين:',
+    th: 'ผลลัพธ์แบบฝึกหัด:',
+    en: 'Exercise Result:',
+  },
+  {
+    id: 'matching_reveal_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'كشف الإجابات والتوصيلات:',
+    th: 'เฉลยและรายละเอียดการจับคู่:',
+    en: 'Answers & Connections Reveal:',
+  },
+  {
+    id: 'matching_correct_answer_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الصواب:',
+    th: 'คำตอบที่ถูก:',
+    en: 'Correct:',
+  },
+  {
+    id: 'matching_syncing_answers2',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري توثيق النتيجة في السجل الإلكتروني...',
+    th: 'กำลังบันทึกผลลัพธ์...',
+    en: 'Saving result to electronic log...',
+  },
+  {
+    id: 'matching_synced_success',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم توثيق إنجازك بنجاح ✓',
+    th: 'บันทึกความสำเร็จเรียบร้อยแล้ว ✓',
+    en: 'Achievement saved successfully ✓',
+  },
+  {
+    id: 'matching_login_prompt',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سجّل دخولك لتوثيق نتائجك تلقائياً باسمك ورقمك',
+    th: 'เข้าสู่ระบบเพื่อบันทึกคะแนนของคุณโดยอัตโนมัติ',
+    en: 'Log in to save your scores automatically under your name & ID',
+  },
+  {
+    id: 'matching_retry_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إعادة التمرين',
+    th: 'ทำแบบฝึกหัดซ้ำ',
+    en: 'Retry Exercise',
+  },
+  {
+    id: 'matching_next_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'التمرين التالي',
+    th: 'แบบฝึกหัดถัดไป',
+    en: 'Next Exercise',
+  },
+  {
+    id: 'matching_empty_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لا توجد تمارين وصل مضافة حالياً',
+    th: 'ยังไม่มีแบบฝึกหัดจับคู่คำในขณะนี้',
+    en: 'No matching exercises added yet',
+  },
+  {
+    id: 'matching_empty_desc',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'يمكن للمعلم إضافة تمارين جديدة من خلال لوحة التحكم.',
+    th: 'ผู้สอนสามารถเพิ่มแบบฝึกหัดใหม่ได้จากแผงควบคุม',
+    en: 'Teachers can add new exercises from the Admin Panel.',
+  },
+  {
+    id: 'matching_modal_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمارين وصل 🔗',
+    th: 'แบบฝึกหัดจับคู่คำ 🔗',
+    en: 'Matching Exercises 🔗',
+  },
+  {
+    id: 'matching_modal_subtitle',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'اختر موضوع الدرس ثم ابدأ التمرين المطلوب مباشرة',
+    th: 'เลือกหัวข้อบทเรียนแล้วเริ่มทำแบบฝึกหัดที่ต้องการได้ทันที',
+    en: 'Select a lesson subject and start the desired exercise directly',
+  },
+  {
+    id: 'matching_modal_choose_subject',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'اختر موضوع الدرس من القائمة:',
+    th: 'เลือกหัวข้อบทเรียนจากรายการ:',
+    en: 'Select lesson subject:',
+  },
+  {
+    id: 'matching_modal_start_btn',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'بدء التمرين',
+    th: 'เริ่มทำแบบฝึกหัด',
+    en: 'Start Exercise',
+  },
+  {
+    id: 'matching_modal_current_badge',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'الحالي',
+    th: 'ปัจจุบัน',
+    en: 'Current',
+  },
+  {
+    id: 'matching_modal_exercise_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمرين',
+    th: 'ข้อที่',
+    en: 'Exercise',
+  },
+  {
+    id: 'matching_modal_exercises_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تمارين',
+    th: 'แบบฝึกหัด',
+    en: 'exercises',
+  },
+  {
+    id: 'matching_modal_empty',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لا توجد تمارين مضافة في هذا الموضوع حالياً.',
+    th: 'ยังไม่มีแบบฝึกหัดในหัวข้อนี้ในขณะนี้',
+    en: 'No exercises added in this subject yet.',
+  },
+  {
+    id: 'stats_tab_pronunciation',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سجل النطق',
+    th: 'บันทึกการออกเสียง',
+    en: 'Pronunciation Log',
+  },
+  {
+    id: 'stats_tab_matching',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'سجل التوصيل',
+    th: 'บันทึกการจับคู่คำ',
+    en: 'Matching Log',
+  },
+  {
+    id: 'stats_matching_subjects',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'المواضيع المسجلة',
+    th: 'หัวข้อที่บันทึกไว้',
+    en: 'Recorded Subjects',
+  },
+  {
+    id: 'stats_matching_completed',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'التمارين المنجزة',
+    th: 'แบบฝึกหัดที่เสร็จสิ้น',
+    en: 'Completed Exercises',
+  },
+  {
+    id: 'stats_matching_avg',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'معدل الإتقان',
+    th: 'อัตราความแม่นยำเฉลี่ย',
+    en: 'Mastery Rate',
+  },
+  {
+    id: 'stats_matching_history_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'نتائج تمارين وصل الكلمات حسب الموضوع:',
+    th: 'ผลแบบฝึกหัดจับคู่คำตามหัวข้อ:',
+    en: 'Word Matching Results by Subject:',
+  },
+  {
+    id: 'stats_matching_empty',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لم تكمل أي تمرين وصل كلمات بعد. أتمم تمريناً في «تمرين الوصل» لتظهر نتيجتك هنا!',
+    th: 'คุณยังไม่ได้ทำแบบฝึกหัดจับคู่คำ กรุณาทำแบบฝึกหัดเพื่อดูผลลัพธ์ที่นี่!',
+    en: 'No matching exercises completed yet. Complete an exercise to see your results here!',
+  },
+  {
+    id: 'stats_matching_verified_sheet',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '(موثق في ورقة answers 2)',
+    th: '(บันทึกในชีต answers 2 แล้ว)',
+    en: '(Recorded in answers 2 sheet)',
+  },
+  {
+    id: 'stats_matching_syncing',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري مزامنة درجات تمرين التوصيل...',
+    th: 'กำลังซิงค์คะแนนจับคู่คำ...',
+    en: 'Syncing word matching scores...',
+  },
+  {
+    id: 'stats_matching_status_completed',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'مكتمل',
+    th: 'เสร็จสมบูรณ์',
+    en: 'Completed',
+  },
+  {
+    id: 'stats_matching_status_in_progress',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'جاري الإنجاز',
+    th: 'กำลังดำเนินการ',
+    en: 'In Progress',
+  },
+  {
+    id: 'stats_matching_rate_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'النسبة:',
+    th: 'คะแนน:',
+    en: 'Score:',
+  },
+  {
+    id: 'stats_matching_cumulative_rate_label',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'النسبة التراكمية:',
+    th: 'คะแนนสะสม:',
+    en: 'Cumulative Score:',
+  },
+  {
+    id: 'stats_matching_correct_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'صحيح',
+    th: 'ถูก',
+    en: 'Correct',
+  },
+  {
+    id: 'stats_matching_wrong_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'خطأ',
+    th: 'ผิด',
+    en: 'Wrong',
+  },
+  {
+    id: 'stats_matching_attempt_errors_word',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'أخطاء المحاولات',
+    th: 'ผิดพลาดในการลอง',
+    en: 'Attempt Errors',
+  },
+  {
+    id: 'matching_retry_short',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إعادة',
+    th: 'ทำซ้ำ',
+    en: 'Retry',
+  },
+  {
+    id: 'matching_show_completed_eye',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إظهار التمارين التي تم تسجيل إجابتها',
+    th: 'แสดงแบบฝึกหัดที่บันทึกคำตอบแล้ว',
+    en: 'Show completed exercises',
+  },
+  {
+    id: 'matching_hide_completed_eye',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'إخفاء التمارين التي تم تسجيل إجابتها',
+    th: 'ซ่อนแบบฝึกหัดที่บันทึกคำตอบแล้ว',
+    en: 'Hide completed exercises',
+  },
+  {
+    id: 'matching_all_completed_hint',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'أتممت جميع تمارين هذا الموضوع! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.',
+    th: 'คุณทำแบบฝึกหัดทั้งหมดในหัวข้อนี้แล้ว! กดไอคอนรูปตาด้านบนเพื่อแสดงหรือทำซ้ำ',
+    en: 'All exercises in this subject are completed! Click the eye icon above to show or retry them.',
+  },
+  {
+    id: 'matching_rule_no_retry',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: '🔒 الإعادة غير متاحة بعد التسجيل',
+    th: '🔒 ไม่สามารถทำซ้ำได้หลังจากบันทึกผลแล้ว',
+    en: '🔒 Retrying disabled after submission',
+  },
+  {
+    id: 'matching_already_submitted_title',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'تم تسجيل إجابتك في هذا التمرين',
+    th: 'บันทึกคำตอบของคุณในแบบฝึกหัดนี้แล้ว',
+    en: 'Your answer for this exercise is recorded',
+  },
+  {
+    id: 'matching_already_submitted_desc',
+    category: 'matching',
+    categoryLabel: 'تمرين وصل الكلمات (2)',
+    ar: 'لا يمكن إعادة التمرين لأن المعلم قام بإغلاق الإعادة لهذا التمرين.',
+    th: 'ไม่สามารถทำซ้ำได้เนื่องจากครูผู้สอนปิดการทำซ้ำสำหรับแบบฝึกหัดนี้',
+    en: 'Retrying is disabled by the teacher for this exercise.',
+  },
+  {
+    id: 'lessons_retry_btn',
+    category: 'lessons',
+    categoryLabel: 'قائمة الدروس والتمارين',
+    ar: 'إعادة',
+    th: 'ทำซ้ำ',
+    en: 'Retry',
+  },
+  {
+    id: 'lessons_show_completed_eye',
+    category: 'lessons',
+    categoryLabel: 'قائمة الدروس والتمارين',
+    ar: 'إظهار الدروس التي تم تسجيل إجابتها',
+    th: 'แสดงบทเรียนที่บันทึกคำตอบแล้ว',
+    en: 'Show completed lessons',
+  },
+  {
+    id: 'lessons_hide_completed_eye',
+    category: 'lessons',
+    categoryLabel: 'قائمة الدروس والتمارين',
+    ar: 'إخفاء الدروس التي تم تسجيل إجابتها',
+    th: 'ซ่อนบทเรียนที่บันทึกคำตอบแล้ว',
+    en: 'Hide completed lessons',
+  },
+  {
+    id: 'lessons_all_completed_hint',
+    category: 'lessons',
+    categoryLabel: 'قائمة الدروس والتمارين',
+    ar: 'أتممت جميع دروس هذا القسم! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.',
+    th: 'คุณทำบทเรียนทั้งหมดในหมวดนี้แล้ว! กดไอคอนรูปตาด้านบนเพื่อแสดงหรือทำซ้ำ',
+    en: 'All lessons in this section are completed! Click the eye icon above to show or retry them.',
+  },
+  {
+    id: 'lessons_retry_locked',
+    category: 'lessons',
+    categoryLabel: 'قائمة الدروس والتمارين',
+    ar: 'مغلق',
+    th: 'ปิดการทำซ้ำ',
+    en: 'Locked',
+  },
+  {
+    id: 'practice_retry_disabled_notice',
+    category: 'practice',
+    categoryLabel: 'صفحة تسجيل الصوت والنتائج',
+    ar: '🔒 تم تسجيل درجتك مسبقاً، وإعادة المحاولة مغلقة من المعلم.',
+    th: '🔒 บันทึกคะแนนแล้ว ครูผู้สอนไม่อนุญาตให้ทำซ้ำ',
+    en: '🔒 Score recorded; retrying is disabled by the teacher.',
+  },
+  // ==========================================
+  // الموضع الخامس: تمرين الإملاء وترتيب الكلمات (dictation - كلمات)
+  // ==========================================
+  {
+    id: 'nav_dictation_lessons',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تمرين الإملاء',
+    th: 'แบบฝึกหัดสะกดคำ',
+    en: 'Dictation Exercise',
+  },
+  {
+    id: 'dictation_modal_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تمرين الإملاء 📝',
+    th: 'แบบฝึกหัดสะกดคำ 📝',
+    en: 'Dictation Exercise 📝',
+  },
+  {
+    id: 'dictation_modal_subtitle',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اختر موضوع الدرس ثم ابدأ بترتيب الحروف أو إكمال الكلمات',
+    th: 'เลือกหัวข้อบทเรียน แล้วเริ่มเรียงอักษรหรือเติมคำให้สมบูรณ์',
+    en: 'Choose a lesson subject to order letters/words or fill blanks',
+  },
+  {
+    id: 'dictation_helping_options',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'خيارات مساعدة:',
+    th: 'ตัวเลือกช่วยตอบ:',
+    en: 'Helper Options:',
+  },
+  {
+    id: 'dictation_pool_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'خيارات مساعدة:',
+    th: 'ตัวเลือกช่วยตอบ:',
+    en: 'Helper Options:',
+  },
+  {
+    id: 'dictation_box_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'مربع التكوين والترتيب:',
+    th: 'ช่องเรียงคำและประกอบคำตอบ:',
+    en: 'Answer Composition Box:',
+  },
+  {
+    id: 'dictation_box_empty_hint',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اضغط على البطاقات أعلاه لترتيب إجابتك هنا...',
+    th: 'แตะการ์ดด้านบนเพื่อเรียงคำตอบของคุณที่นี่...',
+    en: 'Tap the tiles above to assemble your answer here...',
+  },
+  {
+    id: 'dictation_connected_preview',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'الشكل المتصل:',
+    th: 'รูปแบบคำที่ประกอบได้:',
+    en: 'Assembled Form:',
+  },
+  {
+    id: 'dictation_wrong_attempts_label',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'محاولات خاطئة:',
+    th: 'ความพยายามที่ผิด:',
+    en: 'Wrong Attempts:',
+  },
+  {
+    id: 'dictation_check_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تحقق',
+    th: 'ตรวจสอบ',
+    en: 'Check',
+  },
+  {
+    id: 'dictation_undo_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تراجع',
+    th: 'ย้อนกลับ',
+    en: 'Undo',
+  },
+  {
+    id: 'dictation_direct_typing_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'الإملاء الكتابي المباشر:',
+    th: 'พิมพ์คำตอบโดยตรง:',
+    en: 'Direct Keyboard Dictation:',
+  },
+  {
+    id: 'dictation_direct_typing_hint',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اكتب الإجابة بلوحة المفاتيح أو انطقها بالصوت ثم اضغط «تحقق»',
+    th: 'พิมพ์คำตอบด้วยแป้นพิมพ์หรือใช้เสียง แล้วกด «ตรวจสอบ»',
+    en: 'Type your answer with the keyboard or speak it, then press Check',
+  },
+  {
+    id: 'dictation_direct_voice_only_hint',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🎙️ هذا التمرين بالصوت فقط: اضغط زر الميكروفون وانطق الكلمة أو الجملة',
+    th: '🎙️ แบบฝึกหัดนี้ใช้เสียงเท่านั้น: กดปุ่มไมโครโฟนแล้วออกเสียงคำหรือประโยค',
+    en: '🎙️ Voice-only mode: press the microphone button and speak the word or sentence',
+  },
+  {
+    id: 'dictation_direct_input_placeholder',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اكتب الإجابة هنا...',
+    th: 'พิมพ์คำตอบที่นี่...',
+    en: 'Type your answer here...',
+  },
+  {
+    id: 'dictation_speak_answer_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'انطق الإجابة 🎙️',
+    th: 'ออกเสียงคำตอบ 🎙️',
+    en: 'Speak Answer 🎙️',
+  },
+  {
+    id: 'dictation_voice_select_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اختيار بالصوت 🎙️',
+    th: 'เลือกด้วยเสียง 🎙️',
+    en: 'Select by Voice 🎙️',
+  },
+  {
+    id: 'dictation_speak_number',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'انطق الرقم',
+    th: 'พูดหมายเลข',
+    en: 'Speak Number',
+  },
+  {
+    id: 'dictation_cancel_selection',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'إلغاء التحديد',
+    th: 'ยกเลิกการเลือก',
+    en: 'Cancel Selection',
+  },
+  {
+    id: 'dictation_use_whisper_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🧠 التسجيل بمحرك Whisper الدقيق',
+    th: '🧠 บันทึกด้วยระบบ Whisper แม่นยำสูง',
+    en: '🧠 Record with Accurate Whisper',
+  },
+  {
+    id: 'dictation_login_prompt',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'سجّل دخولك لتوثيق درجاتك في ورقة answers 3',
+    th: 'เข้าสู่ระบบเพื่อบันทึกคะแนนในชีต answers 3',
+    en: 'Log in to save your scores in answers 3 sheet',
+  },
+  {
+    id: 'dictation_retry_disabled_desc',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'الإعادة غير مفعلة لهذا التمرين.',
+    th: 'ปิดการทำซ้ำสำหรับแบบฝึกหัดนี้',
+    en: 'Retrying is disabled for this exercise.',
+  },
+  {
+    id: 'dictation_result_locked_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'انتهت المحاولة — تم تثبيت النتيجة',
+    th: 'จบการลอง — บันทึกผลแล้ว',
+    en: 'Attempt Ended — Result Locked',
+  },
+  {
+    id: 'dictation_result_success_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'أحسنت! تم التحقق من الإجابة بنجاح 🎉',
+    th: 'ยอดเยี่ยม! ตรวจสอบคำตอบเรียบร้อยแล้ว 🎉',
+    en: 'Well Done! Answer Verified Successfully 🎉',
+  },
+  {
+    id: 'dictation_correct_answer_is',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'الإجابة الصحيحة:',
+    th: 'คำตอบที่ถูกต้อง:',
+    en: 'Correct Answer:',
+  },
+  {
+    id: 'dictation_stat_score',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'النتيجة',
+    th: 'คะแนน',
+    en: 'Score',
+  },
+  {
+    id: 'dictation_stat_errors',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'أخطاء التحقق',
+    th: 'ข้อผิดพลาดในการตรวจ',
+    en: 'Check Errors',
+  },
+  {
+    id: 'dictation_stat_type',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'نوع السؤال',
+    th: 'ประเภทคำถาม',
+    en: 'Question Type',
+  },
+  {
+    id: 'dictation_type_fill_short',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'إكمال',
+    th: 'เติมคำ',
+    en: 'Fill Blank',
+  },
+  {
+    id: 'dictation_type_order_short',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'ترتيب',
+    th: 'เรียงลำดับ',
+    en: 'Ordering',
+  },
+  {
+    id: 'dictation_type_direct_short',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'كتابة مباشرة',
+    th: 'พิมพ์คำตอบ',
+    en: 'Direct Typing',
+  },
+  {
+    id: 'dictation_syncing_answers3',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'جاري توثيق النتيجة في ورقة answers 3...',
+    th: 'กำลังบันทึกผลคะแนนในชีต answers 3...',
+    en: 'Saving result in answers 3 sheet...',
+  },
+  {
+    id: 'dictation_synced_success',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تم توثيق درجتك في ورقة answers 3 بنجاح ✓',
+    th: 'บันทึกคะแนนของคุณในชีต answers 3 เรียบร้อยแล้ว ✓',
+    en: 'Score recorded in answers 3 sheet successfully ✓',
+  },
+  {
+    id: 'dictation_empty_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'لا توجد تمارين إملاء مضافة حالياً',
+    th: 'ยังไม่มีแบบฝึกหัดสะกดคำในขณะนี้',
+    en: 'No dictation exercises added yet',
+  },
+  {
+    id: 'dictation_empty_desc',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'يمكن للمعلم إضافة تمارين جديدة من تبويب «تمرين الإملاء» في لوحة التحكم.',
+    th: 'ครูผู้สอนสามารถเพิ่มแบบฝึกหัดใหม่ได้จากแท็บ «แบบฝึกหัดสะกดคำ» ในแผงควบคุม',
+    en: 'Teachers can add new exercises from the Dictation tab in Admin Panel.',
+  },
+  {
+    id: 'dictation_admin_manage_link',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'إدارة وإضافة تمارين الإملاء في لوحة التحكم',
+    th: 'จัดการและเพิ่มแบบฝึกหัดสะกดคำในแผงควบคุม',
+    en: 'Manage & Add Dictation Exercises in Admin',
+  },
+  {
+    id: 'stats_tab_dictation',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'سجل الإملاء',
+    th: 'ประวัติสะกดคำ',
+    en: 'Dictation Log',
+  },
+  {
+    id: 'stats_dictation_verified_sheet',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '(موثق في ورقة answers 3)',
+    th: '(บันทึกในชีต answers 3 แล้ว)',
+    en: '(Recorded in answers 3 sheet)',
+  },
+  {
+    id: 'stats_dictation_syncing',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'جاري مزامنة درجات تمرين الإملاء...',
+    th: 'กำลังซิงค์คะแนนแบบฝึกหัดสะกดคำ...',
+    en: 'Syncing dictation scores...',
+  },
+  {
+    id: 'stats_dictation_history_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'نتائج تمارين الإملاء وترتيب الكلمات حسب الموضوع:',
+    th: 'ผลแบบฝึกหัดสะกดคำและเรียงคำตามหัวข้อ:',
+    en: 'Dictation Exercise Results by Subject:',
+  },
+  {
+    id: 'stats_dictation_empty',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'لم تكمل أي تمرين إملاء بعد. أتمم تمريناً في «تمرين الإملاء» لتظهر نتيجتك هنا!',
+    th: 'คุณยังไม่ได้ทำแบบฝึกหัดสะกดคำ กรุณาทำแบบฝึกหัดใน «แบบฝึกหัดสะกดคำ» เพื่อดูผลลัพธ์ที่นี่!',
+    en: 'No dictation exercises completed yet. Complete an exercise in Dictation Exercise to see results here!',
+  },
+  {
+    id: 'dictation_lessons_list_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'قائمة الدروس',
+    th: 'รายการบทเรียน',
+    en: 'Lessons List',
+  },
+  {
+    id: 'dictation_listen_question',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'استمع لصوت السؤال 🔊',
+    th: 'ฟังเสียงคำถาม 🔊',
+    en: 'Listen to Question 🔊',
+  },
+  {
+    id: 'dictation_stop_audio',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'إيقاف ⏸️',
+    th: 'หยุด ⏸️',
+    en: 'Stop ⏸️',
+  },
+  {
+    id: 'dictation_zoom_image',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تكبير الصورة',
+    th: 'ขยายรูปภาพ',
+    en: 'Zoom image',
+  },
+  {
+    id: 'dictation_already_submitted_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تم تسجيل إجابتك في هذا التمرين',
+    th: 'บันทึกคำตอบของคุณในแบบฝึกหัดนี้แล้ว',
+    en: 'Your answer for this exercise is recorded',
+  },
+  {
+    id: 'dictation_next_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'التمرين التالي',
+    th: 'แบบฝึกหัดถัดไป',
+    en: 'Next Exercise',
+  },
+  {
+    id: 'dictation_retry_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'إعادة التمرين',
+    th: 'ทำแบบฝึกหัดซ้ำ',
+    en: 'Retry Exercise',
+  },
+  {
+    id: 'dictation_back_pronunciation',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'العودة لتمرين النطق 🎙️',
+    th: 'กลับสู่แบบฝึกหัดออกเสียง 🎙️',
+    en: 'Back to Pronunciation 🎙️',
+  },
+  {
+    id: 'dictation_listening_countdown',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'جاري الاستماع ({sec}) 🎙️',
+    th: 'กำลังฟัง ({sec}) 🎙️',
+    en: 'Listening ({sec}) 🎙️',
+  },
+  {
+    id: 'dictation_analyzing_speech',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'جاري التحليل...',
+    th: 'กำลังวิเคราะห์...',
+    en: 'Analyzing...',
+  },
+  {
+    id: 'dictation_init_fill',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'اختر الحرف أو الكلمة المناسبة لإكمال الفراغ، ثم اضغط زر «تحقق».',
+    th: 'เลือกพยัญชนะหรือคำที่เหมาะสมเพื่อเติมลงในช่องว่าง แล้วกดปุ่ม «ตรวจสอบ»',
+    en: 'Select the right letter or word to fill the blank, then press Check.',
+  },
+  {
+    id: 'dictation_init_order',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'رتب البطاقات بالترتيب الصحيح في مربع التكوين، ثم اضغط زر «تحقق».',
+    th: 'เรียงการ์ดให้ถูกต้องในช่องคำตอบ แล้วกดปุ่ม «ตรวจสอบ»',
+    en: 'Arrange the tiles in the right order in the composition box, then press Check.',
+  },
+  {
+    id: 'dictation_init_voice_locked',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🎙️ الإجابة بالصوت فقط | 🔒 لا يمكن التراجع بعد الاختيار، ثم اضغط «تحقق».',
+    th: '🎙️ ตอบด้วยเสียงเท่านั้น | 🔒 ไม่สามารถแก้ไขหลังเลือกได้ จากนั้นกด «ตรวจสอบ»',
+    en: '🎙️ Voice only | 🔒 No undo after selection, then press Check.',
+  },
+  {
+    id: 'dictation_init_voice',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🎙️ الإجابة بالصوت فقط: اضغط زر الميكروفون وانطق الحرف أو الكلمة، ثم اضغط «تحقق».',
+    th: '🎙️ ตอบด้วยเสียงเท่านั้น: กดปุ่มไมโครโฟนแล้วออกเสียงพยัญชนะหรือคำ จากนั้นกด «ตรวจสอบ»',
+    en: '🎙️ Voice only: tap the mic button and pronounce the letter or word, then press Check.',
+  },
+  {
+    id: 'dictation_init_locked',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🔒 لا يمكن التراجع بعد وضع الإجابة — اختر بدقة ثم اضغط «تحقق».',
+    th: '🔒 ไม่สามารถย้อนกลับหลังวางคำตอบ — เลือกให้แม่นยำแล้วกด «ตรวจสอบ»',
+    en: '🔒 No undo allowed — choose carefully then press Check.',
+  },
+  {
+    id: 'dictation_init_direct',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '⌨️ إملاء كتابي مباشر: اكتب الإجابة بلوحة المفاتيح أو انطقها بالصوت، ثم اضغط زر «تحقق».',
+    th: '⌨️ พิมพ์คำตอบโดยตรง: พิมพ์ด้วยแป้นพิมพ์หรือใช้เสียง แล้วกดปุ่ม «ตรวจสอบ»',
+    en: '⌨️ Direct dictation: type your answer with the keyboard or speak it, then press Check.',
+  },
+  {
+    id: 'dictation_init_direct_fill',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '⌨️ إملاء كتابي مباشر: اكتب الحرف أو الكلمة الناقصة داخل الفراغ، ثم اضغط زر «تحقق».',
+    th: '⌨️ พิมพ์คำตอบโดยตรง: พิมพ์พยัญชนะหรือคำที่ขาดในช่องว่าง แล้วกดปุ่ม «ตรวจสอบ»',
+    en: '⌨️ Direct dictation: type the missing letter or word in the blank, then press Check.',
+  },
+  {
+    id: 'dictation_init_direct_voice',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🎙️ إملاء بالصوت فقط: اضغط زر الميكروفون وانطق الإجابة ثم اضغط «تحقق».',
+    th: '🎙️ สะกดคำด้วยเสียงเท่านั้น: กดปุ่มไมโครโฟนและออกเสียงคำตอบ แล้วกด «ตรวจสอบ»',
+    en: '🎙️ Voice dictation only: tap the microphone, speak your answer, then press Check.',
+  },
+  {
+    id: 'dictation_err_empty_blanks',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '⚠️ يرجى إكمال الفراغ الناقص أولاً ثم الضغط على زر «تحقق».',
+    th: '⚠️ กรุณาเติมช่องว่างให้ครบก่อนกดปุ่ม «ตรวจสอบ»',
+    en: '⚠️ Please fill in the missing blank first before pressing Check.',
+  },
+  {
+    id: 'dictation_err_empty_box',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '⚠️ مربع التكوين فارغ! اختر البطاقات أعلاه أولاً ثم اضغط «تحقق».',
+    th: '⚠️ ช่องคำตอบว่างอยู่! เลือกการ์ดด้านบนก่อนแล้วกด «ตรวจสอบ»',
+    en: '⚠️ Composition box is empty! Choose tiles above first, then press Check.',
+  },
+  {
+    id: 'dictation_err_empty_direct',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '⚠️ حقل الإجابة فارغ! اكتب إجابتك أولاً ثم اضغط «تحقق».',
+    th: '⚠️ ช่องคำตอบว่างอยู่! พิมพ์คำตอบของคุณก่อนแล้วกด «ตรวจสอบ»',
+    en: '⚠️ Answer field is empty! Type your answer first, then press Check.',
+  },
+  {
+    id: 'dictation_err_voice_only',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🎙️ هذا التمرين بالصوت فقط! اضغط على زر الميكروفون وانطق الإجابة.',
+    th: '🎙️ แบบฝึกหัดนี้ใช้เสียงเท่านั้น! กดปุ่มไมโครโฟนแล้วออกเสียงคำตอบ',
+    en: '🎙️ Voice-only exercise! Press the microphone button and speak your answer.',
+  },
+  {
+    id: 'dictation_err_no_undo_locked',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '🔒 لا يمكن التراجع أو تعديل الاختيار في هذا التمرين.',
+    th: '🔒 ไม่สามารถย้อนกลับหรือแก้ไขคำตอบในแบบฝึกหัดนี้ได้',
+    en: '🔒 Undo or modifying your selection is disabled in this exercise.',
+  },
+  {
+    id: 'dictation_msg_ready_check',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'عند الانتهاء من اختيار الإجابة، اضغط على زر «تحقق».',
+    th: 'เมื่อเลือกคำตอบเสร็จแล้ว กดปุ่ม «ตรวจสอบ»',
+    en: 'When done selecting your answer, press Check.',
+  },
+  {
+    id: 'dictation_msg_continue_order',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تابع الترتيب أو اضغط «تحقق» لفحص إجابتك.',
+    th: 'เรียงต่อหรือกด «ตรวจสอบ» เพื่อตรวจคำตอบของคุณ',
+    en: 'Continue ordering or press Check to verify your answer.',
+  },
+  {
+    id: 'dictation_msg_wrong_retry',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '❌ الإجابة غير صحيحة ({ans}). راجع الشكل أو الترتيب وحاول مجدداً ثم اضغط «تحقق».',
+    th: '❌ คำตอบไม่ถูกต้อง ({ans}) กรุณาตรวจสอบรูปแบบหรือลำดับแล้วลองใหม่ จากนั้นกด «ตรวจสอบ»',
+    en: '❌ Incorrect ({ans}). Review the shape or order and try again, then press Check.',
+  },
+  {
+    id: 'dictation_msg_wrong_locked',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '❌ الإجابة غير صحيحة ({ans}). الإجابة الصحيحة: «{expected}» (0%)',
+    th: '❌ คำตอบไม่ถูกต้อง ({ans}) คำตอบที่ถูกต้อง: «{expected}» (0%)',
+    en: '❌ Incorrect ({ans}). Correct answer: «{expected}» (0%)',
+  },
+  {
+    id: 'dictation_msg_correct',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: '✓ أحسنت! إجابة صحيحة ومتقنة: «{expected}» ({score}%)',
+    th: '✓ ยอดเยี่ยม! คำตอบถูกต้องและแม่นยำ: «{expected}» ({score}%)',
+    en: '✓ Well done! Accurate answer: «{expected}» ({score}%)',
+  },
+  {
+    id: 'dictation_msg_voice_prompt',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تحدث الآن... انطق اسم الحرف (مثل: ألف / باء / سين) أو الكلمة المطلوبة 🎙️',
+    th: 'พูดได้เลย... ออกเสียงชื่อพยัญชนะหรือคำที่ต้องการ 🎙️',
+    en: 'Speak now... say the Arabic letter name or the word 🎙️',
+  },
+  {
+    id: 'dictation_msg_voice_direct_prompt',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تحدث الآن... انطق الإجابة بوضوح 🎙️',
+    th: 'พูดได้เลย... ออกเสียงคำตอบให้ชัดเจน 🎙️',
+    en: 'Speak now... pronounce your answer clearly 🎙️',
+  },
+  {
+    id: 'dictation_msg_voice_number_prompt',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تحدث الآن... انطق الرقم المطلوب (1 - {max}) 🎙️',
+    th: 'พูดได้เลย... พูดหมายเลขที่ต้องการ (1 - {max}) 🎙️',
+    en: 'Speak now... say the required number (1 - {max}) 🎙️',
+  },
+  {
+    id: 'dictation_msg_voice_stopped',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تم إيقاف الاستماع.',
+    th: 'หยุดการฟังแล้ว',
+    en: 'Listening stopped.',
+  },
+  {
+    id: 'dictation_msg_voice_unclear',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'لم يتم التقاط صوت واضح، حاول مجدداً أو استخدم الإدخال اليدوي.',
+    th: 'ไม่ได้ยินเสียงที่ชัดเจน กรุณาลองใหม่หรือพิมพ์คำตอบ',
+    en: 'No clear voice detected, please retry or enter manually.',
+  },
+  {
+    id: 'dictation_msg_whisper_analyzing',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'جاري التعرف على الحرف أو الكلمة المنطوقة بالذكاء الداخلي... ⏳',
+    th: 'กำลังประมวลผลเสียงพูดด้วยระบบอัจฉริยะ... ⏳',
+    en: 'Recognizing spoken letter or word with Whisper... ⏳',
+  },
+  {
+    id: 'dictation_msg_mic_denied',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'تعذر الوصول للميكروفون. يمكنك استخدام الإدخال اليدوي.',
+    th: 'ไม่สามารถเข้าถึงไมโครโฟนได้ คุณสามารถป้อนคำตอบด้วยตนเองได้',
+    en: 'Microphone access failed. You can use manual input.',
+  },
+  {
+    id: 'dictation_clear_input_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'مسح',
+    th: 'ล้าง',
+    en: 'Clear',
+  },
+  {
+    id: 'dictation_pos_isolated',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'مفرد',
+    th: 'เดี่ยว',
+    en: 'Isolated',
+  },
+  {
+    id: 'dictation_pos_initial',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'بداية',
+    th: 'ต้นคำ',
+    en: 'Start',
+  },
+  {
+    id: 'dictation_pos_medial',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'وسط',
+    th: 'กลางคำ',
+    en: 'Middle',
+  },
+  {
+    id: 'dictation_pos_final',
+    category: 'dictation',
+    categoryLabel: 'تمرين الإملاء وتكوين الكلمات (3)',
+    ar: 'نهاية',
+    th: 'ท้ายคำ',
+    en: 'End',
+  },
+  {
+    id: 'retry_special_banner',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس والفهرس',
+    ar: '🔄 {name}محاولة الإعادة رقم ({attempt}) من ({max}) — المتبقي بعد هذه المحاولة: ({remaining})',
+    th: '🔄 {name}ทำซ้ำครั้งที่ ({attempt}) จาก ({max}) — คงเหลือหลังครั้งนี้: ({remaining})',
+    en: '🔄 {name}Retry attempt ({attempt}) of ({max}) — Remaining after this: ({remaining})',
+  },
+  {
+    id: 'retry_special_last_banner',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس والفهرس',
+    ar: '⚠️ {name}هذه هي محاولة الإعادة الأخيرة لك ({attempt} من {max})، وبعدها ستُغلق الإعادة لهذا التمرين.',
+    th: '⚠️ {name}นี่คือโอกาสทำซ้ำครั้งสุดท้ายของคุณ ({attempt} จาก {max}) หลังจากนี้จะปิดการทำซ้ำ',
+    en: '⚠️ {name}This is your final retry attempt ({attempt} of {max}); retries will close afterward.',
+  },
+  {
+    id: 'retry_special_unlimited_banner',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس والفهرس',
+    ar: '🔄 {name}بدأت محاولة الإعادة رقم ({attempt}) — الإعادة مفتوحة لهذا التمرين.',
+    th: '🔄 {name}เริ่มการทำซ้ำครั้งที่ ({attempt}) — เปิดให้ทำซ้ำได้ไม่จำกัด',
+    en: '🔄 {name}Started retry attempt ({attempt}) — unlimited retries enabled.',
+  },
+  {
+    id: 'retry_remaining_badge',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس والفهرس',
+    ar: 'متبقٍ {remaining} من {max}',
+    th: 'เหลือ {remaining} จาก {max}',
+    en: '{remaining} of {max} left',
+  },
+  {
+    id: 'retry_limit_reached_notice',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس والفهرس',
+    ar: '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها ({used} من {max}) وتوقفت الإعادة لك في هذا التمرين.',
+    th: '🔒 คุณใช้สิทธิ์ทำซ้ำครบตามที่กำหนดแล้ว ({used} จาก {max}) ระบบได้ปิดการทำซ้ำในแบบฝึกหัดนี้',
+    en: '🔒 You have reached the maximum allowed retries ({used} of {max}) for this exercise.',
+  },
+  {
+    id: 'retry_used_counter',
+    category: 'lessons',
+    categoryLabel: 'صفحة الدروس والفهرس',
+    ar: 'الإعادة {used}/{max}',
+    th: 'ทำซ้ำ {used}/{max}',
+    en: 'Retries {used}/{max}',
+  },
+];
+
+export function getMatchingSubjectTranslationId(subjectName: string): string {
+  return `matching_subj_${(subjectName || '').trim()}`;
+}
+
+export function getMatchingQuestionTranslationId(subjectName: string, exerciseNumber: number): string {
+  return `matching_q_${(subjectName || '').trim()}_${exerciseNumber}`;
+}
+
+export function getTranslatedMatchingSubject(
+  subjectName: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (subjectName || '').trim();
+  if (!clean) return '';
+  const id = getMatchingSubjectTranslationId(clean);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
+export function getTranslatedMatchingQuestionText(
+  subjectName: string,
+  exerciseNumber: number,
+  fallbackPlainText: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (fallbackPlainText || '').trim();
+  if (!clean) return '';
+  const id = getMatchingQuestionTranslationId(subjectName, exerciseNumber);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
+export function getDictationSubjectTranslationId(subjectName: string): string {
+  return `dictation_subj_${(subjectName || '').trim()}`;
+}
+
+export function getDictationQuestionTranslationId(subjectName: string, exerciseNumber: number): string {
+  return `dictation_q_${(subjectName || '').trim()}_${exerciseNumber}`;
+}
+
+export function getTranslatedDictationSubject(
+  subjectName: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (subjectName || '').trim();
+  if (!clean) return '';
+  const id = getDictationSubjectTranslationId(clean);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
+export function getTranslatedDictationQuestionText(
+  subjectName: string,
+  exerciseNumber: number,
+  fallbackPlainText: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (fallbackPlainText || '').trim();
+  if (!clean) return '';
+  const id = getDictationQuestionTranslationId(subjectName, exerciseNumber);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
+/**
+ * Translate dynamic answers 2 completionStatus strings, e.g.:
+ * "مكتمل (2 من 3 تمارين) - النسبة: 85%"
+ * "جاري الإنجاز (1 من 3 تمارين) - النسبة التراكمية: 80%"
+ */
+export function translateMatchingCompletionStatus(
+  statusStr: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (statusStr || '').trim();
+  if (!clean || lang === 'ar') return clean;
+
+  const lookup = (id: string, fallback: string) => {
+    const found = items.find((i) => i.id === id) || DEFAULT_TRANSLATIONS.find((d) => d.id === id);
+    if (!found) return fallback;
+    const val = lang === 'th' ? found.th : found.en;
+    return val && val.trim() ? val.trim() : fallback;
+  };
+
+  let out = clean
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/٪/g, '%');
+
+  const completedLabel = lookup('stats_matching_status_completed', lang === 'th' ? 'เสร็จสมบูรณ์' : 'Completed');
+  const inProgressLabel = lookup('stats_matching_status_in_progress', lang === 'th' ? 'กำลังดำเนินการ' : 'In Progress');
+  const ofWord = lookup('matching_of_label', lang === 'th' ? 'จาก' : 'of');
+  const exercisesWord = lookup('matching_modal_exercises_word', lang === 'th' ? 'แบบฝึกหัด' : 'exercises');
+  const exerciseWord = lookup('matching_modal_exercise_word', lang === 'th' ? 'ข้อ' : 'exercise');
+  const cumulativeLabel = lookup(
+    'stats_matching_cumulative_rate_label',
+    lang === 'th' ? 'คะแนนสะสม:' : 'Cumulative Score:'
+  );
+  const rateLabel = lookup('stats_matching_rate_label', lang === 'th' ? 'คะแนน:' : 'Score:');
+
+  out = out
+    .replace(/غير مكتمل/g, lang === 'th' ? 'ยังไม่สมบูรณ์' : 'Incomplete')
+    .replace(/جاري الإنجاز/g, inProgressLabel)
+    .replace(/تم إنجاز/g, completedLabel)
+    .replace(/مكتمل/g, completedLabel)
+    .replace(/(\d+)\s*من\s*(\d+)\s*تمارين/g, `$1 ${ofWord} $2 ${exercisesWord}`)
+    .replace(/(\d+)\s*من\s*(\d+)\s*تمرين/g, `$1 ${ofWord} $2 ${exerciseWord}`)
+    .replace(/(\d+)\s*من\s*(\d+)/g, `$1 ${ofWord} $2`)
+    .replace(/النسبة التراكمية\s*:?/g, cumulativeLabel)
+    .replace(/النسبة\s*:?/g, rateLabel);
+
+  return out;
+}
+
+/**
+ * Translate dynamic answers 2 formulaString, e.g.:
+ * "(5 - 4 صحيح - 1 خطأ = 80%)"
+ * "(5 - الصحيح 5 - أخطاء المحاولات 2 = 71%)"
+ */
+export function translateMatchingFormulaString(
+  formulaStr: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (formulaStr || '').trim();
+  if (!clean || lang === 'ar') return clean;
+
+  const lookup = (id: string, fallback: string) => {
+    const found = items.find((i) => i.id === id) || DEFAULT_TRANSLATIONS.find((d) => d.id === id);
+    if (!found) return fallback;
+    const val = lang === 'th' ? found.th : found.en;
+    return val && val.trim() ? val.trim() : fallback;
+  };
+
+  const correctWord = lookup('stats_matching_correct_word', lang === 'th' ? 'ถูก' : 'Correct');
+  const wrongWord = lookup('stats_matching_wrong_word', lang === 'th' ? 'ผิด' : 'Wrong');
+  const attemptErrWord = lookup(
+    'stats_matching_attempt_errors_word',
+    lang === 'th' ? 'ผิดพลาดในการลอง' : 'Attempt Errors'
+  );
+
+  let out = clean
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/٪/g, '%');
+
+  out = out
+    .replace(/صحيح من أول محاولة/g, lang === 'th' ? 'ถูกในครั้งแรก' : 'Correct on first try')
+    .replace(/أخطاء التحقق/g, lang === 'th' ? 'ตรวจสอบผิด' : 'Check errors')
+    .replace(/أخطاء المحاولات/g, attemptErrWord)
+    .replace(/الصحيح/g, correctWord)
+    .replace(/صحيح/g, correctWord)
+    .replace(/الخطأ/g, wrongWord)
+    .replace(/خطأ/g, wrongWord);
+
+  return out;
+}
+
+const STORAGE_KEY_LANG = 'faseeh_active_lang';
+const STORAGE_KEY_TRANSLATIONS = 'faseeh_custom_translations_v1';
+
+export function getStoredLanguage(): SupportedLang {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_LANG) as SupportedLang;
+    if (saved === 'ar' || saved === 'th' || saved === 'en') {
+      return saved;
+    }
+  } catch {}
+  return 'ar';
+}
+
+export function setStoredLanguage(lang: SupportedLang): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_LANG, lang);
+  } catch {}
+}
+
+export function getStoredTranslations(): TranslationItem[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_TRANSLATIONS);
+    if (raw) {
+      const parsed: TranslationItem[] = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Merge with defaults to ensure any new keys exist
+        const map = new Map<string, TranslationItem>();
+        DEFAULT_TRANSLATIONS.forEach((d) => map.set(d.id, d));
+        parsed.forEach((p) => {
+          const existing = map.get(p.id);
+          if (existing) {
+            map.set(p.id, {
+              ...existing,
+              ar: p.ar !== undefined ? p.ar : existing.ar,
+              th: p.th !== undefined ? p.th : existing.th,
+              en: p.en !== undefined ? p.en : existing.en,
+            });
+          } else {
+            map.set(p.id, p);
+          }
+        });
+        return Array.from(map.values());
+      }
+    }
+  } catch {}
+  return DEFAULT_TRANSLATIONS;
+}
+
+export function saveStoredTranslations(items: TranslationItem[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_TRANSLATIONS, JSON.stringify(items));
+  } catch {}
+}
+
+/**
+ * Translate a UI key into the active language
+ * If text was intentionally cleared (empty string), it returns empty string without falling back to defaults.
+ */
+export function getTranslatedString(
+  key: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = DEFAULT_TRANSLATIONS,
+  fallbackAr?: string
+): string {
+  const item = items.find((i) => i.id === key);
+  if (item) {
+    const arVal = typeof item.ar === 'string' ? item.ar : '';
+    const thVal = typeof item.th === 'string' ? item.th : '';
+    const enVal = typeof item.en === 'string' ? item.en : '';
+
+    // If all three languages were cleared by the admin, the text was intentionally removed!
+    if (arVal.trim() === '' && thVal.trim() === '' && enVal.trim() === '') {
+      return '';
+    }
+
+    if (lang === 'ar') {
+      if (typeof item.ar === 'string') return item.ar;
+      return fallbackAr ?? '';
+    }
+
+    if (lang === 'th') {
+      if (typeof item.th === 'string') {
+        if (item.th.trim() === '') {
+          // If Thai was cleared, do not fallback to anything!
+          return '';
+        }
+        return item.th;
+      }
+      return arVal.trim() ? item.ar : '';
+    }
+
+    if (lang === 'en') {
+      if (typeof item.en === 'string') {
+        if (item.en.trim() === '') {
+          // If English was cleared, do not fallback to anything!
+          return '';
+        }
+        return item.en;
+      }
+      return arVal.trim() ? item.ar : '';
+    }
+  }
+
+  // If item not found:
+  return fallbackAr !== undefined ? fallbackAr : '';
+}
+
+/**
+ * Direct client-side translation via Google Translate (CORS friendly) & MyMemory API
+ * Used whenever /api/translate is unavailable or returns an error.
+ */
+export async function translateClientSideDirect(text: string): Promise<{ th: string; en: string }> {
+  const clean = (text || '').trim();
+  if (!clean) return { th: '', en: '' };
+
+  let th = '';
+  let en = '';
+
+  // 1. Google Translate GTX (Free, fast, CORS open)
+  try {
+    const [thRes, enRes] = await Promise.all([
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=th&dt=t&q=${encodeURIComponent(clean)}`),
+      fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=ar&tl=en&dt=t&q=${encodeURIComponent(clean)}`),
+    ]);
+    if (thRes.ok) {
+      const thJson = await thRes.json().catch(() => null);
+      if (Array.isArray(thJson?.[0])) {
+        th = thJson[0].map((p: any) => p[0] || '').join('').trim();
+      }
+    }
+    if (enRes.ok) {
+      const enJson = await enRes.json().catch(() => null);
+      if (Array.isArray(enJson?.[0])) {
+        en = enJson[0].map((p: any) => p[0] || '').join('').trim();
+      }
+    }
+    if (th || en) {
+      return { th, en };
+    }
+  } catch (err) {
+    console.warn('Direct Google Translate notice:', err);
+  }
+
+  // 2. MyMemory API fallback (Free, open)
+  try {
+    const [thRes2, enRes2] = await Promise.all([
+      fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=ar|th`),
+      fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=ar|en`),
+    ]);
+    if (thRes2.ok) {
+      const d = await thRes2.json().catch(() => null);
+      if (d?.responseData?.translatedText) th = d.responseData.translatedText;
+    }
+    if (enRes2.ok) {
+      const d = await enRes2.json().catch(() => null);
+      if (d?.responseData?.translatedText) en = d.responseData.translatedText;
+    }
+  } catch (err2) {
+    console.warn('Direct MyMemory notice:', err2);
+  }
+
+  return { th: th || clean, en: en || clean };
+}
+
+/**
+ * Call Gemini translation API for a single text with zero-fail fallback
+ */
+export async function translateSingleWithAI(
+  text: string,
+  apiKey?: string
+): Promise<{ th: string; en: string }> {
+  const clean = (text || '').trim();
+  if (!clean) return { th: '', en: '' };
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['x-gemini-key'] = apiKey;
+
+  // 1. Try backend /api/translate
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ text: clean }),
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.success !== false && (data.th || data.en)) {
+        return { th: data.th || '', en: data.en || '' };
+      }
+    }
+  } catch (err) {
+    console.warn('Backend /api/translate not reachable, switching to direct client translator:', err);
+  }
+
+  // 2. Direct client-side translation fallback
+  return await translateClientSideDirect(clean);
+}
+
+/**
+ * Call Gemini translation API for multiple items at once with zero-fail fallback
+ */
+export async function translateBatchWithAI(
+  items: { id: string; text: string }[],
+  apiKey?: string
+): Promise<Record<string, { th: string; en: string }>> {
+  if (!items || items.length === 0) return {};
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['x-gemini-key'] = apiKey;
+
+  // 1. Try backend /api/translate
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ items }),
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.success !== false && Array.isArray(data.translations)) {
+        const result: Record<string, { th: string; en: string }> = {};
+        data.translations.forEach((t: any) => {
+          if (t.id) result[t.id] = { th: t.th || '', en: t.en || '' };
+        });
+        return result;
+      }
+    }
+  } catch (err) {
+    console.warn('Backend /api/translate batch error, using client-side translator:', err);
+  }
+
+  // 2. Direct client-side batch translation
+  const result: Record<string, { th: string; en: string }> = {};
+  await Promise.all(
+    items.map(async (item) => {
+      const trans = await translateClientSideDirect(item.text);
+      result[item.id] = trans;
+    })
+  );
+  return result;
+}
+
+/**
+ * Reverse Template Resolver for Dynamic Evaluation Feedback:
+ * Translates deterministic evaluation summaries, acoustic comparisons,
+ * letter phoneme breakdowns, and answers 1 records instantly without latency.
+ */
+const EXACT_EVAL_MAP: Record<string, { th: string; en: string }> = {
+  // Grades & Themes
+  'ممتاز': { th: 'ยอดเยี่ยม', en: 'Excellent' },
+  'ممتاز ومتقن': { th: 'ยอดเยี่ยมและแม่นยำ', en: 'Excellent and proficient' },
+  'ممتاز جداً': { th: 'ยอดเยี่ยมมาก', en: 'Very Excellent' },
+  'ممتاز جداً! نطق فصيح ومتقن': { th: 'ยอดเยี่ยมมาก! การออกเสียงถูกต้องและแม่นยำ', en: 'Excellent! Accurate and fluent articulation' },
+  'نطق ممتاز ومتقن!': { th: 'การออกเสียงยอดเยี่ยมและแม่นยำ!', en: 'Excellent and accurate pronunciation!' },
+  'ممتاز ورائع!': { th: 'ยอดเยี่ยมและน่าประทับใจ!', en: 'Excellent and wonderful!' },
+  'رائع وممتاز': { th: 'ยอดเยี่ยมและน่าประทับใจ', en: 'Wonderful & Excellent' },
+  'رائع ومتقن تماماً': { th: 'ยอดเยี่ยมและแม่นยำสมบูรณ์แบบ', en: 'Wonderful and fully accurate' },
+  'رائع': { th: 'ยอดเยี่ยม', en: 'Wonderful' },
+  'جيد جداً': { th: 'ดีมาก', en: 'Very Good' },
+  'نطق جيد جداً!': { th: 'การออกเสียงดีมาก!', en: 'Very Good Pronunciation!' },
+  'جيد جداً - مشجع': { th: 'ดีมาก - น่าชื่นชม', en: 'Very Good - Encouraging' },
+  'جيد': { th: 'ดี', en: 'Good' },
+  'جيد - خطوة ممتازة': { th: 'ดี - ก้าวหน้าที่ยอดเยี่ยม', en: 'Good - Excellent step' },
+  'جيد - يحتاج تدريباً': { th: 'ดี - ต้องฝึกฝนเพิ่มเติม', en: 'Good - Needs practice' },
+  'جيد - نقص في التكرار': { th: 'ดี - จำนวนครั้งไม่ครบ', en: 'Good - Incomplete repetitions' },
+  'متوسط': { th: 'ปานกลาง', en: 'Medium' },
+  'نطق مقبول مع ملاحظات': { th: 'การออกเสียงพอใช้ มีข้อควรปรับปรุง', en: 'Acceptable pronunciation with notes' },
+  'يحتاج تدريب': { th: 'ต้องฝึกฝน', en: 'Needs practice' },
+  'يحتاج تدريباً': { th: 'ต้องฝึกฝน', en: 'Needs practice' },
+  'يحتاج تدريباً مكثفاً': { th: 'ต้องฝึกฝนอย่างเข้มข้น', en: 'Needs intensive practice' },
+  'يحتاج إلى مزيد من التمرين': { th: 'ต้องฝึกฝนเพิ่มเติม', en: 'Needs more practice' },
+  'يحتاج تكرار': { th: 'ต้องทำซ้ำ', en: 'Needs repetition' },
+  'لم يكتمل التكرار': { th: 'ทำซ้ำไม่ครบ', en: 'Incomplete repetition' },
+  'غير مكتمل التكرار': { th: 'ทำซ้ำไม่ครบตามกำหนด', en: 'Incomplete repetition count' },
+  'غير مطابق': { th: 'ไม่ตรงกับคำเป้าหมาย', en: 'Not matched' },
+  'معتمد': { th: 'ผ่านการรับรอง', en: 'Approved' },
+  'صحيح': { th: 'ถูกต้อง', en: 'Correct' },
+  'يحتاج تحسين': { th: 'ต้องปรับปรุง', en: 'Needs improvement' },
+  'مفقود': { th: 'ไม่ปรากฏ', en: 'Missing' },
+
+  // Long Feedback Messages
+  'إتقان تام وتجويد فصيح لكافة الحركات والمخارج!': {
+    th: 'ยอดเยี่ยมสมบูรณ์แบบ ทั้งสระและฐานเกิดเสียงอย่างถูกต้อง!',
+    en: 'Complete mastery and eloquent articulation of all vowels and phonemes!',
+  },
+  'نطق ممتاز جداً! مخارج الحروف نقية وواضحة.': {
+    th: 'การออกเสียงยอดเยี่ยมมาก! ฐานเกิดเสียงของพยัญชนะชัดเจนและบริสุทธิ์',
+    en: 'Very excellent pronunciation! Articulation points are clear and pure.',
+  },
+  'أحسنت صنعاً! نطقك للكلمة فصيح ومتقن وواضح المخارج.': {
+    th: 'ทำได้ดีมาก! การออกเสียงคำศัพท์ชัดเจน ถูกต้อง และแม่นยำ',
+    en: 'Well done! Your pronunciation is eloquent, accurate, and clear.',
+  },
+  'أحسنت! نطق ممتاز ومشجع، بداية موفقة جداً!': {
+    th: 'ยอดเยี่ยม! การออกเสียงดีเยี่ยมและน่าประทับใจ เริ่มต้นได้ดีมาก!',
+    en: 'Well done! Excellent and encouraging pronunciation, great start!',
+  },
+  'ما شاء الله! نطق متقن ورائع من حيث وضوح الصوت وزمن الحروف والمدود.': {
+    th: 'ยอดเยี่ยมมาก! การออกเสียงชัดเจน ทั้งจังหวะพยัญชนะและสระเสียงยาว',
+    en: 'Wonderful! Accurate pronunciation with clear voice and balanced vowel timing.',
+  },
+  'أحسنت جداً! أداء صوتي ممتاز وإيقاع نطق واضح ومتوازن.': {
+    th: 'ทำได้ดีมาก! น้ำเสียงยอดเยี่ยม จังหวะการออกเสียงชัดเจนและสมดุล',
+    en: 'Very well done! Excellent vocal performance and balanced speech rhythm.',
+  },
+  'أداء جيد جداً! صوتك واضح ومسموع، استمر في التدريب للوصول لدرجة الإتقان الكامل.': {
+    th: 'ผลงานดีมาก! เสียงชัดเจน ได้ยินชัด ฝึกฝนต่อไปเพื่อความสมบูรณ์แบบ',
+    en: 'Very good performance! Clear voice, keep practicing for complete perfection.',
+  },
+  'أداء جيد جداً، هناك بعض الحروف أو الحركات تحتاج تركيزاً طفيفاً.': {
+    th: 'ผลงานดีมาก มีบางพยัญชนะหรือสระที่ต้องเน้นย้ำอีกเล็กน้อย',
+    en: 'Very good performance, a few letters or vowels need slight focus.',
+  },
+  'أداء جيد جداً، مع ملاحظة تدقيق إضافي على الحركات الدقيقة.': {
+    th: 'ผลงานดีมาก ควรระวังการออกเสียงสระละเอียดเพิ่มเติม',
+    en: 'Very good performance, pay extra attention to subtle diacritics.',
+  },
+  'نطق جيد جداً ومقبول، واصل التدريب!': {
+    th: 'การออกเสียงดีมากและผ่านเกณฑ์ ฝึกฝนต่อไป!',
+    en: 'Very good and acceptable pronunciation, keep training!',
+  },
+  'محاولة جيدة! حاول ضبط إيقاع الكلمة والتأني في نطق الحركات والمدود.': {
+    th: 'ความพยายามที่ดี! พยายามรักษาจังหวะและไม่รีบในสระเสียงยาว',
+    en: 'Good attempt! Try to balance word rhythm and take time on long vowels.',
+  },
+  'محاولة جيدة، استمع للصوت النموذجي وكرر.': {
+    th: 'ความพยายามที่ดี ลองฟังเสียงต้นแบบแล้วพูดตามอีกครั้ง',
+    en: 'Good attempt, listen to the model audio and repeat.',
+  },
+  'بداية طيبة، استمع مجدداً للنموذج الصوتي وحاول تقليد مخرج الحرف بدقة.': {
+    th: 'การเริ่มต้นที่ดี ฟังเสียงต้นแบบอีกครั้งและฝึกเลียนแบบฐานเกิดเสียงให้ตรง',
+    en: 'Good start, listen to the model audio again and try to mimic the articulation.',
+  },
+  'أحسنت! نطق صحيح، مع ملاحظة عدم إشباع الحركة القصيرة لحرف مد.': {
+    th: 'เก่งมาก! ออกเสียงถูกต้อง ระวังอย่ายืดสระเสียงสั้นให้กลายเป็นสระเสียงยาว',
+    en: 'Well done! Correct pronunciation, note not to prolong short vowels into long ones.',
+  },
+  'الكلمة المنطوقة تختلف عن الكلمة المستهدفة، استمع للنطق النموذجي وأعد المحاولة.': {
+    th: 'คำที่ออกเสียงต่างจากคำเป้าหมาย โปรดฟังเสียงต้นแบบแล้วลองใหม่อีกครั้ง',
+    en: 'Spoken word differs from target word, listen to model audio and retry.',
+  },
+  'في المستوى المتقدم يلزم نطق كل حركة بدقة تامة دون تساهل.': {
+    th: 'ในระดับขั้นสูง จำเป็นต้องออกเสียงทุกสระอย่างแม่นยำที่สุด',
+    en: 'At advanced level, every single diacritic must be pronounced accurately.',
+  },
+  'لم نتمكن من سماع نطق واضح في التسجيل، يرجى التحدث بالقرب من الميكروفون.': {
+    th: 'ไม่ได้ยินเสียงที่ชัดเจน โปรดเข้าใกล้ไมโครโฟนแล้วออกเสียงอีกครั้ง',
+    en: 'Could not detect clear speech, please speak closer to the microphone.',
+  },
+  'تعذر على محرك Whisper الداخلي تحليل الصوت. لم يتم التبديل لأي نظام آخر بناءً على الإعدادات. يرجى إعادة المحاولة والتحدث بوضوح.': {
+    th: 'ไม่สามารถวิเคราะห์เสียงได้ โปรดลองอีกครั้งและออกเสียงให้ชัดเจน',
+    en: 'Could not analyze audio. Please retry and speak clearly.',
+  },
+
+  // Acoustic Duration Comparisons
+  'نطقك أسرع من صوت المعلم؛ أعطِ حروف المد والحركات القصيرة حقها الزمني دون تعجل.': {
+    th: 'การออกเสียงของคุณเร็วกว่าครู ให้เวลากับสระเสียงยาวและสระสั้นอย่างพอดี ไม่ควรรีบ',
+    en: 'Your speech is faster than teacher; give vowels and diacritics proper duration without rushing.',
+  },
+  'نطقك أطول من المعتاد؛ تجنّب إطالة الحركات القصيرة لتصبح حروف مد.': {
+    th: 'การออกเสียงยาวเกินไป ระวังอย่ายืดสระเสียงสั้นจนกลายเป็นสระเสียงยาว',
+    en: 'Your speech is longer than usual; avoid prolonging short vowels into long ones.',
+  },
+  'تناسق صوتي ونغمي ممتاز مع مخارج حروف المعلم وسرعة النطق النموذجية.': {
+    th: 'ความสอดคล้องของน้ำเสียง จังหวะ และฐานเสียงยอดเยี่ยม ตรงกับครูผู้สอน',
+    en: 'Excellent acoustic and tone harmony matching teacher articulation and rhythm.',
+  },
+
+  // Letter Comments & Breakdown
+  'نطق سليم ومتقن لصوت أو اسم الحرف': {
+    th: 'ออกเสียงฐานเสียงหรือชื่อพยัญชนะได้ถูกต้องแม่นยำ',
+    en: 'Sound and accurate articulation of letter phoneme or name',
+  },
+  'تم نطقه بدقة ووضوح': {
+    th: 'ออกเสียงได้อย่างชัดเจนและแม่นยำ',
+    en: 'Pronounced with precision and clarity',
+  },
+  'نطق سليم وواضح': {
+    th: 'การออกเสียงถูกต้องและชัดเจน',
+    en: 'Sound and clear pronunciation',
+  },
+  'تم نطقه بدقة وفي موضعه': {
+    th: 'ออกเสียงได้ตรงตำแหน่งและแม่นยำ',
+    en: 'Pronounced accurately in its correct position',
+  },
+  'نطق سليم ومتوازن': {
+    th: 'การออกเสียงถูกต้องและสมดุล',
+    en: 'Sound and balanced pronunciation',
+  },
+  'أعطِ الحرف حقه في نهاية النطق': {
+    th: 'ให้ความสำคัญกับพยัญชนะตัวสุดท้ายของคำ',
+    en: 'Give the letter full articulation at the end',
+  },
+  'الحرف وُجد لكن بترتيب أو موضع غير مضبوط': {
+    th: 'พบพยัญชนะแต่ตำแหน่งหรือลำดับยังไม่ถูกต้อง',
+    en: 'Letter found but order or position needs adjustment',
+  },
+  'الحرف لم يظهر في الصوت المنطوق': {
+    th: 'ไม่พบพยัญชนะนี้ในเสียงที่พูด',
+    en: 'Letter was not detected in spoken audio',
+  },
+
+  // Articulation Guidance & Vowels
+  'أحسنت! مخارج الحروف نقية وصحيحة.': {
+    th: 'ยอดเยี่ยม! ฐานเกิดเสียงของพยัญชนะถูกต้องและบริสุทธิ์',
+    en: 'Well done! Phoneme articulation is pure and accurate.',
+  },
+  'أداء صوتي فصيح وسليم.': {
+    th: 'การออกเสียงไพเราะและถูกต้อง',
+    en: 'Eloquent and sound vocal performance.',
+  },
+  'متطابقة مع التشكيل': {
+    th: 'ถูกต้องตรงตามเครื่องหมายสระ',
+    en: 'Matches diacritics accurately',
+  },
+  'استمر على هذا المستوى الرائع في تفخيم المفخم وترقيق المرقق.': {
+    th: 'รักษามาตรฐานที่ยอดเยี่ยมในการแยกเสียงหนาและเสียงบางต่อไป',
+    en: 'Keep up this excellent level of heavy and light letter distinction.',
+  },
+  'تم رصد امتداد زمني جيد للمدود والحركات': {
+    th: 'ตรวจพบการยืดจังหวะสระเสียงยาวอย่างเหมาะสม',
+    en: 'Good duration observed for long vowels and diacritics',
+  },
+  'وضوح متناسق في الحركات القصيرة وإيقاع النطق': {
+    th: 'สระเสียงสั้นชัดเจนและจังหวะการออกเสียงสม่ำเสมอ',
+    en: 'Consistent clarity in short vowels and rhythm',
+  },
+  'احرص على إخراج الحروف من مخارجها الصحيحة وضبط حركات الفم مع كل حركة (فتح، ضم، كسر).': {
+    th: 'โปรดระวังการออกเสียงจากฐานเกิดเสียงที่ถูกต้องและรูปปากในแต่ละสระ (ฟัตฮะฮ์, ด็อมมะฮ์, กัสเราะฮ์)',
+    en: 'Ensure articulating letters from their proper points and adjust mouth shape for each vowel.',
+  },
+  'رصد الذبذبات الصوتية': {
+    th: 'การตรวจจับคลื่นความถี่เสียง',
+    en: 'Acoustic wave detection',
+  },
+  'تسجيل صوتي': {
+    th: 'บันทึกเสียง',
+    en: 'Voice recording',
+  },
+
+  // 19 Makhraj Guides for Arabic Letters (MAKHRAJ_GUIDES from acousticEvaluator)
+  'حافة اللسان مع ما يوازيها من الأضراس العليا. احرص على صفة الاستطالة والرخاوة دون تحويلها إلى دال مفخمة.': {
+    th: 'ริมลิ้นกับฟันกรามบนที่ขนานกัน ระวังลักษณะการยืดเสียง (อิสติฏอละฮ์) และความนุ่มนวล โดยไม่เปลี่ยนเป็นเสียงดาลหนา',
+    en: 'The edge of the tongue with adjacent upper molars. Observe elongation (istitalah) and softness without turning it into a heavy Dal.',
+  },
+  'طرف اللسان مع ما بين الثنايا السفلية. راعِ صفة الصفير والاستعلاء والتفخيم.': {
+    th: 'ปลายลิ้นกับระหว่างฟันหน้าล่าง ระวังเสียงผิวปาก (ศอฟีร) การยกโคนลิ้น และการออกเสียงหนา',
+    en: 'Tip of the tongue between the lower front teeth. Mind the whistling sound (Safeer), elevation, and heavy pronunciation.',
+  },
+  'طرف اللسان مع أصول الثنايا العليا. أشد وأقوى الحروف المفخمة، راعِ حبس النفس والصوت (الجهر والشدة).': {
+    th: 'ปลายลิ้นกับโคนฟันหน้าบน เป็นอักษรเสียงหนาที่หนักแน่นที่สุด ระวังการกักลมและเสียง (ญะฮ์รและชิดดะฮ์)',
+    en: 'Tip of the tongue with roots of upper front teeth. Strongest emphatic letter; observe breath and sound confinement.',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا. حرف رخو ومفخم ومستعلٍ، أخرج طرف اللسان بلطف.': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน เป็นอักษรเสียงหนาและนุ่มนวล ยื่นปลายลิ้นออกมาเล็กน้อยอย่างนุ่มนวล',
+    en: 'Tip of the tongue with edges of upper front teeth. Emphatic and soft sound; gently extend the tip of the tongue.',
+  },
+  'أقصى اللسان مع ما يحاذيه من الحنك اللحمي (الرخو). انتبه للجهر والشدة والقلقلة عند السكون.': {
+    th: 'โคนลิ้นกับเพดานอ่อน ระวังการกักเสียงและความหนักแน่น รวมถึงเสียงสะท้อน (ก็อลเกาะละฮ์) เมื่อมีสุกูน',
+    en: 'Back of tongue with soft palate. Pay attention to loudness, strength, and Qalqalah when saakin.',
+  },
+  'وسط الحلق. حرف متوسط بين الشدة والرخاوة (بيني)، احرص على عدم كتم صوته أو ضغطه بشدة.': {
+    th: 'กลางลำคอ เป็นอักษรเสียงก้ำกึ่ง (บัยนียะฮ์) ระวังอย่ากักเสียงหรือเค้นเสียงแน่นเกินไป',
+    en: 'Middle of the throat. A midway letter between stop and flow; avoid choking or over-constricting.',
+  },
+  'وسط الحلق. يخرج بهواء نقي (همس ورخاوة)، احرص على جريان النفس بلطف.': {
+    th: 'กลางลำคอ เปล่งออกด้วยลมบริสุทธิ์ (ฮัมส์และเราะคอวะฮ์) ระวังให้ลมไหลผ่านอย่างนุ่มนวล',
+    en: 'Middle of the throat. Articulated with clear expelled breath (hams and rakhawah); allow breath to flow smoothly.',
+  },
+  'أدنى الحلق مع ما يقاربه من اللهاة. حرف رخو مفخم ومستعلٍ، دون مبالغة في الخشونة.': {
+    th: 'ส่วนบนสุดของลำคอใกล้ลิ้นไก่ เป็นอักษรเสียงหนาและนุ่ม โดยไม่ทำเสียงแหบหยาบจนเกินไป',
+    en: 'Upper throat near the uvula. Emphatic and friction sound; avoid excessive roughness.',
+  },
+  'أدنى الحلق. حرف مستعلٍ ورخو ومجهور، احرص على جريان الصوت فيه دون قلقلة.': {
+    th: 'ส่วนบนสุดของลำคอ อักษรเสียงหนา กักลมและเสียงไหลผ่าน ระวังให้เสียงไหลต่อเนื่องโดยไม่สะท้อน',
+    en: 'Upper throat. Elevated and soft voiced letter; maintain sound flow without qalqalah.',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا. حرف رخو ومستفل ومرقق، أخرج طرف اللسان برفق.': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน อักษรเสียงบางและนุ่ม ยื่นปลายลิ้นออกมาเล็กน้อยอย่างนุ่มนวล',
+    en: 'Tip of the tongue with edges of upper front teeth. Soft and light letter; gently project tongue tip.',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا. حرف مهموس ورخو ومرقق، تدفق النفس فيه بلطف.': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน อักษรเสียงพ่นลม เสียงบางและนุ่ม ปล่อยลมไหลผ่านเบาๆ',
+    en: 'Tip of the tongue with edges of upper front teeth. Whispered, soft, and light; let breath flow smoothly.',
+  },
+  'أقصى اللسان تحت مخرج القاف قليلاً. حرف شديد يتبعه همس خفيف يُميز وضوحه.': {
+    th: 'โคนลิ้นต่ำกว่าฐานเสียงก็อฟเล็กน้อย อักษรเสียงแน่นตามด้วยลมแผ่วเบาที่ทำให้เสียงชัดเจน',
+    en: 'Back of tongue slightly below Qaf. Plosive letter followed by a slight whisper for clarity.',
+  },
+  'طرف اللسان مع ما يحاذيه من الحنك الأعلى. راعِ التكرير المعتدل دون مبالغة.': {
+    th: 'ปลายลิ้นกับเพดานแข็งส่วนหน้า ระวังการสั่นรัวของลิ้นให้พอดี ไม่มากเกินไป',
+    en: 'Tip of the tongue with adjacent upper palate. Maintain moderate trill without exaggeration.',
+  },
+  'أدنى حافة اللسان إلى منتهى طرفه مع أصول الثنايا والرباعيات. راعِ توسط الصوت.': {
+    th: 'ขอบลิ้นส่วนหน้าจรดปลายลิ้นกับโคนฟันหน้าและฟันเขี้ยว ระวังเสียงให้ก้ำกึ่งปานกลาง',
+    en: 'Front edge of tongue to its tip with gums of front teeth. Maintain moderate sound continuity.',
+  },
+  'انطباق الشفتين مع غنة خفيفة من الخيشوم.': {
+    th: 'ริมฝีปากทั้งสองประกบกัน พร้อมเสียงขึ้นจมูก (ฆุนนะฮ์) เบาๆ',
+    en: 'Closing the two lips together with light nasal resonance (ghunnah).',
+  },
+  'طرف اللسان مع لثة الثنايا العليا مع خروج الغنة من الخيشوم.': {
+    th: 'ปลายลิ้นกับเหงือกฟันหน้าบน พร้อมเสียงขึ้นจมูกจากโพรงจมูก',
+    en: 'Tip of tongue with gums of upper front teeth, accompanied by nasal sound (ghunnah).',
+  },
+  'طرف اللسان مع فوق الثنايا السفلية. حرف مهموس صافٍ ذو صفير مميز.': {
+    th: 'ปลายลิ้นอยู่เหนือฟันหน้าล่าง อักษรพ่นลมเสียงใสพร้อมเสียงผิวปากที่เด่นชัด',
+    en: 'Tip of tongue above lower front teeth. Clear whispered letter with distinct whistling sound.',
+  },
+  'وسط اللسان مع الحنك الأعلى. صفة التفشي (انتشار الهواء في الفم).': {
+    th: 'กลางลิ้นกับเพดานแข็ง มีลักษณะการกระจายลมทั่วช่องปาก (ตะฟัชชีย์)',
+    en: 'Middle of tongue with upper palate. Characterized by air dissipation in the mouth (Tafash-shi).',
+  },
+  'وسط اللسان مع الحنك الأعلى. حرف شديد مجهور ينحبس الصوت فيه تماماً ثم ينفجر بلطف.': {
+    th: 'กลางลิ้นกับเพดานแข็ง อักษรเสียงแน่นที่กักเสียงสนิทแล้วปล่อยออกอย่างนุ่มนวล',
+    en: 'Middle of tongue with upper palate. Plosive letter where sound is fully confined then released smoothly.',
+  },
+
+  // Common Grade/Assessment Badges
+  'متقن': {
+    th: 'เชี่ยวชาญ',
+    en: 'Mastered',
+  },
+  'يحتاج تدريب وتكرار': {
+    th: 'ต้องฝึกฝนและทำซ้ำ',
+    en: 'Needs practice & repetition',
+  },
+  'يحتاج ممارسة وتكرار': {
+    th: 'ต้องฝึกฝนและทำซ้ำ',
+    en: 'Needs practice & repetition',
+  },
+  'تحسين مخارج الحروف': {
+    th: 'ปรับปรุงฐานเกิดเสียงพยัญชนะ',
+    en: 'Improve letter articulation',
+  },
+
+  // Dynamic Vowel Accuracy and Makhraj Guidance Phrases (Evaluator Feedbacks)
+  'استمع للتسجيل الصوتي وركّز على حركة الشفتين واللسان عند نطق الحرف المستهدف.': {
+    th: 'ฟังเสียงต้นแบบและสังเกตการเคลื่อนไหวของริมฝีปากและลิ้นขณะออกเสียงพยัญชนะเป้าหมาย',
+    en: 'Listen to the audio recording and focus on the movement of lips and tongue when pronouncing the target letter.',
+  },
+  'استمع للتسجيل الصوتي وركّز على حركة الشفتين واللسان عند نطق الحرف المستهدف': {
+    th: 'ฟังเสียงต้นแบบและสังเกตการเคลื่อนไหวของริมฝีปากและลิ้นขณะออกเสียงพยัญชนะเป้าหมาย',
+    en: 'Listen to the audio recording and focus on the movement of lips and tongue when pronouncing the target letter.',
+  },
+  'تحتاج انتباه لضبط الحركات': {
+    th: 'ต้องใส่ใจในการปรับจังหวะและเครื่องหมายสระให้แม่นยำขึ้น',
+    en: 'Needs attention to adjust short vowels accurately',
+  },
+  'تأكد من منح إذن الميكروفون في المتصفح والتحدث بوضوح.': {
+    th: 'โปรดอนุญาตการใช้งานไมโครโฟนในเบราว์เซอร์และพูดให้ชัดเจน',
+    en: 'Ensure microphone permission is granted in browser and speak clearly.',
+  },
+  'تأكد من تفعيل صلاحية الميكروفون والتحدث في بيئة هادئة.': {
+    th: 'โปรดเปิดใช้งานไมโครโฟนและฝึกพูดในสภาพแวดล้อมที่เงียบสงบ',
+    en: 'Ensure microphone is enabled and speak in a quiet environment.',
+  },
+  'تأكد من فتح الفم بمقدار معتدل وخروج النفس بصوت واضح عند نطق الحروف.': {
+    th: 'เปิดปากในระดับพอดีและปล่อยลมเสียงให้ชัดเจนขณะออกเสียงพยัญชนะ',
+    en: 'Open mouth moderately and let breath flow clearly when articulating letters.',
+  },
+  'غير متوفر': {
+    th: 'ไม่มีข้อมูล',
+    en: 'Not available',
+  },
+  'غير محدد': {
+    th: 'ไม่ได้ระบุ',
+    en: 'Not specified',
+  },
+  'الصوت منخفض جداً': {
+    th: 'ระดับเสียงเบาเกินไป',
+    en: 'Audio volume is too low',
+  },
+  'لم يتم التقاط تسجيل صوتي. يرجى الضغط على زر الميكروفون ثم نطق الكلمة.': {
+    th: 'ตรวจไม่พบเสียงบันทึก กรุณากดปุ่มไมโครโฟนแล้วพูดคำศัพท์',
+    en: 'No audio captured. Please tap microphone button and pronounce the word.',
+  },
+  'لم يتم رصد صوت كافٍ. يرجى الاقتراب من الميكروفون والتحدث بصوت مسموع ومحدد.': {
+    th: 'ตรวจไม่พบระดับเสียงที่เพียงพอ กรุณาเข้าใกล้ไมโครโฟนและพูดให้ชัดเจน',
+    en: 'Insufficient sound detected. Please move closer to mic and speak audibly.',
+  },
+
+  // 19 Short Makhraj Breakdown Fragments (for letter breakdown tags)
+  'حافة اللسان مع ما يوازيها من الأضراس العليا': {
+    th: 'ริมลิ้นกับฟันกรามบนที่ขนานกัน',
+    en: 'Edge of tongue with adjacent upper molars',
+  },
+  'طرف اللسان مع ما بين الثنايا السفلية': {
+    th: 'ปลายลิ้นกับระหว่างฟันหน้าล่าง',
+    en: 'Tip of tongue between lower front teeth',
+  },
+  'طرف اللسان مع أصول الثنايا العليا': {
+    th: 'ปลายลิ้นกับโคนฟันหน้าบน',
+    en: 'Tip of tongue with roots of upper front teeth',
+  },
+  'طرف اللسان مع أطراف الثنايا العليا': {
+    th: 'ปลายลิ้นกับปลายฟันหน้าบน',
+    en: 'Tip of tongue with edges of upper front teeth',
+  },
+  'أقصى اللسان مع ما يحاذيه من الحنك اللحمي (الرخو)': {
+    th: 'โคนลิ้นกับเพดานอ่อน',
+    en: 'Back of tongue with soft palate',
+  },
+  'وسط الحلق': {
+    th: 'กลางลำคอ',
+    en: 'Middle of the throat',
+  },
+  'أدنى الحلق مع ما يقاربه من اللهاة': {
+    th: 'ส่วนบนสุดของลำคอใกล้ลิ้นไก่',
+    en: 'Upper throat near the uvula',
+  },
+  'أدنى الحلق': {
+    th: 'ส่วนบนสุดของลำคอ',
+    en: 'Upper throat',
+  },
+  'أقصى اللسان تحت مخرج القاف قليلاً': {
+    th: 'โคนลิ้นต่ำกว่าฐานเสียงก็อฟเล็กน้อย',
+    en: 'Back of tongue slightly below Qaf',
+  },
+  'طرف اللسان مع ما يحاذيه من الحنك الأعلى': {
+    th: 'ปลายลิ้นกับเพดานแข็งส่วนหน้า',
+    en: 'Tip of tongue with adjacent upper palate',
+  },
+  'أدنى حافة اللسان إلى منتهى طرفه مع أصول الثنايا والرباعيات': {
+    th: 'ขอบลิ้นส่วนหน้าจรดปลายลิ้นกับโคนฟันหน้าและฟันเขี้ยว',
+    en: 'Front edge of tongue to tip with gums of front teeth',
+  },
+  'انطباق الشفتين مع غنة خفيفة من الخيشوم': {
+    th: 'ริมฝีปากทั้งสองประกบกัน พร้อมเสียงขึ้นจมูกเบาๆ',
+    en: 'Closing lips with light nasal resonance',
+  },
+  'طرف اللسان مع لثة الثنايا العليا مع خروج الغنة من الخيشوم': {
+    th: 'ปลายลิ้นกับเหงือกฟันหน้าบน พร้อมเสียงขึ้นจมูก',
+    en: 'Tip of tongue with gums of upper teeth and nasal sound',
+  },
+  'طرف اللسان مع فوق الثنايا السفلية': {
+    th: 'ปลายลิ้นอยู่เหนือฟันหน้าล่าง',
+    en: 'Tip of tongue above lower front teeth',
+  },
+  'وسط اللسان مع الحنك الأعلى': {
+    th: 'กลางลิ้นกับเพดานแข็ง',
+    en: 'Middle of tongue with upper palate',
+  },
+};
+
+/**
+ * Single evaluation phrase translator (used internally by compound resolver)
+ */
+function resolveSingleEvaluationPhrase(
+  rawText: string,
+  lang: SupportedLang,
+  items?: TranslationItem[]
+): string {
+  const text = (rawText || '').trim();
+  if (!text) return '';
+  if (lang === 'ar') return text;
+
+  // 1. Direct dictionary lookup
+  if (EXACT_EVAL_MAP[text]) {
+    return EXACT_EVAL_MAP[text][lang] || text;
+  }
+
+  // 2. Custom translations lookup (if admin configured it)
+  if (items && items.length > 0) {
+    const matchItem = items.find((i) => (i.ar || '').trim() === text);
+    if (matchItem) {
+      if (lang === 'th' && matchItem.th?.trim()) return matchItem.th.trim();
+      if (lang === 'en' && matchItem.en?.trim()) return matchItem.en.trim();
+    }
+  }
+
+  // 3. Normalized / Punctuation-agnostic match in EXACT_EVAL_MAP
+  const cleanText = text.replace(/[.،!؟:]/g, '').trim();
+  for (const [key, val] of Object.entries(EXACT_EVAL_MAP)) {
+    const cleanKey = key.replace(/[.،!؟:]/g, '').trim();
+    if (cleanText === cleanKey && val[lang]) {
+      return val[lang];
+    }
+  }
+
+  // 4. Fallback: fuzzy/containment match for longer descriptive sentences
+  for (const [key, val] of Object.entries(EXACT_EVAL_MAP)) {
+    if (key.length >= 8 && text.includes(key)) {
+      if (val[lang]) return val[lang];
+    }
+    if (cleanText.length >= 8 && key.includes(cleanText)) {
+      if (val[lang]) return val[lang];
+    }
+  }
+
+  // 5. Dynamic Regex Patterns (Parameterized Templates)
+
+  // Pattern: نطق رائع ومتقن لمخرج وصوت حرف (س)!
+  const singleLetterMatch = text.match(/نطق رائع ومتقن لمخرج وصوت حرف \((.+?)\)!?/);
+  if (singleLetterMatch) {
+    const letter = singleLetterMatch[1];
+    return lang === 'th'
+      ? `การออกเสียงยอดเยี่ยมและถูกต้องสำหรับฐานเสียงพยัญชนะ (${letter})!`
+      : `Wonderful and accurate articulation for letter (${letter})!`;
+  }
+
+  // Pattern: أحسنت صنعاً! تم نطق وتكرار حرف (ب) بنجاح (3 مرات) بمخارج سليمة.
+  const letterRepeatMatch = text.match(/أحسنت صنعاً! تم نطق وتكرار حرف \((.+?)\) بنجاح \((\d+) مرات\) بمخارج سليمة\.?/);
+  if (letterRepeatMatch) {
+    const [, letter, count] = letterRepeatMatch;
+    return lang === 'th'
+      ? `ทำได้ดีมาก! ออกเสียงและทำซ้ำพยัญชนะ (${letter}) สำเร็จ (${count} ครั้ง) ด้วยฐานเสียงที่ถูกต้อง`
+      : `Well done! Successfully articulated and repeated letter (${letter}) (${count} times) accurately.`;
+  }
+
+  // Pattern: أحسنت صنعاً! تم نطق وتكرار المقطع (قُمْ) بنجاح (3 مرات).
+  const syllableRepeatMatch = text.match(/أحسنت صنعاً! تم نطق وتكرار المقطع \((.+?)\) بنجاح \((\d+) مرات\)\.?/);
+  if (syllableRepeatMatch) {
+    const [, syl, count] = syllableRepeatMatch;
+    return lang === 'th'
+      ? `ทำได้ดีมาก! ออกเสียงและทำซ้ำพยางค์ (${syl}) สำเร็จ (${count} ครั้ง)`
+      : `Well done! Successfully repeated syllable (${syl}) (${count} times).`;
+  }
+
+  // Pattern: أحسنت صنعاً! نطق صحيح ومتقن للمقطع (قُمْ).
+  const syllableSingleMatch = text.match(/أحسنت صنعاً! نطق صحيح ومتقن للمقطع \((.+?)\)\.?/);
+  if (syllableSingleMatch) {
+    const syl = syllableSingleMatch[1];
+    return lang === 'th'
+      ? `ทำได้ดีมาก! ออกเสียงพยางค์ (${syl}) ถูกต้องและแม่นยำ`
+      : `Well done! Accurate pronunciation of syllable (${syl}).`;
+  }
+
+  // Pattern: رائع جداً! تم التحقق من تكرار الكلمة (3 مرات متتالية) بنجاح عبر التحليل الصوتي لنبضات الطاقة...
+  const energyRepeatMatch = text.match(/رائع جداً! تم التحقق من تكرار الكلمة \((\d+) مرات متتالية\) بنجاح/);
+  if (energyRepeatMatch) {
+    const count = energyRepeatMatch[1];
+    return lang === 'th'
+      ? `ยอดเยี่ยมมาก! ยืนยันการทำซ้ำคำศัพท์ (${count} ครั้งต่อเนื่อง) สำเร็จ ฐานเกิดเสียงถูกต้องชัดเจน`
+      : `Awesome! Successfully verified word repetition (${count} consecutive times) with clear articulation.`;
+  }
+
+  // Pattern: رائع جداً! أكملت تكرار الكلمة بنجاح (3 مرات من 3 مطلوبة) بنطق واضح ومخارج سليمة.
+  const wordCompleteMatch = text.match(/رائع جداً! أكملت تكرار الكلمة بنجاح \((\d+) مرات من (\d+) مطلوبة\)/);
+  if (wordCompleteMatch) {
+    const [, detected, required] = wordCompleteMatch;
+    return lang === 'th'
+      ? `ยอดเยี่ยมมาก! ทำซ้ำคำศัพท์สำเร็จ (${detected} ครั้ง จากที่กำหนด ${required} ครั้ง) ด้วยการออกเสียงที่ชัดเจน`
+      : `Awesome! Successfully completed word repetitions (${detected} of ${required} required) with clear articulation.`;
+  }
+
+  // Pattern: أحسنت! كررت الكلمة 2 من 3 مرات بنطق جيد في المستوى السهل.
+  const easyPartialMatch = text.match(/أحسنت! كررت الكلمة (\d+) من (\d+) مرات/);
+  if (easyPartialMatch) {
+    const [, detected, required] = easyPartialMatch;
+    return lang === 'th'
+      ? `เก่งมาก! ทำซ้ำคำศัพท์ ${detected} จาก ${required} ครั้ง ด้วยการออกเสียงที่ดีในระดับง่าย`
+      : `Well done! Repeated the word ${detected} of ${required} times with good pronunciation in easy mode.`;
+  }
+
+  // Pattern: نطقك صحيح ولكنك كررت الكلمة... من أصل...
+  const partialRepNotice = text.match(/نطقك صحيح ولكنك كررت الكلمة (\d+).*من أصل (\d+) مرات مطلوبة/);
+  if (partialRepNotice) {
+    const [, detected, required] = partialRepNotice;
+    return lang === 'th'
+      ? `ออกเสียงถูกต้อง แต่ทำซ้ำเพียง ${detected} จาก ${required} ครั้งที่กำหนด กรุณาทำให้ครบตามจำนวน`
+      : `Correct pronunciation, but you only repeated ${detected} of ${required} required times. Please complete repetitions.`;
+  }
+
+  // Pattern: المطلوب تكرار الكلمة (3 مرات)...
+  const requiredRepNotice = text.match(/المطلوب تكرار الكلمة \((\d+) مرات\)/);
+  if (requiredRepNotice) {
+    const count = requiredRepNotice[1];
+    return lang === 'th'
+      ? `ต้องทำซ้ำคำศัพท์ (${count} ครั้ง) ตรวจไม่พบคำเป้าหมายชัดเจน โปรดลองใหม่อีกครั้ง`
+      : `Required to repeat the word (${count} times). Target word not detected clearly, please retry.`;
+  }
+
+  // Pattern: سُمع بدلاً منه: س
+  const heardInsteadMatch = text.match(/سُمع بدلاً منه:\s*(.+)/);
+  if (heardInsteadMatch) {
+    const char = heardInsteadMatch[1];
+    return lang === 'th' ? `ได้ยินเป็นเสียง: ${char} แทน` : `Heard instead: ${char}`;
+  }
+
+  // Pattern: نطق قريب ومقبول في المستوى السهل (س ≈ ص)
+  const phoneticCousinMatch = text.match(/نطق قريب ومقبول في المستوى السهل \((.+?)\s*≈\s*(.+?)\)/);
+  if (phoneticCousinMatch) {
+    const [, c1, c2] = phoneticCousinMatch;
+    return lang === 'th'
+      ? `การออกเสียงใกล้เคียงและยอมรับได้ในระดับง่าย (${c1} ≈ ${c2})`
+      : `Close and acceptable articulation in easy mode (${c1} ≈ ${c2})`;
+  }
+
+  return text;
+}
+
+/**
+ * Translate any evaluation feedback string (compound or single) into the active language.
+ * Preserves Arabic in sheet "answers 1" while presenting crystal-clear native translations to the student.
+ */
+export function translateEvaluationFeedback(
+  arabicFeedback: string | undefined | null,
+  lang: SupportedLang,
+  items?: TranslationItem[]
+): string {
+  if (!arabicFeedback || !arabicFeedback.trim()) return '';
+  if (lang === 'ar') return arabicFeedback;
+
+  const raw = arabicFeedback.trim();
+
+  // If compound format separated by hyphen, en-dash, or em-dash (e.g. "نطق ممتاز ومتقن! - إتقان تام وتجويد فصيح...")
+  if (/[-–—]/.test(raw)) {
+    const parts = raw.split(/\s*[-–—]\s*/);
+    if (parts.length > 1) {
+      const translatedParts = parts.map((part) => resolveSingleEvaluationPhrase(part, lang, items));
+      return translatedParts.join(' - ');
+    }
+  }
+
+  return resolveSingleEvaluationPhrase(raw, lang, items);
+}
