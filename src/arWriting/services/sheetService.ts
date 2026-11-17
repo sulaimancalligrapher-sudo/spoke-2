@@ -5,7 +5,7 @@ import { ARRewardTier, splitARRewardsPayload } from './arRewardsService';
 import { DEFAULT_WEBHOOK_URL, GOOGLE_APPS_SCRIPT_TEMPLATE } from '../../utils/googleSheets';
 
 const SHEET_URL_KEY = 'arabic_ar_sheet_url';
-const LOCAL_TEMPLATES_KEY = 'arabic_ar_horizontal_templates_v2';
+const LOCAL_TEMPLATES_KEY = 'arabic_ar_horizontal_templates_v3';
 const LOCAL_STEPS_CACHE_KEY = 'arabic_ar_steps_backup_cache';
 
 export const DEFAULT_SHEET_URL = DEFAULT_WEBHOOK_URL;
@@ -359,6 +359,7 @@ class SheetService {
 
       if ((json.status === 'success' || json.success) && Array.isArray(json.lessons)) {
         if (json.lessons.length === 0) {
+          this.saveLocalTemplates([]);
           return { success: true, lessons: [] };
         }
 

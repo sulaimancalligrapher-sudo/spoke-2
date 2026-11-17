@@ -25,9 +25,9 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     id: 'nav_platform_title',
     category: 'home',
     categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
-    ar: 'فَصِيح',
-    th: 'ฟะซีฮ์ (Faseeh)',
-    en: 'Faseeh',
+    ar: '',
+    th: '',
+    en: '',
     isSheetLinked: true,
     sheetSourceNote: 'مرتبط بعنوان المنصة في ورقة الرئيسية (B3)',
   },
@@ -35,17 +35,17 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     id: 'nav_smart_eval_badge',
     category: 'home',
     categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
-    ar: 'تقييم النطق الذكي',
-    th: 'ประเมินการออกเสียงอัจฉริยะ',
-    en: 'Smart Pronunciation Evaluation',
+    ar: '',
+    th: '',
+    en: '',
   },
   {
     id: 'nav_platform_subtitle',
     category: 'home',
     categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
-    ar: 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية',
-    th: 'เรียนรู้การออกเสียง การฟัง และประเมินฐานเกิดเสียงภาษาอาหรับ',
-    en: 'Learn Arabic pronunciation, listening, and phoneme articulation',
+    ar: '',
+    th: '',
+    en: '',
     isSheetLinked: true,
     sheetSourceNote: 'مرتبط بوصف المنصة في ورقة الرئيسية (B4)',
   },
@@ -2678,11 +2678,16 @@ export function getStoredTranslations(): TranslationItem[] {
         parsed.forEach((p) => {
           const existing = map.get(p.id);
           if (existing) {
+            const isLegacyBrandDefault =
+              (p.id === 'nav_platform_title' && (p.ar === 'فَصِيح' || p.ar === 'فصيح')) ||
+              (p.id === 'nav_smart_eval_badge' && p.ar === 'تقييم النطق الذكي') ||
+              (p.id === 'nav_platform_subtitle' && p.ar === 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية');
+
             map.set(p.id, {
               ...existing,
-              ar: p.ar !== undefined ? p.ar : existing.ar,
-              th: p.th !== undefined ? p.th : existing.th,
-              en: p.en !== undefined ? p.en : existing.en,
+              ar: isLegacyBrandDefault ? '' : (p.ar !== undefined ? p.ar : existing.ar),
+              th: isLegacyBrandDefault ? '' : (p.th !== undefined ? p.th : existing.th),
+              en: isLegacyBrandDefault ? '' : (p.en !== undefined ? p.en : existing.en),
             });
           } else {
             map.set(p.id, p);

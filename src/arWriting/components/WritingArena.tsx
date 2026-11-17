@@ -25,8 +25,6 @@ import {
   Award,
   X,
   Lightbulb,
-  ArrowRight,
-  BookOpen,
 } from 'lucide-react';
 
 interface WritingArenaProps {
@@ -46,11 +44,11 @@ interface WritingArenaProps {
   onSyncARRewardsFromCloud?: () => void;
   previewRewardRequest?: { tier: ARRewardTier; nonce: number } | null;
   currentStudent: StudentRegistrant | null;
-  onOpenStudentLogin: () => void;
-  onStudentLogout: () => void;
+  onOpenStudentLogin?: () => void;
+  onStudentLogout?: () => void;
   isAdminAuthenticated?: boolean;
   onOpenAdminWriting?: () => void;
-  onBackToPronunciation: () => void;
+  onBackToPronunciation?: () => void;
   webhookUrl?: string;
 }
 
@@ -71,11 +69,8 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
   onSyncARRewardsFromCloud,
   previewRewardRequest,
   currentStudent,
-  onOpenStudentLogin,
-  onStudentLogout,
   isAdminAuthenticated,
   onOpenAdminWriting,
-  onBackToPronunciation,
   webhookUrl,
 }) => {
   const canvasRef = useRef<WhiteboardCanvasRef>(null);
@@ -409,47 +404,10 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
     <div
       className={
         isMobileLandscape || isFullscreen
-          ? 'fixed inset-0 z-50 flex flex-col h-[100dvh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-cairo'
-          : 'flex flex-col h-[calc(100dvh-96px)] min-h-[580px] w-full overflow-hidden bg-slate-950 text-slate-100 font-cairo rounded-3xl border border-slate-800 shadow-2xl'
+          ? 'fixed inset-0 z-[80] flex flex-col h-[100dvh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-cairo'
+          : 'flex flex-col flex-1 w-full h-[calc(100dvh-65px)] min-h-[540px] overflow-hidden bg-slate-950 text-slate-100 font-cairo'
       }
     >
-      {/* Compact Header strip matching main app navigation when not in mobile landscape */}
-      {!isMobileLandscape && (
-        <div className="bg-slate-900/95 border-b border-slate-800 px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                arTrackingService.stop();
-                onBackToPronunciation();
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
-            >
-              <ArrowRight className="w-3.5 h-3.5" />
-              <span>العودة لتمرين النطق</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsLibraryOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-extrabold transition-colors cursor-pointer"
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>مكتبة الدروس والخطوات</span>
-            </button>
-          </div>
-          <div className="text-[11px] sm:text-xs font-bold text-slate-300 truncate">
-            {selectedTemplate ? (
-              <span>
-                الدرس الحالي: <strong className="text-amber-400">{selectedTemplate.title}</strong>
-                {selectedTemplate.topic ? ` (${selectedTemplate.topic})` : ''}
-              </span>
-            ) : (
-              <span className="text-slate-400">سبورة حرة — اختر درساً من المكتبة أو ارسم مباشرة</span>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Top Whiteboard Toolbar */}
       {(!isMobileLandscape || showToolbarInLandscape) && (
         <WhiteboardToolbar
@@ -485,9 +443,6 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
           onExport={handleExport}
           onOpenLibrary={() => setIsLibraryOpen(true)}
           onOpenSettings={isAdminAuthenticated ? onOpenAdminWriting : undefined}
-          currentUser={currentUser}
-          onOpenLogin={onOpenStudentLogin}
-          onLogout={onStudentLogout}
           onPronounce={handlePronounce}
           accuracy={accuracy}
           trackingMode={trackingMode}
@@ -610,7 +565,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
 
         {/* Help Modal */}
         {isHelpOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
             <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl text-slate-100">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2 text-amber-400 font-bold">

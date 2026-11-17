@@ -39,6 +39,7 @@ interface NavbarProps {
   onLogout?: () => void;
   customLogoUrl?: string;
   customTitle?: string;
+  customSubtitle?: string;
   currentLang?: SupportedLang;
   onSelectLang?: (lang: SupportedLang) => void;
   t?: (id: string, fallback?: string) => string;
@@ -67,6 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   customLogoUrl,
   customTitle,
+  customSubtitle,
   currentLang = 'ar',
   onSelectLang,
   t,
@@ -97,13 +99,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, [lessonsMenuOpen]);
 
   return (
-    <header className="bg-white/90 backdrop-blur-md sticky top-0 z-40 border-b border-slate-100 shadow-2xs">
+    <header className="bg-white/90 backdrop-blur-md sticky top-0 z-[60] border-b border-slate-100 shadow-2xs">
       <div className="max-w-6xl mx-auto px-3.5 sm:px-6 py-2 sm:py-0 sm:h-16 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
         {/* ROW 1 ON MOBILE (الشعار والعنوان + اسم الطالب وزر الخروج): Full width row on mobile, left side on desktop */}
         <div className="flex items-center justify-between w-full sm:w-auto">
           <div
             onClick={onGoHome}
-            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
+            className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-h-[36px]"
             title="العودة للصفحة الرئيسية التعريفية"
           >
             {customLogoUrl ? (
@@ -113,36 +115,45 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl object-cover shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform border border-slate-200"
                 onError={(e) => {
                   (e.target as any).style.display = 'none';
-                  const fb = (e.target as any).nextElementSibling;
-                  if (fb) fb.style.display = 'flex';
                 }}
               />
             ) : null}
-            <div
-              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-linear-to-tr from-emerald-600 to-teal-500 text-white flex items-center justify-center font-amiri text-xl sm:text-2xl font-bold shadow-md shadow-emerald-500/20 group-hover:scale-105 transition-transform ${
-                customLogoUrl ? 'hidden' : 'flex'
-              }`}
-            >
-              ف
-            </div>
             <div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                {Boolean(customTitle !== undefined && customTitle !== null ? customTitle : tr('nav_platform_title', 'فَصِيح')) && (
-                  <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
-                    {customTitle !== undefined && customTitle !== null ? customTitle : tr('nav_platform_title', 'فَصِيح')}
-                  </h1>
-                )}
-                {Boolean(tr('nav_smart_eval_badge', 'تقييم النطق الذكي')) && (
-                  <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
-                    {tr('nav_smart_eval_badge', 'تقييم النطق الذكي')}
-                  </span>
-                )}
-              </div>
-              {Boolean(tr('nav_platform_subtitle', 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية')) && (
-                <p className="text-[10px] sm:text-[11px] text-slate-500 hidden sm:block">
-                  {tr('nav_platform_subtitle', 'تعليم النطق والاستماع وتقييم مخارج الحروف العربية')}
-                </p>
-              )}
+              {(() => {
+                const resolvedTitle =
+                  customTitle !== undefined && customTitle !== null
+                    ? customTitle
+                    : tr('nav_platform_title', '');
+                const resolvedBadge = tr('nav_smart_eval_badge', '');
+                const resolvedSubtitle =
+                  customSubtitle !== undefined && customSubtitle !== null
+                    ? customSubtitle
+                    : tr('nav_platform_subtitle', '');
+
+                return (
+                  <>
+                    {(Boolean(resolvedTitle) || Boolean(resolvedBadge)) && (
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        {Boolean(resolvedTitle) && (
+                          <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
+                            {resolvedTitle}
+                          </h1>
+                        )}
+                        {Boolean(resolvedBadge) && (
+                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
+                            {resolvedBadge}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {Boolean(resolvedSubtitle) && (
+                      <p className="text-[10px] sm:text-[11px] text-slate-500 hidden sm:block">
+                        {resolvedSubtitle}
+                      </p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -202,7 +213,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {lessonsMenuOpen && (
                 <div
                   role="menu"
-                  className="absolute left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150"
+                  className="absolute left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-[70] animate-in fade-in slide-in-from-top-2 duration-150"
                 >
                   {onOpenLessons && (
                     <button

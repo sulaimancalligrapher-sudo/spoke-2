@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { DrawingTemplate } from '../types/drawing';
-import { DRAWING_TEMPLATES } from '../data/drawingTemplates';
 import { audioService } from '../services/audioService';
 import { formatDirectImageUrl } from '../utils/urlHelper';
 import {
@@ -28,9 +27,9 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
   onClose,
   selectedTemplate,
   onSelectTemplate,
-  templates = DRAWING_TEMPLATES,
+  templates = [],
 }) => {
-  const allTemplates = templates && templates.length > 0 ? templates : DRAWING_TEMPLATES;
+  const allTemplates = templates || [];
 
   // View mode: 'list' (default as requested) or 'grid' (cards)
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -42,7 +41,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
   ).filter(Boolean);
 
   const [selectedTopic, setSelectedTopic] = useState<string>(() => {
-    return topics.length > 0 ? topics[0] : 'خط النسخ (الأساسيات)';
+    return topics.length > 0 ? topics[0] : '';
   });
 
   // Keep selectedTopic valid
@@ -97,7 +96,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
         
         {/* Header - Renamed to "الدروس" */}
@@ -367,10 +366,14 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
             <div className="p-12 text-center text-slate-400 bg-slate-950/40 rounded-2xl border border-slate-800 space-y-2">
               <BookOpen className="w-8 h-8 mx-auto text-slate-500" />
               <p className="text-sm font-bold text-slate-300">
-                لا توجد دروس في الفئة &quot;{selectedCategory}&quot;
+                {allTemplates.length === 0
+                  ? 'لا توجد دروس مضافة بعد في تمرين الكتابة'
+                  : `لا توجد دروس في الفئة "${selectedCategory}"`}
               </p>
               <p className="text-xs text-slate-500">
-                يمكنك التبديل إلى فئة أخرى أو اختيار موضوع مختلف من القائمة بالأعلى.
+                {allTemplates.length === 0
+                  ? 'يمكنك إضافة الدروس من لوحة الإدارة في تبويب «تمرين الكتابة» أو مزامنتها من ورقة ArabicLessons.'
+                  : 'يمكنك التبديل إلى فئة أخرى أو اختيار موضوع مختلف من القائمة بالأعلى.'}
               </p>
             </div>
           )}

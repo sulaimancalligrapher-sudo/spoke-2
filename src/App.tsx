@@ -161,9 +161,7 @@ export default function App() {
   const [writingTemplates, setWritingTemplates] = useState<DrawingTemplate[]>(() =>
     writingSheetService.getLocalTemplates()
   );
-  const [selectedWritingTemplate, setSelectedWritingTemplate] = useState<DrawingTemplate | null>(
-    () => writingSheetService.getLocalTemplates()[0] || null
-  );
+  const [selectedWritingTemplate, setSelectedWritingTemplate] = useState<DrawingTemplate | null>(null);
   const [writingBoardStyle, setWritingBoardStyle] = useState<BoardStyle>('white');
   const [writingGuideColor, setWritingGuideColor] = useState<GuideColor>('yellow');
   const [writingTemplateOpacity, setWritingTemplateOpacity] = useState<number>(0.35);
@@ -474,15 +472,15 @@ export default function App() {
     }
 
     // 6. Update writing lessons from sheet "ArabicLessons"
-    if (writingLessons && writingLessons.success && writingLessons.lessons.length > 0) {
+    if (writingLessons && writingLessons.success) {
       setWritingTemplates(writingLessons.lessons);
       writingSheetService.saveLocalTemplates(writingLessons.lessons);
       setSelectedWritingTemplate((prev) => {
         if (prev) {
           const updatedMatch = writingLessons.lessons.find((w) => w.id === prev.id);
-          if (updatedMatch) return updatedMatch;
+          return updatedMatch || prev;
         }
-        return writingLessons.lessons[0] || prev;
+        return null;
       });
     }
 
@@ -725,63 +723,69 @@ export default function App() {
               }
 
               // Silent sync: removed top toast as requested by the user
-              // Fetch Home tab configuration (branding & dynamic social media channels)
-              fetchHomeConfigFromSheets(activeConfig.webhookUrl)
-                .then((cfg) => {
-                  if (cfg) {
-                    setHomeConfig(cfg);
-
-                    // Sync sheet "الرئيسية" Arabic source texts into translations dictionary
-                    setTranslations((prev) => {
-                      return prev.map((item) => {
-                        if (item.id === 'nav_platform_title' && cfg.title !== undefined) {
-                          return { ...item, ar: cfg.title };
-                        }
-                        if (item.id === 'nav_platform_subtitle' && cfg.subtitle !== undefined) {
-                          return { ...item, ar: cfg.subtitle };
-                        }
-                        if (item.id === 'home_card_title' && cfg.card?.cardTitle !== undefined) {
-                          return { ...item, ar: cfg.card.cardTitle };
-                        }
-                        if (item.id === 'home_card_subtitle' && cfg.card?.cardSubtitle !== undefined) {
-                          return { ...item, ar: cfg.card.cardSubtitle };
-                        }
-                        if (item.id === 'home_card_extra1' && cfg.card?.extraText1 !== undefined) {
-                          return { ...item, ar: cfg.card.extraText1 };
-                        }
-                        if (item.id === 'home_card_extra2' && cfg.card?.extraText2 !== undefined) {
-                          return { ...item, ar: cfg.card.extraText2 };
-                        }
-                        if (item.id === 'home_card_extra3' && cfg.card?.extraText3 !== undefined) {
-                          return { ...item, ar: cfg.card.extraText3 };
-                        }
-                        return item;
-                      });
-                    });
-
-                    if (sessionStorage.getItem('faseeh_admin_auth') === 'true') {
-                      const currentAdminName = sessionStorage.getItem('faseeh_admin_name') || '';
-                      if (cfg.adminUsers && cfg.adminUsers.length > 0) {
-                        const blockedRecord = cfg.adminUsers.find(
-                          (u) =>
-                            (u.name.toLowerCase() === currentAdminName.toLowerCase() ||
-                              currentAdminName.includes(u.name)) &&
-                            u.blocked
-                        );
-                        if (blockedRecord) {
-                          handleAdminLogout();
-                          alert('يوجد خطا في التسجيل .. يرجى التواصل مع الادارة');
-                        }
-                      }
-                    }
-                  }
-                })
-                .catch(() => {});
             }
           })
           .catch((err) => {
             console.warn('Auto-sync from Google Sheets on startup notice:', err);
           });
+      }
+
+      // Fetch Home tab configuration in parallel immediately (branding & dynamic social media channels)
+      if (activeConfig.webhookUrl) {
+        fetchHomeConfigFromSheets(activeConfig.webhookUrl)
+          .then((cfg) => {
+            if (cfg) {
+              setHomeConfig(cfg);
+              try {
+                localStorage.setItem('faseeh_cached_home_config', JSON.stringify(cfg));
+              } catch {}
+
+              // Sync sheet "الرئيسية" Arabic source texts into translations dictionary
+              setTranslations((prev) => {
+                return prev.map((item) => {
+                  if (item.id === 'nav_platform_title' && cfg.title !== undefined) {
+                    return { ...item, ar: cfg.title };
+                  }
+                  if (item.id === 'nav_platform_subtitle' && cfg.subtitle !== undefined) {
+                    return { ...item, ar: cfg.subtitle };
+                  }
+                  if (item.id === 'home_card_title' && cfg.card?.cardTitle !== undefined) {
+                    return { ...item, ar: cfg.card.cardTitle };
+                  }
+                  if (item.id === 'home_card_subtitle' && cfg.card?.cardSubtitle !== undefined) {
+                    return { ...item, ar: cfg.card.cardSubtitle };
+                  }
+                  if (item.id === 'home_card_extra1' && cfg.card?.extraText1 !== undefined) {
+                    return { ...item, ar: cfg.card.extraText1 };
+                  }
+                  if (item.id === 'home_card_extra2' && cfg.card?.extraText2 !== undefined) {
+                    return { ...item, ar: cfg.card.extraText2 };
+                  }
+                  if (item.id === 'home_card_extra3' && cfg.card?.extraText3 !== undefined) {
+                    return { ...item, ar: cfg.card.extraText3 };
+                  }
+                  return item;
+                });
+              });
+
+              if (sessionStorage.getItem('faseeh_admin_auth') === 'true') {
+                const currentAdminName = sessionStorage.getItem('faseeh_admin_name') || '';
+                if (cfg.adminUsers && cfg.adminUsers.length > 0) {
+                  const blockedRecord = cfg.adminUsers.find(
+                    (u) =>
+                      (u.name.toLowerCase() === currentAdminName.toLowerCase() ||
+                        currentAdminName.includes(u.name)) &&
+                      u.blocked
+                  );
+                  if (blockedRecord) {
+                    handleAdminLogout();
+                    alert('يوجد خطا في التسجيل .. يرجى التواصل مع الادارة');
+                  }
+                }
+              }
+            }
+          })
+          .catch(() => {});
       }
 
       // Auto-fetch translations from sheet "الترجمة"
@@ -855,15 +859,15 @@ export default function App() {
         writingSheetService
           .fetchLessonsFromSheet()
           .then((wRes) => {
-            if (wRes && wRes.success && wRes.lessons.length > 0) {
+            if (wRes && wRes.success) {
               setWritingTemplates(wRes.lessons);
               writingSheetService.saveLocalTemplates(wRes.lessons);
               setSelectedWritingTemplate((prev) => {
                 if (prev) {
                   const found = wRes.lessons.find((w) => w.id === prev.id);
-                  if (found) return found;
+                  return found || prev;
                 }
-                return wRes.lessons[0] || prev;
+                return null;
               });
             }
           })
@@ -1584,8 +1588,9 @@ export default function App() {
         currentStudent={currentStudent}
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
-        customLogoUrl={homeConfig?.logoUrl}
-        customTitle={currentLang === 'ar' ? homeConfig?.title : t('nav_platform_title', homeConfig?.title)}
+        customLogoUrl={homeConfig?.logoUrl || ''}
+        customTitle={homeConfig ? (currentLang === 'ar' ? homeConfig.title : t('nav_platform_title', homeConfig.title)) : ''}
+        customSubtitle={homeConfig ? (currentLang === 'ar' ? homeConfig.subtitle : t('nav_platform_subtitle', homeConfig.subtitle)) : ''}
         currentLang={currentLang}
         onSelectLang={handleSelectLang}
         t={t}
@@ -1622,11 +1627,15 @@ export default function App() {
           setIsDictationLessonsModalOpen(true);
         }}
         onOpenWriting={() => {
+          setSelectedWritingTemplate(null);
           setAppMode('writing');
           setCurrentView('practice');
         }}
         currentMode={appMode}
         onSelectMode={(mode) => {
+          if (mode === 'writing') {
+            setSelectedWritingTemplate(null);
+          }
           setAppMode(mode);
           if (currentView === 'landing') {
             setCurrentView('practice');
@@ -1635,7 +1644,13 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col">
+      <main
+        className={
+          currentView === 'practice' && appMode === 'writing'
+            ? 'flex-1 w-full p-0 m-0 flex flex-col'
+            : 'flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col'
+        }
+      >
         {currentView === 'landing' ? (
           /* ========================================================
              1. INTRODUCTORY LANDING PAGE (الصفحة الرئيسية التعريفية)
@@ -1824,6 +1839,7 @@ export default function App() {
                         role="menuitem"
                         onClick={() => {
                           setLandingLessonsMenuOpen(false);
+                          setSelectedWritingTemplate(null);
                           setAppMode('writing');
                           setCurrentView('practice');
                         }}
@@ -2212,7 +2228,7 @@ export default function App() {
           /* ========================================================
              5. WRITING & AR WHITEBOARD ARENA (تمرين الكتابة)
              ======================================================== */
-          <div className="flex flex-col gap-4 animate-in fade-in duration-300">
+          <div className="flex flex-col flex-1 w-full animate-in fade-in duration-300">
             <WritingArena
               allTemplates={writingTemplates}
               onUpdateTemplates={(updated) => {
@@ -2420,7 +2436,11 @@ export default function App() {
       </main>
 
       {/* Footer: Dynamic Social Media Channels from sheet "الرئيسية" with NO text */}
-      <footer className="border-t border-slate-200/80 bg-white py-6 mt-12">
+      <footer
+        className={`border-t border-slate-200/80 bg-white py-6 ${
+          currentView === 'practice' && appMode === 'writing' ? 'mt-0' : 'mt-12'
+        }`}
+      >
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-3">
           {homeConfig?.socialLinks && homeConfig.socialLinks.length > 0 ? (
             homeConfig.socialLinks
