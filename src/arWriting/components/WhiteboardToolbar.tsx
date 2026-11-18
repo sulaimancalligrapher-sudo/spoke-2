@@ -171,7 +171,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
   return (
     <header
       ref={toolbarRef}
-      className="relative w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-slate-100 z-30 select-none shadow-md"
+      className="relative w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-slate-100 z-50 select-none shadow-md"
     >
       {/* ======================================================== */}
       {/* DESKTOP & LANDSCAPE TOOLBAR (الشاشات الكبيرة والأفقية)   */}
@@ -415,7 +415,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
       {/* ======================================================== */}
       {isMobileMenuOpen && (
         <div
-          className="sm:hidden absolute top-full inset-x-2 mt-1 z-40 bg-slate-900/98 backdrop-blur-xl border border-slate-700 rounded-2xl shadow-2xl p-3 text-slate-100 animate-in fade-in slide-in-from-top-2 duration-150"
+          className="sm:hidden absolute top-full inset-x-2 mt-1 z-50 bg-slate-900/98 backdrop-blur-xl border border-slate-700 rounded-2xl shadow-2xl p-3 text-slate-100 animate-in fade-in slide-in-from-top-2 duration-150"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800">
@@ -614,7 +614,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
             setActivePopover(null);
             setIsMobileMenuOpen(false);
           }}
-          className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-30 transition-opacity"
+          className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs z-40 transition-opacity"
         />
       )}
 
@@ -623,7 +623,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
       {/* ======================================================== */}
       {activePopover === 'drawing_tools' && (
         <div
-          className="fixed inset-x-3 top-16 sm:absolute sm:top-full sm:right-6 sm:left-auto max-w-sm sm:w-96 w-auto mx-auto sm:mx-0 z-40 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 text-slate-100 animate-in fade-in zoom-in-95 duration-150 overflow-y-auto max-h-[80vh]"
+          className="fixed inset-x-3 top-16 sm:absolute sm:top-full sm:right-6 sm:left-auto max-w-sm sm:w-96 w-auto mx-auto sm:mx-0 z-50 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 text-slate-100 animate-in fade-in zoom-in-95 duration-150 overflow-y-auto max-h-[80vh]"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3.5">
@@ -791,7 +791,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
       {/* ======================================================== */}
       {activePopover === 'ar_settings' && boardStyle === 'ar_camera' && (
         <div
-          className="fixed inset-x-3 top-16 sm:absolute sm:top-full sm:right-52 sm:left-auto max-w-sm sm:w-96 w-auto mx-auto sm:mx-0 z-40 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-2xl p-4 text-slate-100 animate-in fade-in zoom-in-95 duration-150 overflow-y-auto max-h-[80vh]"
+          className="fixed inset-x-3 top-16 sm:absolute sm:top-full sm:right-52 sm:left-auto max-w-sm sm:w-96 w-auto mx-auto sm:mx-0 z-50 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-2xl p-4 text-slate-100 animate-in fade-in zoom-in-95 duration-150 overflow-y-auto max-h-[80vh]"
         >
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3.5">

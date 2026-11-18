@@ -264,3 +264,23 @@ export interface DictationHistoryItem {
   completionStatus: string;
   exercises: DictationExerciseHistoryEntry[];
 }
+
+export interface WritingExerciseHistoryEntry {
+  slotIndex: number;
+  category: string;
+  title: string;
+  imageUrl?: string;
+  score: number;
+  details?: string;
+}
+
+export interface WritingHistoryItem {
+  id: string;
+  timestamp: string;
+  studentId: string;
+  studentName: string;
+  topic: string;
+  completionStatus: string;
+  exercises: WritingExerciseHistoryEntry[];
+}
+

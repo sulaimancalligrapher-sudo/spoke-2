@@ -1,6 +1,6 @@
 import { StudentRegistrant } from '../types';
 
-export type ExerciseModeType = 'pronunciation' | 'matching' | 'dictation';
+export type ExerciseModeType = 'pronunciation' | 'matching' | 'dictation' | 'writing';
 
 export const DEFAULT_MAX_RETRIES = 3;
 const STORAGE_KEY_RETRIES = 'faseeh_student_retry_counts_v1';
@@ -214,7 +214,7 @@ export async function syncStudentRetriesFromSheets(
         const mode = r.mode as ExerciseModeType;
         const exKey = String(r.exerciseKey || '').trim();
         const cnt = Number(r.retryCount) || 0;
-        if ((mode === 'pronunciation' || mode === 'matching' || mode === 'dictation') && exKey && cnt > 0) {
+        if ((mode === 'pronunciation' || mode === 'matching' || mode === 'dictation' || mode === 'writing') && exKey && cnt > 0) {
           const entryKey = buildRetryEntryKey(mode, student, exKey);
           if ((map[entryKey] || 0) < cnt) {
             map[entryKey] = cnt;

@@ -13,6 +13,7 @@ import {
   MatchingHistoryItem,
   DictationLessonSubject,
   DictationHistoryItem,
+  WritingHistoryItem,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -52,6 +53,8 @@ import {
   fetchStudentSubmissionsFromSheet,
   fetchStudentMatchingHistory,
   fetchStudentDictationHistory,
+  fetchStudentWritingHistory,
+  saveLocalWritingSubmission,
   fetchTranslationsFromSheets,
   saveTranslationsToSheets,
   fetchMatchingExercisesFromSheets,
@@ -261,6 +264,9 @@ export default function App() {
   // Student Dictation Exercise History (from sheet "answers 3")
   const [dictationHistory, setDictationHistory] = useState<DictationHistoryItem[]>([]);
   const [isSyncingDictation, setIsSyncingDictation] = useState(false);
+
+  // Student Writing Exercise History (from sheet "answers 4")
+  const [writingHistory, setWritingHistory] = useState<WritingHistoryItem[]>([]);
 
   // Scores map: wordId -> score
   const [scoresMap, setScoresMap] = useState<Record<string, number>>({});
@@ -921,6 +927,11 @@ export default function App() {
                 if (dh && dh.length > 0) setDictationHistory(dh);
               })
               .catch(() => {});
+            fetchStudentWritingHistory(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((wh) => {
+                if (wh && wh.length > 0) setWritingHistory(wh);
+              })
+              .catch(() => {});
             syncStudentRetriesFromSheets(activeConfig.webhookUrl, parsed).catch(() => {});
           }
         } catch (e) {}
@@ -933,6 +944,11 @@ export default function App() {
         fetchStudentDictationHistory('', '', '')
           .then((dh) => {
             if (dh && dh.length > 0) setDictationHistory(dh);
+          })
+          .catch(() => {});
+        fetchStudentWritingHistory('', '', '')
+          .then((wh) => {
+            if (wh && wh.length > 0) setWritingHistory(wh);
           })
           .catch(() => {});
       }
@@ -1001,6 +1017,12 @@ export default function App() {
         .catch(() => {})
         .finally(() => setIsSyncingDictation(false));
 
+      fetchStudentWritingHistory(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((wh) => {
+          if (wh) setWritingHistory(wh);
+        })
+        .catch(() => {});
+
       syncStudentRetriesFromSheets(sheetsConfig.webhookUrl, student).catch(() => {});
     }
   };
@@ -1010,6 +1032,7 @@ export default function App() {
     setStudentHistory([]);
     setMatchingHistory([]);
     setDictationHistory([]);
+    setWritingHistory([]);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
@@ -1628,6 +1651,19 @@ export default function App() {
         }}
         onOpenWriting={() => {
           setSelectedWritingTemplate(null);
+          if (currentStudent && sheetsConfig.webhookUrl) {
+            fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((wh) => {
+                if (wh) setWritingHistory(wh);
+              })
+              .catch(() => {});
+          } else {
+            fetchStudentWritingHistory('', '', '')
+              .then((wh) => {
+                if (wh) setWritingHistory(wh);
+              })
+              .catch(() => {});
+          }
           setAppMode('writing');
           setCurrentView('practice');
         }}
@@ -1635,6 +1671,19 @@ export default function App() {
         onSelectMode={(mode) => {
           if (mode === 'writing') {
             setSelectedWritingTemplate(null);
+            if (currentStudent && sheetsConfig.webhookUrl) {
+              fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                .then((wh) => {
+                  if (wh) setWritingHistory(wh);
+                })
+                .catch(() => {});
+            } else {
+              fetchStudentWritingHistory('', '', '')
+                .then((wh) => {
+                  if (wh) setWritingHistory(wh);
+                })
+                .catch(() => {});
+            }
           }
           setAppMode(mode);
           if (currentView === 'landing') {
@@ -1840,6 +1889,19 @@ export default function App() {
                         onClick={() => {
                           setLandingLessonsMenuOpen(false);
                           setSelectedWritingTemplate(null);
+                          if (currentStudent && sheetsConfig.webhookUrl) {
+                            fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                              .then((wh) => {
+                                if (wh) setWritingHistory(wh);
+                              })
+                              .catch(() => {});
+                          } else {
+                            fetchStudentWritingHistory('', '', '')
+                              .then((wh) => {
+                                if (wh) setWritingHistory(wh);
+                              })
+                              .catch(() => {});
+                          }
                           setAppMode('writing');
                           setCurrentView('practice');
                         }}
@@ -2255,6 +2317,77 @@ export default function App() {
               onOpenAdminWriting={() => handleOpenAdmin('writing')}
               onBackToPronunciation={() => setAppMode('pronunciation')}
               webhookUrl={sheetsConfig.webhookUrl}
+              writingHistory={writingHistory}
+              onRefreshWritingHistory={() => {
+                if (currentStudent && sheetsConfig.webhookUrl) {
+                  fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+                    .then((wh) => {
+                      if (wh) setWritingHistory(wh);
+                    })
+                    .catch(() => {});
+                } else {
+                  fetchStudentWritingHistory('', '', '')
+                    .then((wh) => {
+                      if (wh) setWritingHistory(wh);
+                    })
+                    .catch(() => {});
+                }
+              }}
+              onWritingSubmitted={(submitted) => {
+                if (!submitted) return;
+                const newEntry = {
+                  slotIndex: submitted.slotIndex,
+                  category: submitted.category,
+                  title: submitted.title,
+                  imageUrl: submitted.imageUrl || '',
+                  score: submitted.score,
+                  details: submitted.details,
+                };
+                saveLocalWritingSubmission(
+                  currentStudent?.id || '',
+                  currentStudent?.name || '',
+                  submitted.topic,
+                  newEntry,
+                  submitted.completionStatus
+                );
+                const ts = new Date().toLocaleString('ar-SA');
+                setWritingHistory((prev) => {
+                  const cleanTopic = submitted.topic.trim();
+                  const existingIdx = prev.findIndex((item) => (item.topic || '').trim() === cleanTopic);
+                  if (existingIdx >= 0) {
+                    const next = [...prev];
+                    const existing = next[existingIdx];
+                    const filteredEx = (existing.exercises || []).filter(
+                      (e) =>
+                        !(
+                          e.slotIndex === submitted.slotIndex &&
+                          (e.title || '').trim() === submitted.title.trim()
+                        ) && (e.title || '').trim() !== submitted.title.trim()
+                    );
+                    filteredEx.push(newEntry);
+                    filteredEx.sort((a, b) => a.slotIndex - b.slotIndex);
+                    next[existingIdx] = {
+                      ...existing,
+                      timestamp: ts,
+                      completionStatus: submitted.completionStatus || existing.completionStatus,
+                      exercises: filteredEx,
+                    };
+                    return next;
+                  }
+                  return [
+                    {
+                      id: `local-ans4-${Date.now()}`,
+                      timestamp: ts,
+                      studentId: currentStudent?.id || '',
+                      studentName: currentStudent?.name || '',
+                      topic: cleanTopic,
+                      completionStatus: submitted.completionStatus || '',
+                      exercises: [newEntry],
+                    },
+                    ...prev,
+                  ];
+                });
+              }}
             />
           </div>
         ) : (

@@ -16,6 +16,8 @@ import {
   DictationExercise,
   DictationHistoryItem,
   DictationExerciseHistoryEntry,
+  WritingHistoryItem,
+  WritingExerciseHistoryEntry,
 } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
@@ -30,7 +32,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwu4QFD_TZ0Pn5tvLFjmMOx2zoLpjfs8xeEAFy0zwB2qmenSPWowT5F0oA5L3-g7tXpQQ/exec';
+  'https://script.google.com/macros/s/AKfycbw9gK59eVW3j6FpxRmXxz7U1qB_fxI90C4_sxAwsS2UjPNN6F5nZQuMvHoZ9yy8vEk5qw/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -2039,6 +2041,165 @@ export async function fetchStudentDictationHistory(
 }
 
 /**
+ * Save a completed writing exercise entry to local storage cache so completed lessons hide immediately
+ */
+export function saveLocalWritingSubmission(
+  studentId: string,
+  studentName: string,
+  topic: string,
+  entry: WritingExerciseHistoryEntry,
+  completionStatus?: string
+): WritingHistoryItem[] {
+  const cleanId = (studentId || '').trim();
+  const cleanTopic = (topic || '').trim();
+  const cacheKey = cleanId ? `faseeh_writing_sub_${cleanId}` : 'faseeh_writing_sub_guest';
+  let list: WritingHistoryItem[] = [];
+  try {
+    const raw = localStorage.getItem(cacheKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) list = parsed;
+    }
+  } catch {}
+
+  const ts = new Date().toLocaleString('ar-SA');
+  const idx = list.findIndex((item) => (item.topic || '').trim() === cleanTopic);
+  if (idx >= 0) {
+    const existing = list[idx];
+    const filtered = (existing.exercises || []).filter(
+      (ex) => !(ex.slotIndex === entry.slotIndex && (ex.title || '').trim() === (entry.title || '').trim())
+    );
+    filtered.push(entry);
+    filtered.sort((a, b) => a.slotIndex - b.slotIndex);
+    list[idx] = {
+      ...existing,
+      timestamp: ts,
+      completionStatus: completionStatus || existing.completionStatus,
+      exercises: filtered,
+    };
+  } else {
+    list.unshift({
+      id: `local-ans4-${Date.now()}`,
+      timestamp: ts,
+      studentId: cleanId,
+      studentName: (studentName || '').trim(),
+      topic: cleanTopic,
+      completionStatus: completionStatus || '',
+      exercises: [entry],
+    });
+  }
+
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(list));
+  } catch {}
+  return list;
+}
+
+/**
+ * Fetch student writing history from sheet "answers 4" and merge with local cache
+ */
+export async function fetchStudentWritingHistory(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<WritingHistoryItem[]> {
+  const cleanId = (studentId || '').trim();
+  const cleanName = (studentName || '').trim();
+  const mergedMap = new Map<string, WritingHistoryItem>();
+
+  if (webhookUrl && webhookUrl.trim().startsWith('http') && (cleanId || cleanName)) {
+    try {
+      const cleanUrl = webhookUrl.trim();
+      const separator = cleanUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${cleanUrl}${separator}action=get_student_writing_history&studentId=${encodeURIComponent(
+        cleanId
+      )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+      let data: any = null;
+      try {
+        const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+        if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+      } catch {}
+
+      if (!data || !Array.isArray(data.writingHistory)) {
+        try {
+          const directRes = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          });
+          if (directRes.ok) data = await directRes.json().catch(() => null);
+        } catch {}
+      }
+
+      if (data && Array.isArray(data.writingHistory)) {
+        for (const item of data.writingHistory) {
+          const topic = String(item.topic || '').trim();
+          if (!topic) continue;
+          const exercises: WritingExerciseHistoryEntry[] = Array.isArray(item.exercises)
+            ? item.exercises
+                .map((ex: any) => ({
+                  slotIndex: Number(ex.slotIndex) || 1,
+                  category: String(ex.category || 'حروف').trim(),
+                  title: String(ex.title || '').trim(),
+                  imageUrl: String(ex.imageUrl || '').trim(),
+                  score: extractPercentageFromMatchingText(String(ex.score || ''), Number(ex.score)),
+                  details: String(ex.details || '').trim(),
+                }))
+                .sort((a: WritingExerciseHistoryEntry, b: WritingExerciseHistoryEntry) => a.slotIndex - b.slotIndex)
+            : [];
+          mergedMap.set(topic, {
+            id: item.id || `ans4-${topic}`,
+            timestamp: String(item.timestamp || '').trim(),
+            studentId: String(item.studentId || cleanId).trim(),
+            studentName: String(item.studentName || cleanName).trim(),
+            topic,
+            completionStatus: String(item.completionStatus || '').trim(),
+            exercises,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching student writing history from Google Sheets:', e);
+    }
+  }
+
+  try {
+    const cacheKey = cleanId ? `faseeh_writing_sub_${cleanId}` : 'faseeh_writing_sub_guest';
+    const rawCache = localStorage.getItem(cacheKey);
+    if (rawCache) {
+      const localItems: WritingHistoryItem[] = JSON.parse(rawCache);
+      if (Array.isArray(localItems)) {
+        for (const localItem of localItems) {
+          const topic = (localItem.topic || '').trim();
+          if (!topic) continue;
+          const existing = mergedMap.get(topic);
+          if (!existing) {
+            mergedMap.set(topic, localItem);
+          } else {
+            const seen = new Set(
+              existing.exercises.map((ex) => `${ex.slotIndex}::${(ex.title || '').trim()}`)
+            );
+            for (const ex of localItem.exercises || []) {
+              const k = `${ex.slotIndex}::${(ex.title || '').trim()}`;
+              if (!seen.has(k)) {
+                existing.exercises.push(ex);
+                seen.add(k);
+              }
+            }
+            existing.exercises.sort((a, b) => a.slotIndex - b.slotIndex);
+            if (!existing.completionStatus && localItem.completionStatus) {
+              existing.completionStatus = localItem.completionStatus;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(mergedMap.values());
+}
+
+/**
  * Complete Google Apps Script Template Code
  * Supports:
  * - Sheet "الدروس" with horizontal lessons:
@@ -2862,6 +3023,76 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (ب-3-مكرر) إذا كان الطلب جلب سجل درجات تمرين الكتابة لطالب معين من ورقة "answers 4"
+    if (e && e.parameter && e.parameter.action === "get_student_writing_history") {
+      var a4Sheet = getAnswers4Sheet(ss);
+      var qId = String(e.parameter.studentId || "").trim();
+      var qName = String(e.parameter.studentName || "").trim();
+      var lastR = a4Sheet.getLastRow();
+      var lastC = Math.max(6, a4Sheet.getLastColumn());
+      var writingList = [];
+
+      if (lastR > 1) {
+        var dataRows = a4Sheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          var rowTime = String(row[0] || "").trim();
+          var rowId = String(row[1] || "").trim();
+          var rowName = String(row[2] || "").trim();
+          var rowTopic = String(row[3] || "").trim();
+          var rowStatus = String(row[4] || "").trim();
+
+          var isMatch = (qId && rowId === qId) || (qName && rowName === qName);
+          if (isMatch && rowTopic) {
+            var exercisesArr = [];
+            var slotNum = 1;
+            for (var c = 5; c < row.length; c += 5) {
+              var catStr = String(row[c] || "").trim();
+              var titleStr = String(row[c + 1] || "").trim();
+              var imgUrlStr = String(row[c + 2] || "").trim();
+              var rawScore = row[c + 3];
+              var scoreStr = String(rawScore || "").trim();
+              var detailsStr = String(row[c + 4] || "").trim();
+              if (titleStr || scoreStr || imgUrlStr) {
+                var normScore = scoreStr.replace(/[٠-٩]/g, function(d) { return String("٠١٢٣٤٥٦٧٨٩".indexOf(d)); });
+                var pctM = normScore.match(/(\d+(?:\.\d+)?)/);
+                var pctVal = 0;
+                if (typeof rawScore === "number" && rawScore > 0 && rawScore <= 1) {
+                  pctVal = Math.round(rawScore * 100);
+                } else if (pctM) {
+                  pctVal = Math.round(parseFloat(pctM[1]));
+                }
+                exercisesArr.push({
+                  slotIndex: slotNum,
+                  category: catStr || "حروف",
+                  title: titleStr,
+                  imageUrl: imgUrlStr,
+                  score: pctVal,
+                  details: detailsStr
+                });
+              }
+              slotNum++;
+            }
+            writingList.push({
+              id: "ans4-r" + (r + 2),
+              timestamp: rowTime,
+              studentId: rowId || qId,
+              studentName: rowName || qName,
+              topic: rowTopic,
+              completionStatus: rowStatus,
+              exercises: exercisesArr
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        studentId: qId,
+        studentName: qName,
+        writingHistory: writingList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (ب-4) جلب سجل عدد محاولات الإعادة لطالب معين من ورقة "سجل_المحاولات"
     if (e && e.parameter && e.parameter.action === "get_student_retries") {
       var rSheet = getRetriesSheet(ss);
@@ -3111,6 +3342,7 @@ function doGet(e) {
           var diff = String(row[c + 5] || "سهل").trim();
           var stepsStr = String(row[c + 6] || "").trim();
           if (title || imgUrl) {
+            var parsedWritingR = parseRetryLimitSettingGS(diff);
             wlLessons.push({
               id: topic + "_" + slotIdx + "_" + (title || ("lesson_" + c)),
               topic: topic,
@@ -3120,6 +3352,8 @@ function doGet(e) {
               arabicAudioText: tts || title || ("درس " + slotIdx),
               repeatCount: rep,
               difficulty: diff || "سهل",
+              allowRetry: parsedWritingR.allowRetry,
+              maxRetries: parsedWritingR.maxRetries,
               stepsData: stepsStr,
               slotIndex: slotIdx,
               colStart: c + 1

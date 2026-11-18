@@ -20,7 +20,9 @@ import {
   AR_INTRO_ID,
   findARRewardForScore,
 } from '../services/arRewardsService';
-import { StudentRegistrant } from '../../types';
+import { StudentRegistrant, WritingHistoryItem } from '../../types';
+import { getRetryStatus, recordStudentRetryAttempt, formatStudentRetryBannerMessage } from '../../utils/retryLimit';
+import { buildWritingRetryKey } from './TemplateLibraryModal';
 import {
   Award,
   X,
@@ -50,6 +52,18 @@ interface WritingArenaProps {
   onOpenAdminWriting?: () => void;
   onBackToPronunciation?: () => void;
   webhookUrl?: string;
+  writingHistory?: WritingHistoryItem[];
+  onWritingSubmitted?: (submitted: {
+    topic: string;
+    slotIndex: number;
+    category: string;
+    title: string;
+    imageUrl?: string;
+    score: number;
+    details: string;
+    completionStatus?: string;
+  }) => void;
+  onRefreshWritingHistory?: () => void;
 }
 
 export const WritingArena: React.FC<WritingArenaProps> = ({
@@ -72,7 +86,15 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
   isAdminAuthenticated,
   onOpenAdminWriting,
   webhookUrl,
+  writingHistory = [],
+  onWritingSubmitted,
+  onRefreshWritingHistory,
 }) => {
+  const [writingRetryBanner, setWritingRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
+  const openWritingLibrary = useCallback(() => {
+    onRefreshWritingHistory?.();
+    setIsLibraryOpen(true);
+  }, [onRefreshWritingHistory]);
   const canvasRef = useRef<WhiteboardCanvasRef>(null);
 
   useEffect(() => {
@@ -441,7 +463,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
           onRedo={handleRedo}
           onClear={handleClear}
           onExport={handleExport}
-          onOpenLibrary={() => setIsLibraryOpen(true)}
+          onOpenLibrary={openWritingLibrary}
           onOpenSettings={isAdminAuthenticated ? onOpenAdminWriting : undefined}
           onPronounce={handlePronounce}
           accuracy={accuracy}
@@ -509,7 +531,35 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
             onToggleLandscapeToolbar={() => setShowToolbarInLandscape((prev) => !prev)}
             onToggleFullscreen={toggleFullscreen}
             onOpenHelp={() => setIsHelpOpen(true)}
-            onOpenLibrary={() => setIsLibraryOpen(true)}
+            onOpenLibrary={openWritingLibrary}
+            onClearTemplate={() => {
+              onSelectTemplate(null);
+              setWritingRetryBanner(null);
+            }}
+            onAnswerSubmitted={onWritingSubmitted}
+            retryBanner={writingRetryBanner}
+            onDismissRetryBanner={() => setWritingRetryBanner(null)}
+            canRetryAfterSubmit={
+              selectedTemplate
+                ? getRetryStatus('writing', currentStudent, buildWritingRetryKey(selectedTemplate), selectedTemplate).canRetry
+                : true
+            }
+            onRetryAfterSubmit={() => {
+              if (!selectedTemplate) return true;
+              const rKey = buildWritingRetryKey(selectedTemplate);
+              const status = getRetryStatus('writing', currentStudent, rKey, selectedTemplate);
+              if (!status.canRetry) return false;
+              const outcome = recordStudentRetryAttempt(
+                'writing',
+                currentStudent,
+                rKey,
+                selectedTemplate,
+                webhookUrl
+              );
+              const msg = formatStudentRetryBannerMessage(outcome, currentStudent, (_, fb) => fb);
+              setWritingRetryBanner({ nonce: Date.now(), message: msg });
+              return true;
+            }}
             onClearSideEffects={handleClearSideEffects}
             onNextRepetition={() => {
               const totalReps = Number(selectedTemplate?.repeatCount) || 1;
@@ -632,7 +682,27 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
         onClose={() => setIsLibraryOpen(false)}
         selectedTemplate={selectedTemplate}
         templates={allTemplates}
-        onSelectTemplate={(tpl) => {
+        writingHistory={writingHistory}
+        currentStudent={currentStudent}
+        onSelectTemplate={(tpl, isRetry) => {
+          if (isRetry) {
+            const rKey = buildWritingRetryKey(tpl);
+            const status = getRetryStatus('writing', currentStudent, rKey, tpl);
+            if (!status.canRetry) {
+              return;
+            }
+            const outcome = recordStudentRetryAttempt(
+              'writing',
+              currentStudent,
+              rKey,
+              tpl,
+              webhookUrl
+            );
+            const msg = formatStudentRetryBannerMessage(outcome, currentStudent, (_, fb) => fb);
+            setWritingRetryBanner({ nonce: Date.now(), message: msg });
+          } else {
+            setWritingRetryBanner(null);
+          }
           onSelectTemplate(tpl);
           setCurrentRepetition(1);
           setCelebrationMessage(null);

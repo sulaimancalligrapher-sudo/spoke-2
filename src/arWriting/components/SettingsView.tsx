@@ -1,19 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { DrawingTemplate, LessonDifficulty, LessonStep } from '../types/drawing';
-import { sheetService, GOOGLE_APPS_SCRIPT_CODE, RegistrantUser } from '../services/sheetService';
+import { sheetService, RegistrantUser } from '../services/sheetService';
 import { audioService } from '../services/audioService';
 import { formatDirectImageUrl, extractDriveFileId } from '../utils/urlHelper';
+import { DEFAULT_MAX_RETRIES } from '../../utils/retryLimit';
 import { StepMakerModal } from './StepMakerModal';
 import {
   ArrowRight,
   Database,
   RefreshCw,
-  Copy,
-  Check,
   Plus,
   Trash2,
   Edit3,
-  FileSpreadsheet,
   Volume2,
   AlertCircle,
   CheckCircle2,
@@ -36,7 +34,8 @@ import {
   Upload,
   RotateCcw,
   Share2,
-  Loader2
+  Loader2,
+  X
 } from 'lucide-react';
 import { BoardStyle, GuideColor } from '../types/drawing';
 import { GUIDE_COLORS } from '../data/drawingTemplates';
@@ -92,8 +91,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   embedded = false,
   webhookUrl,
 }) => {
-  // Tabs: 'lessons' | 'table' | 'sheet' | 'board' | 'ar_rewards' | 'registrants'
-  const [activeTab, setActiveTab] = useState<'lessons' | 'table' | 'sheet' | 'board' | 'ar_rewards' | 'registrants'>('lessons');
+  // Tabs: 'lessons' | 'table' | 'board' | 'ar_rewards' | 'registrants'
+  const [activeTab, setActiveTab] = useState<'lessons' | 'table' | 'board' | 'ar_rewards' | 'registrants'>('lessons');
   const [registrantsList, setRegistrantsList] = useState<RegistrantUser[]>(() => sheetService.getCachedRegistrants());
   const [newRegId, setNewRegId] = useState('');
   const [newRegName, setNewRegName] = useState('');
@@ -187,7 +186,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setArSaveNotice({
           type: 'warning',
           needsScriptUpdate: true,
-          text: '⚠️ تم الحفظ على هذا الجهاز فقط! لمزامنة التعديلات تلقائياً مع باقي الأجهزة عبر ورقة «AR Rewards»، انسخ كود Apps Script المحدّث من تبويب «ربط Google Sheets» وأعد نشره كـ (إصدار جديد).'
+          text: '⚠️ تم الحفظ على هذا الجهاز فقط! لمزامنة التعديلات تلقائياً مع باقي الأجهزة عبر ورقة «AR Rewards»، انسخ كود Apps Script المحدّث من تبويب «إعدادات ربط Google Sheets» الرئيسي وأعد نشره كـ (إصدار جديد).'
         });
         return true;
       }
@@ -365,7 +364,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             setArSaveNotice({
               type: 'warning',
               needsScriptUpdate: true,
-              text: '⚠️ تم عرض الصورة محلياً؛ ولرفعها تلقائياً إلى مجلد Drive المخصص (1tbmh_Br...) حدّث كود Apps Script في تبويب «ربط Google Sheets» كـ (إصدار جديد).'
+              text: '⚠️ تم عرض الصورة محلياً؛ ولرفعها تلقائياً إلى مجلد Drive المخصص حدّث كود Apps Script من قسم «إعدادات ربط Google Sheets» الرئيسي كـ (إصدار جديد).'
             });
             return;
           }
@@ -429,7 +428,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     sheetService.getStoredSheetUrl() ? 'idle' : 'error'
   );
   const [statusMessage, setStatusMessage] = useState<string>('');
-  const [isCopied, setIsCopied] = useState(false);
 
   // Lesson Management: Topic & Category states
   const [searchQuery, setSearchQuery] = useState('');
@@ -454,6 +452,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formDifficulty, setFormDifficulty] = useState<LessonDifficulty>('سهل');
   const [formHideDots, setFormHideDots] = useState<boolean>(false);
   const [formHideImage, setFormHideImage] = useState<boolean>(false);
+  const [formMaxRetries, setFormMaxRetries] = useState<number>(DEFAULT_MAX_RETRIES);
   const [formSteps, setFormSteps] = useState<LessonStep[]>([]);
   const [formStepsData, setFormStepsData] = useState<string>('');
 
@@ -507,18 +506,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       handleTestConnection();
     }
   }, []);
-
-  // Copy Apps Script code
-  const handleCopyCode = async () => {
-    try {
-      await navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
-      setIsCopied(true);
-      audioService.speakArabic('تم نسخ كود الهيكل الأفقي بنجاح');
-      setTimeout(() => setIsCopied(false), 3000);
-    } catch {
-      alert('يرجى تحديد النص ونسخه يدوياً');
-    }
-  };
 
   // Test connection and sync from sheet
   const handleTestConnection = async () => {
@@ -620,6 +607,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setFormDifficulty(tpl.difficulty || 'سهل');
     setFormHideDots(!!tpl.hideDots);
     setFormHideImage(!!tpl.hideImage);
+    setFormMaxRetries(
+      typeof tpl.maxRetries === 'number' && !isNaN(tpl.maxRetries)
+        ? tpl.maxRetries
+        : tpl.allowRetry === false
+        ? 0
+        : DEFAULT_MAX_RETRIES
+    );
     setFormSteps(tpl.steps || []);
     setFormStepsData(tpl.stepsData || (tpl.steps ? JSON.stringify(tpl.steps) : ''));
     setIsAddModalOpen(true);
@@ -638,6 +632,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setFormDifficulty('سهل');
     setFormHideDots(false);
     setFormHideImage(false);
+    setFormMaxRetries(DEFAULT_MAX_RETRIES);
     setFormSteps([]);
     setFormStepsData('');
     setIsAddModalOpen(true);
@@ -672,6 +667,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       difficulty: formDifficulty,
       hideDots: formHideDots,
       hideImage: formHideImage,
+      allowRetry: formMaxRetries !== 0,
+      maxRetries: formMaxRetries,
       svgData: editingTemplate?.svgData || '',
       steps: formSteps,
       stepsData: formStepsData || (formSteps.length > 0 ? JSON.stringify(formSteps) : '')
@@ -775,7 +772,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {/* Main Container */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6">
 
-        {/* 3 Tabs Bar: 1. إدارة وتعديل / 2. ورقة الدروس / 3. ربط الشيت */}
+        {/* Tabs Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 gap-3">
           <div className="flex items-center gap-2 overflow-x-auto scrollbar-none pb-1">
             <button
@@ -800,18 +797,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             >
               <Table className="w-4 h-4" />
               <span>ورقة الدروس (جدول الشيت)</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('sheet')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                activeTab === 'sheet'
-                  ? 'bg-amber-500 text-slate-950 shadow-md'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300'
-              }`}
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>ربط Google Sheets</span>
             </button>
 
             <button
@@ -981,6 +966,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-bold border border-slate-700 flex items-center gap-1">
                             <Repeat className="w-2.5 h-2.5" />
                             <span>تكرار: {tpl.repeatCount || 1}</span>
+                          </span>
+                          {/* Retries badge */}
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                            (tpl.maxRetries ?? DEFAULT_MAX_RETRIES) === 0
+                              ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                              : (tpl.maxRetries ?? DEFAULT_MAX_RETRIES) < 0
+                              ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                              : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                          }`}>
+                            {(tpl.maxRetries ?? DEFAULT_MAX_RETRIES) === 0
+                              ? 'منع الإعادة'
+                              : (tpl.maxRetries ?? DEFAULT_MAX_RETRIES) < 0
+                              ? 'إعادة: ∞'
+                              : `إعادة: ${tpl.maxRetries ?? DEFAULT_MAX_RETRIES}`}
                           </span>
                           {/* Steps badge */}
                           {stepsCount > 0 ? (
@@ -1191,144 +1190,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         )}
 
-        {/* ======================= TAB 3: GOOGLE SHEETS SETUP ======================= */}
-        {activeTab === 'sheet' && (
-          <div className="space-y-6">
-
-            {/* Connection Card */}
-            <div className="p-5 sm:p-6 bg-slate-900/90 rounded-2xl border border-slate-800 shadow-xl space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2.5 text-amber-400 font-bold">
-                  <Database className="w-5 h-5" />
-                  <span className="text-base font-ruqaa">ربط ورقة ArabicLessons الأفقية</span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {connectionStatus === 'success' && (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      متصل بالشيت
-                    </span>
-                  )}
-                  {connectionStatus === 'error' && (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      غير متصل
-                    </span>
-                  )}
-                  {connectionStatus === 'idle' && (
-                    <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-800 text-slate-400 border border-slate-700">
-                      جاهز للاختبار
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* URL Input Form */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-300 block">
-                  رابط تطبيق الويب المباشر (Google Apps Script Web App URL):
-                </label>
-                <div className="flex flex-col sm:flex-row items-center gap-2">
-                  <input
-                    type="url"
-                    dir="ltr"
-                    placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
-                    value={sheetUrl}
-                    onChange={(e) => setSheetUrl(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-slate-100 font-mono text-xs focus:outline-hidden focus:border-amber-500 transition-colors"
-                  />
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={isConnecting}
-                    className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-4 h-4 ${isConnecting ? 'animate-spin' : ''}`} />
-                    <span>{isConnecting ? 'جاري الفحص...' : 'فحص ومزامنة'}</span>
-                  </button>
-                </div>
-                {statusMessage && (
-                  <p className={`text-xs mt-1.5 ${connectionStatus === 'success' ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {statusMessage}
-                  </p>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <button
-                  onClick={handleSyncAllToSheet}
-                  disabled={isConnecting || !sheetUrl.trim()}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>رفع وتحديث كافة الدروس الحالية ({templates.length}) في الشيت أفقياً</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Apps Script Guide */}
-            <div className="p-5 sm:p-6 bg-slate-900/80 rounded-2xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2 text-slate-100 font-bold text-sm sm:text-base">
-                  <Info className="w-4 h-4 text-amber-400" />
-                  <span>كود ورقة ArabicLessons الأفقية (Google Apps Script)</span>
-                </div>
-
-                <button
-                  onClick={handleCopyCode}
-                  className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer"
-                >
-                  {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{isCopied ? 'تم النسخ!' : 'نسخ الكود الخلفي'}</span>
-                </button>
-              </div>
-
-              {/* Steps */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-300 leading-relaxed">
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <strong className="text-amber-400 block mb-1">١. العامود A: الموضوع:</strong>
-                  كل صف في الورقة يمثل موضوعاً رئيسياً (مثل: خط النسخ، خط الرقعة).
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <strong className="text-amber-400 block mb-1">٢. ٧ أعمدة لكل درس أفقياً:</strong>
-                  الدرس 1 (B:H)، الدرس 2 (I:O)، الدرس 3 (P:V)... (الفئة، رابط الصورة، عنوان الدرس، نص القراءة، التكرار، المستوى، خطوات الحرف).
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <strong className="text-amber-400 block mb-1">٣. لصق الكود وتفعيل إذن قوقل درايف (مهم جداً):</strong>
-                  في Apps Script، الصق الكود واحفظه (`Ctrl + S`)، ثم اختر من القائمة العلوية دالة <code className="text-emerald-400 font-mono">authorizePermissions</code> واضغط <strong>تشغيل (Run)</strong> مرة واحدة لمنح صلاحيات Google Sheets و Google Drive.
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <strong className="text-amber-400 block mb-1">٤. النشر وتحديث الإصدار على نفس الرابط:</strong>
-                  من زر <strong>نشر &gt; إدارة عمليات النشر</strong> اضغط تعديل واختر <strong>إصدار جديد (New version)</strong> (التنفيذ كـ: أنا، الوصول: أي شخص) ليبقى الرابط يعمل على كل الأجهزة.
-                </div>
-              </div>
-
-              {/* Code Box */}
-              <div className="mt-4 space-y-3">
-                <pre className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 overflow-x-auto max-h-64 scrollbar-thin">
-                  <code>{GOOGLE_APPS_SCRIPT_CODE}</code>
-                </pre>
-
-                <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/25 text-xs space-y-2">
-                  <div className="font-bold text-amber-400">
-                    في حال استمرت رسالة إذن DriveApp.Folder.createFile:
-                  </div>
-                  <p className="text-slate-300 leading-relaxed">
-                    من القائمة اليسرى في محرر Apps Script افتح <strong>إعدادات المشروع (أيقونة الترس ⚙️)</strong> وفعّل خيار <strong>عرض ملف البيان &quot;appsscript.json&quot; في المحرر</strong>، ثم افتح ملف <code className="text-amber-300 font-mono">appsscript.json</code> وأضف سطري <code className="text-emerald-400 font-mono">oauthScopes</code> التاليين بداخله ثم احفظ وشغّل <code className="text-emerald-400 font-mono">authorizePermissions</code> وأعد النشر كإصدار جديد:
-                  </p>
-                  <pre dir="ltr" className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto">{`"oauthScopes": [
-  "https://www.googleapis.com/auth/spreadsheets",
-  "https://www.googleapis.com/auth/drive"
-]`}</pre>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* ======================= TAB 4: WHITEBOARD SETTINGS & BACKGROUNDS ======================= */}
+        {/* ======================= TAB 3: WHITEBOARD SETTINGS & BACKGROUNDS ======================= */}
         {activeTab === 'board' && (
           <div className="space-y-6">
             
@@ -1744,13 +1606,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <span className="leading-relaxed">{arSaveNotice.text}</span>
                 </div>
                 {arSaveNotice.needsScriptUpdate && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('sheet')}
-                    className="shrink-0 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow cursor-pointer"
-                  >
-                    الانتقال لتحديث كود الشيت 📄
-                  </button>
+                  <span className="shrink-0 px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-xs">
+                    تحديث الكود من تبويب «إعدادات ربط Google Sheets» الرئيسي 📄
+                  </span>
                 )}
               </div>
             )}
@@ -2564,14 +2422,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {/* ======================= ADD / EDIT MODAL ======================= */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl text-slate-100 max-h-[92vh] overflow-y-auto">
-            <h2 className="text-base sm:text-lg font-bold text-amber-400 pb-3 border-b border-slate-800 flex items-center gap-2">
-              <Edit3 className="w-5 h-5" />
-              <span>{editingTemplate ? 'تعديل بيانات الدرس' : 'إضافة درس خط عربي جديد'}</span>
-            </h2>
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAddModalOpen(false);
+          }}
+        >
+          <div className="relative w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-3xl shadow-2xl text-slate-100 max-h-[86dvh] flex flex-col overflow-hidden">
+            {/* Sticky Header */}
+            <div className="shrink-0 px-5 sm:px-6 py-4 border-b border-slate-800 bg-slate-900/95 flex items-center justify-between gap-3">
+              <h2 className="text-base sm:text-lg font-bold text-amber-400 flex items-center gap-2">
+                <Edit3 className="w-5 h-5" />
+                <span>{editingTemplate ? 'تعديل بيانات الدرس' : 'إضافة درس خط عربي جديد'}</span>
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="إغلاق"
+                aria-label="إغلاق"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <form onSubmit={handleSaveLesson} className="space-y-4 mt-4 text-xs sm:text-sm">
+            <form onSubmit={handleSaveLesson} className="flex flex-col flex-1 min-h-0 overflow-hidden text-xs sm:text-sm">
+              {/* Scrollable Form Body */}
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 space-y-4">
               
               {/* 1. Topic input */}
               <div>
@@ -2771,6 +2648,99 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </div>
 
+              {/* Max Retries Per Student */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-sky-500/25 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-sky-300">
+                    🔄 عدد محاولات إعادة التمرين بعد تسجيل الدرجة (افتراضياً {DEFAULT_MAX_RETRIES}):
+                  </span>
+                  <span className="text-[11px] font-bold text-amber-300">
+                    {formMaxRetries === 0
+                      ? '🔒 منع الإعادة'
+                      : formMaxRetries < 0
+                      ? '♾️ غير محدود'
+                      : `${formMaxRetries} محاولات لكل طالب`}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormMaxRetries((n) => (n > 0 ? n : DEFAULT_MAX_RETRIES))}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      formMaxRetries > 0
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    🔢 عدد محدد (افتراضي {DEFAULT_MAX_RETRIES})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormMaxRetries(-1)}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      formMaxRetries < 0
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    ♾️ غير محدود
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormMaxRetries(0)}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-bold transition-all cursor-pointer border ${
+                      formMaxRetries === 0
+                        ? 'bg-rose-600 text-white border-rose-500 shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    🔒 منع الإعادة (0)
+                  </button>
+                </div>
+
+                {formMaxRetries > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 px-3 py-2 rounded-xl border border-slate-800">
+                    <span className="text-[11px] font-bold text-slate-300">تعديل العدد:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setFormMaxRetries((n) => Math.max(1, n - 1))}
+                        className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-100 font-black flex items-center justify-center cursor-pointer"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={formMaxRetries}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          setFormMaxRetries(isNaN(v) ? 1 : Math.min(99, Math.max(1, v)));
+                        }}
+                        className="w-14 text-center py-1 rounded-lg border border-slate-700 bg-slate-950 font-black text-xs text-amber-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setFormMaxRetries((n) => Math.min(99, n + 1))}
+                        className="w-7 h-7 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black flex items-center justify-center cursor-pointer"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  {formMaxRetries === 0
+                    ? '✓ مقفول: بعد تسجيل الإجابة يختفي التمرين ولا يُسمح للطالب بإعادته مجدداً.'
+                    : formMaxRetries < 0
+                    ? '✓ مفتوح: يمكن للطالب إعادة التمرين دون حد أقصى من مكتبة الدروس.'
+                    : `✓ محدد (${formMaxRetries}): يُحسب لكل طالب على حدة، وتُغلق الإعادة للطالب بعد ${formMaxRetries} محاولات.`}
+                </p>
+              </div>
+
               {/* 8. Dedicated Step Maker Section inside Add/Edit Modal */}
               <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -2816,6 +2786,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         difficulty: formDifficulty,
                         hideDots: formHideDots,
                         hideImage: formHideImage,
+                        allowRetry: formMaxRetries !== 0,
+                        maxRetries: formMaxRetries,
                         svgData: editingTemplate?.svgData || '',
                         steps: formSteps,
                         stepsData: formStepsData || (formSteps.length > 0 ? JSON.stringify(formSteps) : '')
@@ -2845,8 +2817,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </div>
 
-              {/* Submit / Cancel Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              </div>
+
+              {/* Sticky Footer: Submit / Cancel Buttons */}
+              <div className="shrink-0 flex items-center justify-end gap-2 px-5 sm:px-6 py-3.5 border-t border-slate-800 bg-slate-900/95">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}

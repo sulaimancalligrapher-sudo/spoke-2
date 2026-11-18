@@ -33,6 +33,8 @@ export interface DrawingTemplate {
   difficulty?: LessonDifficulty; // العامود G: المستوى (سهل / متوسط / متقدم)
   hideDots?: boolean;        // إخفاء نقاط البداية الخضراء والنهاية الحمراء
   hideImage?: boolean;       // إخفاء صورة الحرف تماماً (اختبار الذاكرة على سبورة بيضاء)
+  allowRetry?: boolean;      // السماح بإعادة التمرين بعد تسجيل الدرجة
+  maxRetries?: number;       // الحد الأقصى لمحاولات الإعادة بعد تسجيل الدرجة (افتراضياً 3، 0 = منع، -1 = غير محدود)
   slotIndex?: number;        // ترتيب التمرين في الموضوع (1, 2, 3...)
   description?: string;
   svgData?: string;

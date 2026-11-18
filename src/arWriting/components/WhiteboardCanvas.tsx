@@ -81,6 +81,21 @@ interface WhiteboardCanvasProps {
   onToggleFullscreen?: () => void;
   onOpenHelp?: () => void;
   onOpenLibrary?: () => void;
+  onClearTemplate?: () => void;
+  onAnswerSubmitted?: (info: {
+    topic: string;
+    slotIndex: number;
+    category: string;
+    title: string;
+    imageUrl?: string;
+    score: number;
+    details: string;
+    completionStatus?: string;
+  }) => void;
+  retryBanner?: { nonce: number; message: string } | null;
+  onDismissRetryBanner?: () => void;
+  canRetryAfterSubmit?: boolean;
+  onRetryAfterSubmit?: () => boolean;
   onClearSideEffects?: () => void;
   onNextRepetition?: () => void;
   onResetRepetition?: () => void;
@@ -147,6 +162,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   onToggleFullscreen,
   onOpenHelp,
   onOpenLibrary,
+  onClearTemplate,
+  onAnswerSubmitted,
+  retryBanner,
+  onDismissRetryBanner,
+  canRetryAfterSubmit,
+  onRetryAfterSubmit,
   onClearSideEffects,
   onNextRepetition,
   onResetRepetition,
@@ -2169,6 +2190,16 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       });
 
       if (res.success) {
+        onAnswerSubmitted?.({
+          topic: template.topic || 'خط النسخ',
+          slotIndex: template.slotIndex || 1,
+          category: template.category || 'حروف',
+          title: template.title,
+          imageUrl: res.imageUrl || '',
+          score: evaluationModal.totalScore,
+          details,
+          completionStatus: res.completionStatus,
+        });
         if (res.driveError) {
           audioService.playErrorSound();
           setSubmitAnswerResult({
@@ -3000,6 +3031,16 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     if (onClearSideEffects) onClearSideEffects();
   }, [onAccuracyUpdate, onClearSideEffects, onResetRepetition, resetStrokeStats]);
 
+  const handleCloseEvaluationAndOpenLibrary = useCallback(() => {
+    performFullClear(false);
+    if (onClearTemplate) {
+      onClearTemplate();
+    }
+    if (onOpenLibrary) {
+      onOpenLibrary();
+    }
+  }, [performFullClear, onClearTemplate, onOpenLibrary]);
+
   // Imperative actions exposed to parent component
   useImperativeHandle(ref, () => ({
     clearCanvas: () => {
@@ -3260,17 +3301,17 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       )}
 
       {/* Layer 3: Unified Single-Row Top Bar (الشريط الموحد المدمج على صف واحد - رفيع وملتصق بالأعلى عند التدوير الأفقي للجوال) */}
-      <div className={`absolute z-30 pointer-events-none flex justify-center ${
+      <div className={`absolute z-20 pointer-events-none flex flex-col items-center gap-1.5 ${
         isMobileLandscape ? 'top-0 inset-x-0' : 'top-2 sm:top-3 inset-x-2 sm:inset-x-4'
       }`}>
         <div className={`pointer-events-auto flex items-center justify-between w-full bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl text-white ${
           isMobileLandscape
             ? 'px-2.5 py-0.5 rounded-b-xl border-t-0 gap-1.5'
-            : 'max-w-5xl px-3 sm:px-4 py-1.5 sm:py-2 rounded-2xl gap-2'
+            : 'max-w-5xl px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-2xl gap-1.5 sm:gap-2'
         }`}>
           
-          {/* Right: Topic / Lesson Title & Repetition Badge (الموضوع والتكرار فقط بدون المستوى) */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Right: Topic / Lesson Title & Active Repetition Badge (hidden before start and after result) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {isARMode && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-[10px] sm:text-xs shadow-md animate-pulse">
                 <Camera className="w-3 h-3" />
@@ -3278,7 +3319,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               </span>
             )}
             {template ? (
-              <div className="flex items-center gap-1.5 sm:gap-2 max-w-[100px] xs:max-w-[135px] sm:max-w-[210px] md:max-w-[260px] shrink-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 max-w-[115px] xs:max-w-[150px] sm:max-w-[220px] md:max-w-[270px] shrink-0">
                 {(() => {
                   const words = (template.title || '').trim().split(/\s+/);
                   const isLong = words.length > 2 || (template.title || '').length > 16;
@@ -3286,7 +3327,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   if (isLong) {
                     return (
                       <div
-                        className="overflow-hidden w-[85px] xs:w-[110px] sm:w-[160px] md:w-[200px] relative select-none"
+                        className="overflow-hidden w-[95px] xs:w-[125px] sm:w-[165px] md:w-[210px] relative select-none"
                         title={template.title}
                         dir="rtl"
                       >
@@ -3302,7 +3343,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
                   return (
                     <span
-                      className="font-bold text-xs sm:text-sm text-slate-100 truncate text-right block max-w-[85px] xs:max-w-[110px] sm:max-w-none"
+                      className="font-bold text-xs sm:text-sm text-slate-100 truncate text-right block max-w-[95px] xs:max-w-[125px] sm:max-w-none"
                       title={template.title}
                     >
                       {template.title}
@@ -3310,8 +3351,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   );
                 })()}
 
-                {template.repeatCount && template.repeatCount > 1 ? (
-                  <span className="text-[10px] sm:text-[11px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/30 px-1 sm:px-2 py-0.5 rounded-lg flex items-center gap-0.5 sm:gap-1 shrink-0">
+                {(isLessonStarted || pendingNextRepScore !== null) && !evaluationModal && template.repeatCount && template.repeatCount > 1 ? (
+                  <span className="text-[10px] sm:text-[11px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/30 px-1.5 sm:px-2 py-0.5 rounded-lg flex items-center gap-0.5 sm:gap-1 shrink-0">
                     <Repeat className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                     <span className="sm:hidden">{currentRepetition || 1}/{template.repeatCount}</span>
                     <span className="hidden sm:inline">تكرار {currentRepetition || 1} / {template.repeatCount}</span>
@@ -3331,9 +3372,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
             )}
           </div>
 
-          {/* Center: Inline Next-Repetition Prompt OR In-Bar Smart Alert OR Step Guidance */}
-          <div className="flex items-center justify-center flex-1 mx-1 sm:mx-2 overflow-hidden">
-            {pendingNextRepScore !== null && template ? (
+          {/* Center: Clean 3-State Lifecycle — (ابدأ) -> [الخطوات/التكرار + تقييم] -> [إغلاق] */}
+          <div className="flex items-center justify-center flex-1 mx-1 sm:mx-2 min-w-0 overflow-hidden">
+            {pendingNextRepScore !== null && template && !evaluationModal ? (
               <div className="flex items-center gap-1.5 sm:gap-2.5 animate-in fade-in zoom-in-95 duration-150">
                 <span
                   className={`px-2 py-0.5 rounded-lg font-mono font-bold text-xs sm:text-sm border shrink-0 ${
@@ -3346,22 +3387,19 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 >
                   {pendingNextRepScore}%
                 </span>
-                <span className="text-[11px] sm:text-xs font-bold text-slate-200 whitespace-nowrap">
-                  <span className="sm:hidden">ابدأ الرسمة التالية</span>
-                  <span className="hidden sm:inline">
-                    ابدأ الرسمة {getArabicDrawingOrdinal((currentRepetition || 1) + 1)}
-                  </span>
+                <span className="hidden sm:inline text-xs font-bold text-slate-200 whitespace-nowrap">
+                  ابدأ الرسمة {getArabicDrawingOrdinal((currentRepetition || 1) + 1)}
                 </span>
                 <button
                   type="button"
                   onClick={handleStartNextRepetition}
-                  className="px-2.5 sm:px-3.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 animate-pulse"
+                  className="px-3.5 sm:px-4 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 animate-pulse"
                   title="بدء الرسمة التالية"
                 >
                   ( ابدأ )
                 </button>
               </div>
-            ) : stepAlert ? (
+            ) : stepAlert && !evaluationModal ? (
               <div
                 className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl text-xs font-bold animate-in fade-in zoom-in-95 duration-150 truncate ${
                   stepAlert.type === 'error'
@@ -3377,58 +3415,39 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <span className="truncate">{stepAlert.message}</span>
               </div>
             ) : template ? (
-              <div className="flex items-center gap-1.5 sm:gap-2.5">
-                {/* Lesson Start Button: strictly hidden while evaluationModal exists */}
-                {!isLessonStarted && !evaluationModal && (
+              <div className="flex items-center justify-center gap-1.5 sm:gap-2.5">
+                {/* STATE 3: Result Shown (either sidebar open or minimized/closed) -> Show ONLY prominent 'إغلاق' button */}
+                {evaluationModal ? (
+                  <button
+                    type="button"
+                    onClick={handleCloseEvaluationAndOpenLibrary}
+                    className="px-4 sm:px-6 py-1 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                    title="إغلاق ومسح السبورة والعودة لقائمة الدروس"
+                  >
+                    إغلاق
+                  </button>
+                ) : !isLessonStarted ? (
+                  /* STATE 1: Before Clicking Start -> Clear prominent '( ابدأ )' without cluttering steps or repeat */
                   <button
                     type="button"
                     onClick={handleStartLesson}
-                    className="px-2.5 sm:px-3.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 animate-pulse"
+                    className="px-4 sm:px-6 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 animate-pulse"
                     title="بدء التمرين"
                   >
                     ( ابدأ )
                   </button>
-                )}
-
-                {/* Re-open Result Button if student minimized/closed evaluation panel */}
-                {evaluationModal && !evaluationModal.isOpen && (
-                  <button
-                    type="button"
-                    onClick={() => setEvaluationModal(prev => prev ? { ...prev, isOpen: true } : null)}
-                    className="px-2.5 sm:px-3 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0"
-                    title="إظهار نافذة التقييم"
-                  >
-                    <Award className="w-3.5 h-3.5" />
-                    <span>النتيجة {evaluationModal.totalScore}%</span>
-                  </button>
-                )}
-
-                {/* Challenge Modes (hideImage or hideDots) or No-Steps Templates */}
-                {(template.hideImage || template.hideDots || !template.steps || template.steps.length === 0) ? (
+                ) : (template.hideImage || template.hideDots || !template.steps || template.steps.length === 0) ? (
+                  /* STATE 2A: Active Normal / Repetition / Challenge Drawing -> Clean roomy 'تقييم' button without icon */
                   <>
-                    {isLessonStarted && !evaluationModal ? (
-                      <button
-                        type="button"
-                        onClick={handleFinishChallengeEvaluation}
-                        className="px-2.5 sm:px-3.5 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1"
-                        title="إنهاء الرسم وعرض التقييم"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        <span>
-                          {template.hideImage ? '( تقييم رسمة الذاكرة 🏆 )' : '( إنهاء وتقييم )'}
-                        </span>
-                      </button>
-                    ) : !evaluationModal ? (
-                      <span className="hidden sm:inline text-xs font-semibold text-amber-300/90 whitespace-nowrap">
-                        {template.hideImage
-                          ? '🧠 تحدي الذاكرة (سبورة بيضاء)'
-                          : template.hideDots
-                          ? '🎯 تحدي بدون مؤشرات'
-                          : '✍️ انقر ( ابدأ ) للرسم'}
-                      </span>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={handleFinishChallengeEvaluation}
+                      className="px-4 sm:px-6 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
+                      title="تقييم الرسم وعرض النتيجة"
+                    >
+                      تقييم
+                    </button>
 
-                    {/* Reset Challenge Button */}
                     <button
                       type="button"
                       onClick={() => performFullClear(false)}
@@ -3439,9 +3458,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                     </button>
                   </>
                 ) : (
-                  /* Standard Step-by-Step Guided Mode */
+                  /* STATE 2B: Active Step-by-Step Guided Mode -> Show step count & controls */
                   <>
-                    {/* Step Number Only: '1 من 3' on mobile to save space, 'الخطوة 1 من 3' on desktop */}
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-amber-400 font-bold text-xs sm:text-sm whitespace-nowrap">
                         <span className="sm:hidden">{currentStepIndex + 1} من {template.steps.length}</span>
@@ -3449,7 +3467,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                       </span>
                     </div>
 
-                    {/* Step Progress Dots */}
                     <div className="hidden sm:flex items-center gap-1">
                       {template.steps.map((_, idx) => (
                         <div
@@ -3465,14 +3482,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                       ))}
                     </div>
 
-                    {/* Voice Guidance Button (hidden on mobile to free space for ( ابدأ )) */}
                     <button
                       type="button"
                       onClick={async () => {
                         await audioService.unlockAudio();
-                        if (!evaluationModal) {
-                          setIsLessonStarted(true);
-                        }
                         if (template.steps && template.steps[currentStepIndex]) {
                           const prompt = getStepAudioPrompt(template.steps[currentStepIndex]);
                           audioService.speakArabic(prompt);
@@ -3484,7 +3497,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                       <Volume2 className="w-3.5 h-3.5" />
                     </button>
 
-                    {/* Reset Step Progress Button */}
                     <button
                       type="button"
                       onClick={() => performFullClear(false)}
@@ -3592,11 +3604,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
             )}
           </div>
         </div>
+
+        {/* Special Student Retry Notice Banner */}
+        {retryBanner && (
+          <div className="pointer-events-auto max-w-2xl px-3.5 py-1.5 rounded-xl bg-amber-500/95 text-slate-950 font-bold text-xs shadow-lg border border-amber-300 flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-150">
+            <span className="leading-snug">{retryBanner.message}</span>
+            {onDismissRetryBanner && (
+              <button
+                type="button"
+                onClick={onDismissRetryBanner}
+                className="p-0.5 rounded hover:bg-slate-950/15 cursor-pointer shrink-0"
+                aria-label="إغلاق"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Floating Template Move / Scale Control Popover */}
       {isTransformPopoverOpen && template && (
-        <div className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} left-2 sm:left-4 z-40 w-[238px] bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-2xl p-3 shadow-2xl text-slate-100 animate-in fade-in zoom-in-95 duration-150`}>
+        <div className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} left-2 sm:left-4 z-[25] w-[238px] bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-2xl p-3 shadow-2xl text-slate-100 animate-in fade-in zoom-in-95 duration-150`}>
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800">
             <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
               <Move className="w-3.5 h-3.5" />
@@ -3718,7 +3747,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
       {/* Floating Comparison Bar when inspecting Ghost Overlay outside modal */}
       {template?.hideImage && showGhostOverlay && !evaluationModal?.isOpen && (
-        <div className="absolute bottom-4 inset-x-0 z-30 flex justify-center pointer-events-none px-4">
+        <div className="absolute bottom-4 inset-x-0 z-20 flex justify-center pointer-events-none px-4">
           <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/95 border border-amber-500/40 shadow-xl text-xs">
             <span className="text-amber-300 font-bold">👻 مقارنة الظل الذهبي للحرف</span>
             <button
@@ -3745,7 +3774,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         <>
           {/* Corner 10-Star Honor Widget (opposite side of sidebar so it never collides) */}
           <div
-            className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} z-30 pointer-events-auto flex flex-wrap lg:flex-nowrap items-center justify-center max-w-[146px] lg:max-w-none gap-0.5 lg:gap-1 px-2 py-1 lg:px-2.5 lg:py-1.5 rounded-2xl bg-slate-900/90 border border-amber-500/40 shadow-xl ${
+            className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} z-20 pointer-events-auto flex flex-wrap lg:flex-nowrap items-center justify-center max-w-[146px] lg:max-w-none gap-0.5 lg:gap-1 px-2 py-1 lg:px-2.5 lg:py-1.5 rounded-2xl bg-slate-900/90 border border-amber-500/40 shadow-xl ${
               evalSidebarSide === 'left' ? 'right-2 sm:right-4' : 'left-2 sm:left-4'
             }`}
           >
@@ -3764,7 +3793,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
           {/* Bottom Diagnostic Legend Strip (hidden for freehand mode since there is no reference path error) */}
           {evaluationModal.evalMode !== 'freehand' && (
-            <div className="absolute bottom-2.5 inset-x-0 z-30 flex justify-center pointer-events-none px-2">
+            <div className="absolute bottom-2.5 inset-x-0 z-20 flex justify-center pointer-events-none px-2">
               <div className="pointer-events-auto flex items-center gap-2 sm:gap-3 px-2.5 py-1 rounded-xl bg-slate-900/88 border border-slate-700/80 text-[10px] sm:text-[11px] text-slate-200 shadow-lg">
                 {showDiagnosticColors && (
                   <div className="flex items-center gap-2 sm:gap-2.5">
@@ -3799,7 +3828,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       {/* Layer 4: Zero-Blur Slim Vertical Results Sidebar (نافذة نتائج نحيفة بدون ضباب - للهواتف والتابليت < lg، كاملة لسطح المكتب lg+) */}
       {evaluationModal && evaluationModal.isOpen && (
         <div
-          className={`absolute inset-y-0 z-40 pointer-events-none flex items-center p-1.5 sm:p-2.5 lg:p-3 animate-in fade-in duration-200 ${
+          className={`absolute inset-y-0 z-[25] pointer-events-none flex items-center p-1.5 sm:p-2.5 lg:p-3 animate-in fade-in duration-200 ${
             evalSidebarSide === 'left' ? 'left-0 justify-end' : 'right-0 justify-start'
           }`}
         >
@@ -3954,17 +3983,39 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
               {/* Bottom Action Buttons: Vertically stacked (Reset above Submit), icon-only on mobile & tablet (< lg) */}
               <div className="flex flex-col gap-1.5">
-                {/* 7. Reset Exercise Button (إعادة التمرين) */}
-                <button
-                  type="button"
-                  onClick={() => performFullClear(false)}
-                  title="إعادة التمرين"
-                  aria-label="إعادة التمرين"
-                  className="w-full py-2 px-1.5 lg:px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <RotateCcw className="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0" />
-                  <span className="hidden lg:inline">إعادة التمرين</span>
-                </button>
+                {/* 7. Reset Exercise Button (إعادة التمرين) — enforces maxRetries once grade is submitted */}
+                {(() => {
+                  const isLockedPostSubmit = Boolean(submitAnswerResult?.success) && canRetryAfterSubmit === false;
+                  return (
+                    <button
+                      type="button"
+                      disabled={isLockedPostSubmit}
+                      onClick={() => {
+                        if (submitAnswerResult?.success && onRetryAfterSubmit) {
+                          const ok = onRetryAfterSubmit();
+                          if (!ok) return;
+                        }
+                        performFullClear(false);
+                      }}
+                      title={isLockedPostSubmit ? 'وصلت للحد الأقصى لمحاولات الإعادة' : 'إعادة التمرين'}
+                      aria-label={isLockedPostSubmit ? 'وصلت للحد الأقصى لمحاولات الإعادة' : 'إعادة التمرين'}
+                      className={`w-full py-2 px-1.5 lg:px-2 rounded-xl font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all ${
+                        isLockedPostSubmit
+                          ? 'bg-slate-800/60 text-slate-500 border border-slate-700/60 cursor-not-allowed'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer'
+                      }`}
+                    >
+                      {isLockedPostSubmit ? (
+                        <Lock className="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0" />
+                      ) : (
+                        <RotateCcw className="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0" />
+                      )}
+                      <span className="hidden lg:inline">
+                        {isLockedPostSubmit ? 'مقفول (انتهت الإعادة)' : 'إعادة التمرين'}
+                      </span>
+                    </button>
+                  );
+                })()}
 
                 {/* 8. Submit Answer Button (تسجيل الإجابة) */}
                 <button
@@ -4056,7 +4107,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         return (
           <div
             ref={airCursorDomRef}
-            className="absolute z-30 pointer-events-none"
+            className="absolute z-15 pointer-events-none"
             style={{
               display: isARMode && active ? 'block' : 'none',
               left: lastAirCursorPosRef.current ? `${lastAirCursorPosRef.current.x * 100}%` : '50%',

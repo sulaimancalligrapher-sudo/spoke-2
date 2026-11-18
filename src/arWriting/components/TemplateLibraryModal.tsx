@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DrawingTemplate } from '../types/drawing';
+import { StudentRegistrant, WritingHistoryItem } from '../../types';
+import { getRetryStatus } from '../../utils/retryLimit';
 import { audioService } from '../services/audioService';
 import { formatDirectImageUrl } from '../utils/urlHelper';
 import {
@@ -10,16 +12,48 @@ import {
   LayoutList,
   LayoutGrid,
   Repeat,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  Lock,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface TemplateLibraryModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedTemplate: DrawingTemplate | null;
-  onSelectTemplate: (template: DrawingTemplate) => void;
+  onSelectTemplate: (template: DrawingTemplate, isRetry?: boolean) => void;
   onAddCustomTemplate?: (template: DrawingTemplate) => void;
   templates?: DrawingTemplate[];
+  writingHistory?: WritingHistoryItem[];
+  currentStudent?: StudentRegistrant | null;
+}
+
+export function buildWritingRetryKey(tpl: DrawingTemplate): string {
+  const topic = (tpl.topic || 'خط النسخ').trim();
+  const title = (tpl.title || '').trim();
+  return `${topic}::${title || `slot-${tpl.slotIndex || 1}`}`;
+}
+
+export function findWritingCompletedScore(
+  tpl: DrawingTemplate,
+  writingHistory: WritingHistoryItem[] = []
+): number | undefined {
+  if (!writingHistory.length) return undefined;
+  const cleanTopic = (tpl.topic || 'خط النسخ').trim();
+  const cleanTitle = (tpl.title || '').trim();
+  const record = writingHistory.find((h) => (h.topic || '').trim() === cleanTopic);
+  if (!record || !Array.isArray(record.exercises)) return undefined;
+
+  const found = record.exercises.find((ex) => {
+    const exTitle = (ex.title || '').trim();
+    if (cleanTitle && exTitle && exTitle === cleanTitle) return true;
+    if (tpl.slotIndex && ex.slotIndex === tpl.slotIndex && (!exTitle || !cleanTitle)) return true;
+    return false;
+  });
+  return found ? found.score : undefined;
 }
 
 export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
@@ -28,12 +62,15 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
   selectedTemplate,
   onSelectTemplate,
   templates = [],
+  writingHistory = [],
+  currentStudent = null,
 }) => {
   const allTemplates = templates || [];
 
   // View mode: 'list' (default as requested) or 'grid' (cards)
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCompleted, setShowCompleted] = useState<boolean>(false);
 
   // Extract unique topics
   const topics = Array.from(
@@ -74,11 +111,27 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
     }
   }, [selectedTopic, categoriesInTopic, selectedCategory]);
 
+  // Precompute completion scores for templates in the selected topic
+  const scoresByTemplateId = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const tpl of lessonsInTopic) {
+      const s = findWritingCompletedScore(tpl, writingHistory);
+      if (s !== undefined) {
+        map[tpl.id] = s;
+      }
+    }
+    return map;
+  }, [lessonsInTopic, writingHistory]);
+
   if (!isOpen) return null;
 
-  // Filter lessons in selected topic and category
-  const filteredLessons = lessonsInTopic
-    .filter(tpl => (tpl.category || 'حروف').trim() === selectedCategory)
+  const lessonsInCategory = lessonsInTopic.filter(
+    tpl => (tpl.category || 'حروف').trim() === selectedCategory
+  );
+
+  // Filter lessons in selected topic and category (hiding completed unless showCompleted is toggled on)
+  const filteredLessons = lessonsInCategory
+    .filter(tpl => showCompleted || scoresByTemplateId[tpl.id] === undefined)
     .filter(tpl => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -90,8 +143,14 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
       );
     });
 
-  const handleChooseLesson = (item: DrawingTemplate) => {
-    onSelectTemplate(item);
+  const hasHiddenCompleted =
+    !showCompleted &&
+    !searchQuery.trim() &&
+    lessonsInCategory.length > 0 &&
+    filteredLessons.length === 0;
+
+  const handleChooseLesson = (item: DrawingTemplate, isRetry = false) => {
+    onSelectTemplate(item, isRetry);
     onClose();
   };
 
@@ -145,20 +204,42 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
           </div>
         </div>
 
-        {/* 1. Topics Dropdown & Search Bar */}
+        {/* 1. Topics Dropdown + Eye Toggle & Search Bar */}
         <div className="p-4 sm:px-6 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          {/* Topics Dropdown */}
-          <div className="flex items-center gap-2.5 flex-1">
+          {/* Topics Dropdown + Show/Hide Completed Eye Toggle */}
+          <div className="flex items-center gap-2 flex-1">
             <span className="text-xs font-bold text-amber-400 shrink-0">موضوع الدرس:</span>
             <select
               value={selectedTopic}
               onChange={(e) => setSelectedTopic(e.target.value)}
-              className="w-full max-w-xs px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs sm:text-sm text-slate-100 font-bold focus:outline-hidden focus:border-amber-500 cursor-pointer"
+              className="flex-1 max-w-xs px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs sm:text-sm text-slate-100 font-bold focus:outline-hidden focus:border-amber-500 cursor-pointer"
             >
               {topics.map(top => (
                 <option key={top} value={top}>{top}</option>
               ))}
             </select>
+
+            <button
+              type="button"
+              onClick={() => setShowCompleted((prev) => !prev)}
+              title={
+                showCompleted
+                  ? 'إخفاء الدروس التي تم تسجيل إجابتها'
+                  : 'إظهار الدروس التي تم تسجيل إجابتها'
+              }
+              aria-label={
+                showCompleted
+                  ? 'إخفاء الدروس التي تم تسجيل إجابتها'
+                  : 'إظهار الدروس التي تم تسجيل إجابتها'
+              }
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                showCompleted
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
+              }`}
+            >
+              {showCompleted ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
           </div>
 
           {/* Search Box */}
@@ -178,7 +259,10 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
         <div className="px-4 sm:px-6 py-2.5 bg-slate-900/60 border-b border-slate-800 flex items-center gap-2 overflow-x-auto scrollbar-none">
           <span className="text-xs text-slate-400 font-semibold ml-1 shrink-0">الفئات:</span>
           {categoriesInTopic.map(cat => {
-            const count = lessonsInTopic.filter(l => (l.category || 'حروف').trim() === cat).length;
+            const inCat = lessonsInTopic.filter(l => (l.category || 'حروف').trim() === cat);
+            const visibleCount = showCompleted
+              ? inCat.length
+              : inCat.filter(l => scoresByTemplateId[l.id] === undefined).length;
             const isCatActive = selectedCategory === cat;
             return (
               <button
@@ -191,7 +275,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                 }`}
               >
                 <span>{cat}</span>
-                <span className="mr-1.5 text-[10px] opacity-75">({count})</span>
+                <span className="mr-1.5 text-[10px] opacity-75">({visibleCount})</span>
               </button>
             );
           })}
@@ -205,14 +289,27 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
               {filteredLessons.map(item => {
                 const isSelected = selectedTemplate?.id === item.id;
                 const directUrl = formatDirectImageUrl(item.imageUrl);
+                const score = scoresByTemplateId[item.id];
+                const isCompleted = score !== undefined;
+                const retryKey = buildWritingRetryKey(item);
+                const retryStatus = getRetryStatus('writing', currentStudent, retryKey, item);
+                const canRetry = retryStatus.canRetry;
+
                 return (
                   <div
                     key={item.id}
-                    onClick={() => handleChooseLesson(item)}
-                    className={`group p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.2)]'
-                        : 'bg-slate-900/70 hover:bg-slate-800 border-slate-800 hover:border-slate-700'
+                    onClick={() => {
+                      if (isCompleted && !canRetry) return;
+                      handleChooseLesson(item, isCompleted && canRetry);
+                    }}
+                    className={`group p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                      isCompleted && !canRetry
+                        ? 'bg-emerald-950/30 border-emerald-500/30 opacity-90 cursor-default'
+                        : isCompleted
+                        ? 'bg-emerald-950/35 hover:bg-emerald-950/50 border-emerald-500/40 cursor-pointer'
+                        : isSelected
+                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.2)] cursor-pointer'
+                        : 'bg-slate-900/70 hover:bg-slate-800 border-slate-800 hover:border-slate-700 cursor-pointer'
                     }`}
                   >
                     {/* Right side: Thumbnail + Title & Info (RTL) */}
@@ -241,13 +338,26 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
 
                       {/* Title & Description */}
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-bold text-sm text-slate-100 group-hover:text-amber-400 transition-colors truncate">
                             {item.title}
                           </h3>
                           {isSelected && (
                             <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30">
                               محدد حالياً
+                            </span>
+                          )}
+                          {isCompleted && (
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                                score >= 85
+                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                  : score >= 70
+                                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              }`}
+                            >
+                              {score}%
                             </span>
                           )}
                         </div>
@@ -257,7 +367,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Left side: Badges & Audio Pronounce */}
+                    {/* Left side: Badges, Retry / Lock & Audio Pronounce */}
                     <div className="flex items-center gap-2 shrink-0">
                       {/* Repeat Count */}
                       <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-amber-400 text-[11px] font-bold">
@@ -270,8 +380,62 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                         {item.difficulty || 'سهل'}
                       </span>
 
+                      {isCompleted && !retryStatus.isUnlimited && retryStatus.maxRetries > 0 && (
+                        <span
+                          className={`px-2 py-1 rounded-lg text-[10px] font-mono font-bold border ${
+                            canRetry
+                              ? 'bg-slate-950 text-slate-300 border-slate-700'
+                              : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                          }`}
+                          title={
+                            canRetry
+                              ? `متبقٍ ${retryStatus.remainingRetries} من ${retryStatus.maxRetries}`
+                              : `وصلت للحد الأقصى لمحاولات الإعادة (${retryStatus.usedRetries} من ${retryStatus.maxRetries})`
+                          }
+                        >
+                          {canRetry
+                            ? `${retryStatus.remainingRetries}/${retryStatus.maxRetries}`
+                            : `${retryStatus.usedRetries}/${retryStatus.maxRetries}`}
+                        </span>
+                      )}
+
+                      {isCompleted && (
+                        canRetry ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleChooseLesson(item, true);
+                            }}
+                            title={
+                              retryStatus.isUnlimited
+                                ? 'إعادة التمرين'
+                                : `إعادة التمرين (متبقٍ ${retryStatus.remainingRetries} من ${retryStatus.maxRetries})`
+                            }
+                            aria-label="إعادة التمرين"
+                            className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 transition-all cursor-pointer"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <span
+                            onClick={(e) => e.stopPropagation()}
+                            title={
+                              retryStatus.maxRetries > 0
+                                ? `وصلت للحد الأقصى لمحاولات الإعادة (${retryStatus.usedRetries} من ${retryStatus.maxRetries})`
+                                : 'الإعادة مغلقة لهذا الدرس'
+                            }
+                            aria-label="الإعادة مغلقة"
+                            className="p-2 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 flex items-center justify-center"
+                          >
+                            <Lock className="w-4 h-4" />
+                          </span>
+                        )
+                      )}
+
                       {/* Listen button */}
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           audioService.speakArabic(item.arabicAudioText || item.title);
@@ -292,14 +456,27 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
               {filteredLessons.map(item => {
                 const isSelected = selectedTemplate?.id === item.id;
                 const directUrl = formatDirectImageUrl(item.imageUrl);
+                const score = scoresByTemplateId[item.id];
+                const isCompleted = score !== undefined;
+                const retryKey = buildWritingRetryKey(item);
+                const retryStatus = getRetryStatus('writing', currentStudent, retryKey, item);
+                const canRetry = retryStatus.canRetry;
+
                 return (
                   <div
                     key={item.id}
-                    onClick={() => handleChooseLesson(item)}
-                    className={`group relative p-3 sm:p-4 rounded-2xl border transition-all cursor-pointer flex flex-col items-center justify-between text-center ${
-                      isSelected
-                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
-                        : 'bg-slate-800/50 hover:bg-slate-800 border-slate-700/60 hover:border-slate-600'
+                    onClick={() => {
+                      if (isCompleted && !canRetry) return;
+                      handleChooseLesson(item, isCompleted && canRetry);
+                    }}
+                    className={`group relative p-3 sm:p-4 rounded-2xl border transition-all flex flex-col items-center justify-between text-center ${
+                      isCompleted && !canRetry
+                        ? 'bg-emerald-950/30 border-emerald-500/30 opacity-90 cursor-default'
+                        : isCompleted
+                        ? 'bg-emerald-950/35 hover:bg-emerald-950/50 border-emerald-500/40 cursor-pointer'
+                        : isSelected
+                        ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.25)] cursor-pointer'
+                        : 'bg-slate-800/50 hover:bg-slate-800 border-slate-700/60 hover:border-slate-600 cursor-pointer'
                     }`}
                   >
                     {/* Thumbnail Preview on Crisp White Background */}
@@ -329,8 +506,16 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                         <span>{item.repeatCount || 1}</span>
                       </div>
 
+                      {/* Completed Score Badge */}
+                      {isCompleted && (
+                        <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold shadow">
+                          {score}%
+                        </div>
+                      )}
+
                       {/* Audio Button */}
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           audioService.speakArabic(item.arabicAudioText || item.title);
@@ -352,17 +537,60 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                       </p>
                     </div>
 
-                    {/* Difficulty Badge */}
-                    <span className="mt-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 text-amber-400 border border-slate-700">
-                      {item.difficulty || 'سهل'}
-                    </span>
+                    {/* Difficulty & Retry Footer */}
+                    <div className="mt-2 flex items-center justify-center gap-1.5 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 text-amber-400 border border-slate-700">
+                        {item.difficulty || 'سهل'}
+                      </span>
+
+                      {isCompleted && !retryStatus.isUnlimited && retryStatus.maxRetries > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-900 text-slate-300 border border-slate-700">
+                          {canRetry
+                            ? `${retryStatus.remainingRetries}/${retryStatus.maxRetries}`
+                            : `${retryStatus.usedRetries}/${retryStatus.maxRetries}`}
+                        </span>
+                      )}
+
+                      {isCompleted && (
+                        canRetry ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleChooseLesson(item, true);
+                            }}
+                            title="إعادة التمرين"
+                            className="p-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 cursor-pointer"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </button>
+                        ) : (
+                          <span
+                            onClick={(e) => e.stopPropagation()}
+                            title="الإعادة مغلقة"
+                            className="p-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700"
+                          >
+                            <Lock className="w-3 h-3" />
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
 
-          {filteredLessons.length === 0 && (
+          {hasHiddenCompleted ? (
+            <div className="p-10 text-center">
+              <div className="inline-flex flex-col items-center gap-2 max-w-md mx-auto p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200">
+                <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+                <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                  أتممت جميع دروس هذه الفئة! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.
+                </p>
+              </div>
+            </div>
+          ) : filteredLessons.length === 0 && (
             <div className="p-12 text-center text-slate-400 bg-slate-950/40 rounded-2xl border border-slate-800 space-y-2">
               <BookOpen className="w-8 h-8 mx-auto text-slate-500" />
               <p className="text-sm font-bold text-slate-300">

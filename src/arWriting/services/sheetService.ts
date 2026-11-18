@@ -105,6 +105,8 @@ export function parseDifficultyField(raw: any): {
   difficulty: LessonDifficulty;
   hideDots: boolean;
   hideImage: boolean;
+  maxRetries: number;
+  allowRetry: boolean;
 } {
   const str = String(raw || 'سهل').trim();
   const hideDots = str.includes('بدون_نقاط') || str.includes('إخفاء_النقاط') || str.includes('no_dots');
@@ -119,13 +121,62 @@ export function parseDifficultyField(raw: any): {
     baseDifficulty = 'سهل';
   }
 
-  return { difficulty: baseDifficulty, hideDots, hideImage };
+  let maxRetries = 3;
+  if (
+    str.includes('منع_الإعادة') ||
+    str.includes('منع الإعادة') ||
+    str.includes('منع_الاعادة') ||
+    str.includes('no_retry')
+  ) {
+    maxRetries = 0;
+  } else if (
+    str.includes('إعادة_مفتوحة') ||
+    str.includes('غير_محدود') ||
+    str.includes('غير محدود') ||
+    str.includes('unlimited')
+  ) {
+    maxRetries = -1;
+  } else {
+    const m = str.match(/(?:إعادة|اعادة|محاولات|retry)\s*[:=]?\s*(\d+)/i);
+    if (m) {
+      const parsed = parseInt(m[1], 10);
+      if (!isNaN(parsed)) {
+        maxRetries = Math.max(0, parsed);
+      }
+    }
+  }
+
+  return {
+    difficulty: baseDifficulty,
+    hideDots,
+    hideImage,
+    maxRetries,
+    allowRetry: maxRetries !== 0,
+  };
 }
 
-export function formatDifficultyField(difficulty: LessonDifficulty, hideDots?: boolean, hideImage?: boolean): string {
+export function formatDifficultyField(
+  difficulty: LessonDifficulty,
+  hideDots?: boolean,
+  hideImage?: boolean,
+  maxRetries?: number
+): string {
   const parts: string[] = [difficulty || 'سهل'];
   if (hideDots) parts.push('بدون_نقاط');
   if (hideImage) parts.push('بدون_صورة');
+  const effRetries =
+    typeof maxRetries === 'number' && !isNaN(maxRetries)
+      ? maxRetries < 0
+        ? -1
+        : Math.floor(maxRetries)
+      : 3;
+  if (effRetries === 0) {
+    parts.push('منع_الإعادة');
+  } else if (effRetries < 0) {
+    parts.push('إعادة_مفتوحة');
+  } else {
+    parts.push(`إعادة:${effRetries}`);
+  }
   return parts.join('|');
 }
 
@@ -317,6 +368,14 @@ class SheetService {
       }
 
       const diffObj = parseDifficultyField(item.difficulty);
+      const effRetries =
+        typeof item.maxRetries === 'number' && !isNaN(item.maxRetries)
+          ? item.maxRetries < 0
+            ? -1
+            : Math.floor(item.maxRetries)
+          : item.allowRetry === false
+          ? 0
+          : diffObj.maxRetries;
 
       return {
         ...item,
@@ -331,6 +390,8 @@ class SheetService {
         difficulty: item.difficulty ? diffObj.difficulty : (item.difficulty || 'سهل'),
         hideDots: item.hideDots !== undefined ? item.hideDots : diffObj.hideDots,
         hideImage: item.hideImage !== undefined ? item.hideImage : diffObj.hideImage,
+        maxRetries: effRetries,
+        allowRetry: effRetries !== 0,
         slotIndex: item.slotIndex !== undefined ? item.slotIndex : idx + 1,
         svgData: item.svgData || '',
         steps: parsedSteps,
@@ -372,6 +433,12 @@ class SheetService {
           const tts = String(item.arabicAudioText || title).trim();
           const steps: LessonStep[] = parseStepsData(item.stepsData);
           const diffObj = parseDifficultyField(item.difficulty);
+          const effRetries =
+            typeof item.maxRetries === 'number' && !isNaN(item.maxRetries)
+              ? item.maxRetries < 0
+                ? -1
+                : Math.floor(item.maxRetries)
+              : diffObj.maxRetries;
 
           return {
             id: String(item.id || `sheet_${topic}_${title}`),
@@ -385,6 +452,8 @@ class SheetService {
             difficulty: diffObj.difficulty,
             hideDots: diffObj.hideDots,
             hideImage: diffObj.hideImage,
+            maxRetries: effRetries,
+            allowRetry: effRetries !== 0,
             slotIndex: Number(item.slotIndex) || slotIdx + 1,
             description: String(item.description || ''),
             svgData: item.svgData || '',
@@ -426,7 +495,8 @@ class SheetService {
     const serializedDifficulty = formatDifficultyField(
       lesson.difficulty || 'سهل',
       lesson.hideDots,
-      lesson.hideImage
+      lesson.hideImage,
+      lesson.maxRetries
     );
 
     try {
@@ -495,7 +565,7 @@ class SheetService {
           title: l.title,
           arabicAudioText: l.arabicAudioText || l.title,
           repeatCount: Number(l.repeatCount) || 1,
-          difficulty: formatDifficultyField(l.difficulty || 'سهل', l.hideDots, l.hideImage),
+          difficulty: formatDifficultyField(l.difficulty || 'سهل', l.hideDots, l.hideImage, l.maxRetries),
           stepsData: l.stepsData || (l.steps && l.steps.length > 0 ? JSON.stringify(l.steps) : ''),
         })),
       });
