@@ -2228,7 +2228,7 @@ export default function App() {
           /* ========================================================
              5. WRITING & AR WHITEBOARD ARENA (تمرين الكتابة)
              ======================================================== */
-          <div className="flex flex-col flex-1 w-full animate-in fade-in duration-300">
+          <div className="w-full animate-in fade-in duration-300">
             <WritingArena
               allTemplates={writingTemplates}
               onUpdateTemplates={(updated) => {

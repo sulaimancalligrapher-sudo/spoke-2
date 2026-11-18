@@ -3170,7 +3170,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       onTouchMove={handleContainerTouchMove}
       onTouchEnd={handleContainerTouchEnd}
       onTouchCancel={handleContainerTouchEnd}
-      className={`relative w-full h-full min-h-0 ${isMobileLandscape ? 'rounded-none border-0' : 'rounded-2xl border'} overflow-hidden flex items-center justify-center select-none transition-all duration-300 ${getBoardBgStyle()}`}
+      className={`relative w-full flex-1 h-full min-h-0 ${isMobileLandscape ? 'rounded-none border-0' : 'rounded-2xl border'} overflow-hidden flex items-center justify-center select-none transition-all duration-300 ${getBoardBgStyle()}`}
     >
       {/* Calligraphy Guide Grid Lines Pattern */}
       {boardStyle === 'grid' && (

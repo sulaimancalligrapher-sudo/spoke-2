@@ -405,7 +405,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
       className={
         isMobileLandscape || isFullscreen
           ? 'fixed inset-0 z-[80] flex flex-col h-[100dvh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-cairo'
-          : 'flex flex-col flex-1 w-full h-[calc(100dvh-65px)] min-h-[540px] overflow-hidden bg-slate-950 text-slate-100 font-cairo'
+          : 'flex flex-col w-full h-[calc(100dvh-96px)] sm:h-[calc(100dvh-65px)] min-h-[540px] shrink-0 overflow-hidden bg-slate-950 text-slate-100 font-cairo'
       }
     >
       {/* Top Whiteboard Toolbar */}
@@ -468,7 +468,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
         }`}
       >
         <div
-          className={`relative w-full h-full min-h-0 overflow-hidden shadow-2xl flex items-center justify-center ${
+          className={`relative flex-1 w-full h-full min-h-0 overflow-hidden shadow-2xl flex flex-col items-stretch justify-center ${
             isMobileLandscape ? 'max-w-none rounded-none' : 'max-w-6xl rounded-2xl'
           }`}
         >
