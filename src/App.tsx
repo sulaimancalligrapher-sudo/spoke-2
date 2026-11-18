@@ -157,7 +157,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', or 'writing'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -1397,7 +1397,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -2318,6 +2318,8 @@ export default function App() {
               onBackToPronunciation={() => setAppMode('pronunciation')}
               webhookUrl={sheetsConfig.webhookUrl}
               writingHistory={writingHistory}
+              currentLang={currentLang}
+              translations={translations}
               onRefreshWritingHistory={() => {
                 if (currentStudent && sheetsConfig.webhookUrl) {
                   fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)

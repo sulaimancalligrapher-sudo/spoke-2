@@ -5,6 +5,7 @@ import { RoyalCrownOverlay } from './RoyalCrownOverlay';
 import { getScreenPointFromVideo } from '../utils/arProjection';
 import { HandTrackingDisplayMode } from '../types/drawing';
 import { ARRewardTier } from '../services/arRewardsService';
+import { SupportedLang, TranslationItem, DEFAULT_TRANSLATIONS, getTranslatedString } from '../../utils/translations';
 import { AlertCircle } from 'lucide-react';
 
 interface ARCameraOverlayProps {
@@ -18,6 +19,8 @@ interface ARCameraOverlayProps {
   onVideoElementReady: (video: HTMLVideoElement | null) => void;
   onCrownCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
   onDetectionUpdate?: (status: { handsCount: number; isPinching: boolean; faceDetected: boolean; fps: number }) => void;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
 }
 
 export const ARCameraOverlay: React.FC<ARCameraOverlayProps> = React.memo(({
@@ -31,6 +34,8 @@ export const ARCameraOverlay: React.FC<ARCameraOverlayProps> = React.memo(({
   onVideoElementReady,
   onCrownCanvasReady,
   onDetectionUpdate,
+  currentLang = 'ar',
+  translations = DEFAULT_TRANSLATIONS,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -273,7 +278,9 @@ export const ARCameraOverlay: React.FC<ARCameraOverlayProps> = React.memo(({
       {isStarting && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-sm z-30 pointer-events-auto">
           <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="text-amber-400 font-semibold text-sm">جاري تشغيل كاميرا الواقع المعزز...</p>
+          <p className="text-amber-400 font-semibold text-sm">
+            {getTranslatedString('writing_ar_loading', currentLang, translations, 'جاري تشغيل كاميرا الواقع المعزز...')}
+          </p>
         </div>
       )}
 
@@ -281,14 +288,16 @@ export const ARCameraOverlay: React.FC<ARCameraOverlayProps> = React.memo(({
       {cameraError && (
         <div className="absolute top-4 left-4 right-4 bg-red-950/90 border border-red-500/50 rounded-xl p-3 flex items-center gap-3 text-red-200 text-xs sm:text-sm z-40 pointer-events-auto shadow-xl">
           <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-          <div className="flex-1">{cameraError}</div>
+          <div className="flex-1">
+            {getTranslatedString('writing_ar_cam_error', currentLang, translations, cameraError)}
+          </div>
           <button
             onClick={() => {
               setCameraError(null);
             }}
-            className="px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded-lg text-xs font-bold"
+            className="px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded-lg text-xs font-bold cursor-pointer"
           >
-            إعادة المحاولة
+            {getTranslatedString('writing_ar_retry_cam', currentLang, translations, 'إعادة المحاولة')}
           </button>
         </div>
       )}

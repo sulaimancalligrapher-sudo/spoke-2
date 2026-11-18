@@ -4,6 +4,15 @@ import { audioService } from '../services/audioService';
 import { formatDirectImageUrl } from '../utils/urlHelper';
 import { getArabicOrdinal, getArabicDrawingOrdinal, getStepAudioPrompt, RegistrantUser, sheetService } from '../services/sheetService';
 import {
+  SupportedLang,
+  TranslationItem,
+  DEFAULT_TRANSLATIONS,
+  getTranslatedString,
+  getTranslatedWritingLessonTitle,
+  getLocalizedStepOrdinal,
+  getLocalizedDrawingOrdinal,
+} from '../../utils/translations';
+import {
   AlertCircle,
   CheckCircle2,
   Volume2,
@@ -101,6 +110,8 @@ interface WhiteboardCanvasProps {
   onResetRepetition?: () => void;
   onAccuracyUpdate?: (accuracy: number) => void;
   onGoalAchieved?: (accuracy: number) => void;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
 }
 
 interface TemplateTransform {
@@ -173,7 +184,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
   onResetRepetition,
   onAccuracyUpdate,
   onGoalAchieved,
+  currentLang = 'ar',
+  translations = DEFAULT_TRANSLATIONS,
 }, ref) => {
+  const tr = useCallback(
+    (id: string, fallback: string) =>
+      getTranslatedString(id, currentLang, translations, fallback) || fallback,
+    [currentLang, translations]
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const templateCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -1669,16 +1687,21 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           : 'steadiness';
 
       const artTipMap = {
+        details: tr('writing_fb_tip_details', 'جرّب إضافة لمسات وتفاصيل متنوعة لإثراء اللوحة أكثر.'),
+        balance: tr('writing_fb_tip_balance', 'احرص على توسيط وتوزيع الرسم داخل اللوحة بشكل متناغم.'),
+        steadiness: tr('writing_fb_tip_steadiness', 'ارسم بانسيابية وهدوء ليزداد ثبات واستمرارية الخط.'),
+      };
+      const artVoiceTipMap = {
         details: 'جرّب إضافة لمسات وتفاصيل متنوعة لإثراء اللوحة أكثر.',
         balance: 'احرص على توسيط وتوزيع الرسم داخل اللوحة بشكل متناغم.',
-        steadiness: 'ارسم بانسيابية وهدوء ليزداد ثبات واستمرارية الخط.'
+        steadiness: 'ارسم بانسيابية وهدوء ليزداد ثبات واستمرارية الخط.',
       };
 
       if (finalScore >= 85) {
         return {
           textFeedback: arMode
-            ? 'إبداع فني مذهل بالواقع المعزز! ثبات وتوازن رائع في اللوحة 🎨👑'
-            : 'لوحة إبداعية مبهرة! ثبات يد وتوازن فني متميز 🎨🌟',
+            ? tr('writing_fb_freehand_high_ar', 'إبداع فني مذهل بالواقع المعزز! ثبات وتوازن رائع في اللوحة 🎨👑')
+            : tr('writing_fb_freehand_high', 'لوحة إبداعية مبهرة! ثبات يد وتوازن فني متميز 🎨🌟'),
           voiceFeedback: arMode
             ? `إبداع رائع بالواقع المعزز! حققت تقييم ${finalScore} في المئة في الرسم الحر، بتوازن وثبات متميز.`
             : `لوحة رائعة! حققت تقييم ${finalScore} في المئة في الرسم الحر، بثبات يد وتوازن جميل.`
@@ -1688,15 +1711,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       if (finalScore >= 70) {
         const tip = artTipMap[weakestArt];
         return {
-          textFeedback: `رسم حر متوازن وجميل 🖌️ (${tip})`,
-          voiceFeedback: `أحسنت! حققت تقييم ${finalScore} في المئة في الرسم الحر. ${tip}`
+          textFeedback: tr('writing_fb_freehand_mid', 'رسم حر متوازن وجميل 🖌️ ({tip})').replace('{tip}', tip),
+          voiceFeedback: `أحسنت! حققت تقييم ${finalScore} في المئة في الرسم الحر. ${artVoiceTipMap[weakestArt]}`
         };
       }
 
       const tip = artTipMap[weakestArt];
       return {
-        textFeedback: `محاولة فنية جميلة 🎨 (${tip})`,
-        voiceFeedback: `محاولة طيبة في الرسم الحر، تقييمك ${finalScore} في المئة. ${tip}`
+        textFeedback: tr('writing_fb_freehand_low', 'محاولة فنية جميلة 🎨 ({tip})').replace('{tip}', tip),
+        voiceFeedback: `محاولة طيبة في الرسم الحر، تقييمك ${finalScore} في المئة. ${artVoiceTipMap[weakestArt]}`
       };
     }
 
@@ -1710,6 +1733,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
     const adviceMap = {
       coverage: blindMode
+        ? tr('writing_fb_tip_cov_blind', 'حاول ملء معالم الشكل ومساحته بشكل أوضح.')
+        : tr('writing_fb_tip_cov', 'حاول ملء كامل سمك وامتلاء الشكل بالقلم.'),
+      path: blindMode
+        ? tr('writing_fb_tip_path_blind', 'قارن رسمتك مع الظل الذهبي وحاول ضبط النسب والانحناء.')
+        : tr('writing_fb_tip_path', 'التزم بحدود الرسمة دون خروج عن المسار.'),
+      startEnd: tr('writing_fb_tip_startend', 'انتبه لنقطة انطلاق الحرف ونقطة نهايته بدقة.')
+    };
+    const voiceAdviceMap = {
+      coverage: blindMode
         ? 'حاول ملء معالم الشكل ومساحته بشكل أوضح.'
         : 'حاول ملء كامل سمك وامتلاء الشكل بالقلم.',
       path: blindMode
@@ -1721,8 +1753,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     if (finalScore >= 85) {
       return {
         textFeedback: arMode
-          ? 'ما شاء الله! أداء متقن بالواقع المعزز وتفوق رائع 👑'
-          : 'ما شاء الله! خط متقن وجريان قلم متميز 🌟',
+          ? tr('writing_fb_std_high_ar', 'ما شاء الله! أداء متقن بالواقع المعزز وتفوق رائع 👑')
+          : tr('writing_fb_std_high', 'ما شاء الله! خط متقن وجريان قلم متميز 🌟'),
         voiceFeedback: arMode
           ? `ما شاء الله! حققت درجة ${finalScore} في المئة بالواقع المعزز، أداء متقن في الهواء.`
           : `ما شاء الله! حققت درجة ${finalScore} في المئة. خط متقن وتحكم ممتاز بالقلم، أحسنت.`
@@ -1733,11 +1765,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       const tip = adviceMap[weakest];
       return {
         textFeedback: arMode
-          ? `أحسنت! رسم جميل بالواقع المعزز ✨ (${tip})`
-          : `جيد جداً! رسم متوازن وجميل 👍 (${tip})`,
+          ? tr('writing_fb_std_mid_ar', 'أحسنت! رسم جميل بالواقع المعزز ✨ ({tip})').replace('{tip}', tip)
+          : tr('writing_fb_std_mid', 'جيد جداً! رسم متوازن وجميل 👍 ({tip})').replace('{tip}', tip),
         voiceFeedback: arMode
-          ? `أحسنت! حققت درجة ${finalScore} في المئة بالواقع المعزز. ${tip}`
-          : `جيد جداً! حققت درجة ${finalScore} في المئة. ${tip}`
+          ? `أحسنت! حققت درجة ${finalScore} في المئة بالواقع المعزز. ${voiceAdviceMap[weakest]}`
+          : `جيد جداً! حققت درجة ${finalScore} في المئة. ${voiceAdviceMap[weakest]}`
       };
     }
 
@@ -1745,22 +1777,25 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       const tip = adviceMap[weakest];
       return {
         textFeedback: arMode
-          ? `محاولة طيبة بالواقع المعزز! ${tip} ✍️`
-          : `محاولة طيبة! ${tip} ✍️`,
+          ? tr('writing_fb_std_low_ar', 'محاولة طيبة بالواقع المعزز! {tip} ✍️').replace('{tip}', tip)
+          : tr('writing_fb_std_low', 'محاولة طيبة! {tip} ✍️').replace('{tip}', tip),
         voiceFeedback: arMode
-          ? `محاولة طيبة بالواقع المعزز، درجتك ${finalScore} في المئة. ${tip}`
-          : `محاولة طيبة، درجتك ${finalScore} في المئة. ${tip}`
+          ? `محاولة طيبة بالواقع المعزز، درجتك ${finalScore} في المئة. ${voiceAdviceMap[weakest]}`
+          : `محاولة طيبة، درجتك ${finalScore} في المئة. ${voiceAdviceMap[weakest]}`
       };
     }
 
     const lowTip = arMode
-      ? 'ثبت يدك أمام الكاميرا وارسم ببطء وتأنٍ لتتحسن النتيجة.'
+      ? tr('writing_fb_tip_ar_steady', 'ثبت يدك أمام الكاميرا وارسم ببطء وتأنٍ لتتحسن النتيجة.')
       : adviceMap[weakest];
+    const voiceLowTip = arMode
+      ? 'ثبت يدك أمام الكاميرا وارسم ببطء وتأنٍ لتتحسن النتيجة.'
+      : voiceAdviceMap[weakest];
     return {
-      textFeedback: `بداية تحتاج إلى تركيز أكثر: ${lowTip} 💪`,
-      voiceFeedback: `درجتك ${finalScore} في المئة. ${lowTip}`
+      textFeedback: tr('writing_fb_std_focus', 'بداية تحتاج إلى تركيز أكثر: {tip} 💪').replace('{tip}', lowTip),
+      voiceFeedback: `درجتك ${finalScore} في المئة. ${voiceLowTip}`
     };
-  }, []);
+  }, [tr]);
 
   // Open Evaluation Modal OR advance inline repetition bar if repeatCount > 1
   const openEvaluationResults = useCallback((
@@ -1874,15 +1909,16 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
     setStepAlert({
       type: 'success',
-      message: isMultiRep
-        ? `النتيجة الكلية النهائية: ${finalScore}% 🎉`
-        : `تم التقييم: الدرجة النهائية ${finalScore}% 🎉`,
+      message: (isMultiRep
+        ? tr('writing_alert_eval_final_multi', 'النتيجة الكلية النهائية: {score}% 🎉')
+        : tr('writing_alert_eval_final_single', 'تم التقييم: الدرجة النهائية {score}% 🎉')
+      ).replace('{score}', String(finalScore)),
       timestamp: Date.now()
     });
     if (onGoalAchieved) {
       onGoalAchieved(finalScore);
     }
-  }, [template, currentRepetition, isARMode, buildSmartEvaluationFeedback, onGoalAchieved]);
+  }, [template, currentRepetition, isARMode, buildSmartEvaluationFeedback, onGoalAchieved, tr]);
 
   // Evaluate Freehand, Blind Memory Test (hideImage), or Guide-Only / No-Dots Mode
   const handleFinishChallengeEvaluation = useCallback(() => {
@@ -1891,7 +1927,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       audioService.playErrorSound();
       setStepAlert({
         type: 'error',
-        message: '⚠️ ارسم أولاً على السبورة ثم اضغط للتقييم ✍️',
+        message: tr('writing_alert_draw_first', '⚠️ ارسم أولاً على السبورة ثم اضغط للتقييم ✍️'),
         timestamp: Date.now()
       });
       return;
@@ -2116,10 +2152,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         shapeScore,
         overlapScore,
         shapeScore >= 80
-          ? 'ذاكرة بصرية مذهلة! تطابق رائع مع الحرف الأصلي 🏆'
+          ? tr('writing_fb_blind_high', 'ذاكرة بصرية مذهلة! تطابق رائع مع الحرف الأصلي 🏆')
           : shapeScore >= 60
-          ? 'محاولة جيدة من الذاكرة! قارن رسمتك مع الظل الذهبي للحرف ✍️'
-          : 'أحسنت المحاولة! راجع الظل الذهبي للحرف وأعد التجربة 💪',
+          ? tr('writing_fb_blind_mid', 'محاولة جيدة من الذاكرة! قارن رسمتك مع الظل الذهبي للحرف ✍️')
+          : tr('writing_fb_blind_low', 'أحسنت المحاولة! راجع الظل الذهبي للحرف وأعد التجربة 💪'),
         evalMode
       );
       return;
@@ -2140,7 +2176,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     const coverageScore = calculateCoverageScore();
 
     openEvaluationResults(0, pathScore, coverageScore, undefined, 'guide_only');
-  }, [strokes, template, dimensions, classifyPoint, calculateCoverageScore, openEvaluationResults]);
+  }, [strokes, template, dimensions, classifyPoint, calculateCoverageScore, openEvaluationResults, tr]);
 
   // Submit student answer & upload drawing image to Google Drive + sheet 'answers 4'
   const handleSubmitAnswer = async () => {
@@ -2148,7 +2184,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     if (!currentUser) {
       setSubmitAnswerResult({
         success: false,
-        message: 'يرجى تسجيل الدخول أولاً لحفظ إجابتك'
+        message: tr('writing_eval_login_required', 'يرجى تسجيل الدخول أولاً لحفظ إجابتك')
       });
       return;
     }
@@ -2204,14 +2240,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           audioService.playErrorSound();
           setSubmitAnswerResult({
             success: false,
-            message: `تم حفظ الدرجة في الورقة (${res.completionStatus || 'محفوظ'})، ولكن تعذر رفع الصورة لقوقل درايف: ${res.driveError}`,
+            message: `${tr('writing_eval_submitted_msg', 'تم تسجيل الإجابة')} (${res.completionStatus || ''}) - ${res.driveError}`,
             completionStatus: res.completionStatus
           });
         } else {
           audioService.playSuccessSound();
           setSubmitAnswerResult({
             success: true,
-            message: 'تم تسجيل الإجابة',
+            message: tr('writing_eval_submitted_msg', 'تم تسجيل الإجابة'),
             completionStatus: res.completionStatus
           });
         }
@@ -2219,14 +2255,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         audioService.playErrorSound();
         setSubmitAnswerResult({
           success: false,
-          message: res.error || 'تعذر حفظ الإجابة في Google Sheets'
+          message: res.error || tr('writing_eval_save_err', 'تعذر حفظ الإجابة في Google Sheets')
         });
       }
     } catch {
       audioService.playErrorSound();
       setSubmitAnswerResult({
         success: false,
-        message: 'حدث خطأ أثناء الاتصال بالخادم لرفع الإجابة'
+        message: tr('writing_eval_connect_err', 'حدث خطأ أثناء الاتصال بالخادم لرفع الإجابة')
       });
     } finally {
       setIsSubmittingAnswer(false);
@@ -2280,7 +2316,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       audioService.playErrorSound();
       setStepAlert({
         type: 'error',
-        message: '⚠️ يرجى اختيار درس أولاً للبدء في التدريب 📚',
+        message: tr('writing_alert_choose_lesson_first', '⚠️ يرجى اختيار درس أولاً للبدء في التدريب 📚'),
         timestamp: Date.now()
       });
       if (onOpenLibrary) {
@@ -2294,7 +2330,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       audioService.playErrorSound();
       setStepAlert({
         type: 'error',
-        message: '🔒 اكتمل التقييم! انقر (إعادة التمرين) أو اختر درساً جديداً للرسم مجدداً ✍️',
+        message: tr('writing_alert_eval_done', '🔒 اكتمل التقييم! انقر (إعادة التمرين) أو اختر درساً جديداً للرسم مجدداً ✍️'),
         timestamp: Date.now()
       });
       return;
@@ -2305,7 +2341,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       audioService.playErrorSound();
       setStepAlert({
         type: 'error',
-        message: '⚠️ انقر على زر ( ابدأ ) في الشريط لبدء التمرين وسماع التوجيه 🎧',
+        message: tr('writing_alert_click_start', '⚠️ انقر على زر ( ابدأ ) في الشريط لبدء التمرين وسماع التوجيه 🎧'),
         timestamp: Date.now()
       });
       audioService.speakArabic('انقر زر ابدأ لبدء التمرين');
@@ -2340,7 +2376,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         audioService.playErrorSound();
         setStepAlert({
           type: 'error',
-          message: 'تنبيه: ابدأ الرسم من النقطة الخضراء 🟢',
+          message: tr('writing_alert_start_green', 'تنبيه: ابدأ الرسم من النقطة الخضراء 🟢'),
           timestamp: Date.now()
         });
         if (isLessonStarted) {
@@ -2418,7 +2454,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           if (difficulty !== 'سهل') {
             setStepAlert({
               type: 'error',
-              message: '⚠️ تنبيه: خرج القلم عن مسار الحرف! التزم بالحبر',
+              message: tr('writing_alert_off_path', '⚠️ تنبيه: خرج القلم عن مسار الحرف! التزم بالحبر'),
               timestamp: Date.now()
             });
             audioService.playErrorSound();
@@ -2467,8 +2503,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               setStepAlert({
                 type: 'error',
                 message: brokeAway
-                  ? 'تنبيه: خرج القلم عن مسار الحرف! يجب الاستمرار على المسار دون انقطاع ✍️'
-                  : 'تنبيه: يجب الرسم فوق مسار خط الحرف بدقة ✍️',
+                  ? tr('writing_alert_off_path_strict', 'تنبيه: خرج القلم عن مسار الحرف! يجب الاستمرار على المسار دون انقطاع ✍️')
+                  : tr('writing_alert_trace_accurately', 'تنبيه: يجب الرسم فوق مسار خط الحرف بدقة ✍️'),
                 timestamp: Date.now()
               });
               if (isLessonStarted) {
@@ -2491,7 +2527,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 audioService.playErrorSound();
                 setStepAlert({
                   type: 'error',
-                  message: `⚠️ المستوى المتقدم يتطلب تغطية سُمك الحرف بنسبة 75% على الأقل (الحالي: ${coverageScore}%) — املأ عرض الحرف`,
+                  message: tr(
+                    'writing_alert_adv_thickness',
+                    '⚠️ المستوى المتقدم يتطلب تغطية سُمك الحرف بنسبة 75% على الأقل (الحالي: {score}%) — املأ عرض الحرف'
+                  ).replace('{score}', String(coverageScore)),
                   timestamp: Date.now()
                 });
                 if (isLessonStarted) {
@@ -2522,13 +2561,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 };
                 setCurrentStepIndex(nextIdx);
                 const nextStep = template.steps[nextIdx];
-                const stepName = getArabicOrdinal(currentStepIndex + 1);
+                const stepName = getLocalizedStepOrdinal(currentStepIndex + 1, currentLang, getArabicOrdinal);
                 const hasWarning = difficulty === 'سهل' && (brokeAway || offCenter);
                 setStepAlert({
                   type: 'success',
-                  message: hasWarning
-                    ? `تم اجتياز ${stepName} — ملاحظة: حاول الالتزام بمسار الحرف ✍️`
-                    : `رائع! أتممت ${stepName} بنجاح ✓`,
+                  message: (hasWarning
+                    ? tr('writing_alert_step_done_warn', 'تم اجتياز {step} — ملاحظة: حاول الالتزام بمسار الحرف ✍️')
+                    : tr('writing_alert_step_done', 'رائع! أتممت {step} بنجاح ✓')
+                  ).replace('{step}', stepName),
                   timestamp: Date.now()
                 });
                 if (isLessonStarted) {
@@ -2551,7 +2591,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   : effectivePathScore;
                 const anyBroken = recorded.some(s => s.brokenAway);
                 const customNote = (difficulty === 'سهل' && anyBroken)
-                  ? 'تم اجتياز النقاط بنجاح! ننصح بالالتزام بمسار الحرف أكثر في التمرين القادم ✍️'
+                  ? tr('writing_alert_all_steps_note', 'تم اجتياز النقاط بنجاح! ننصح بالالتزام بمسار الحرف أكثر في التمرين القادم ✍️')
                   : undefined;
 
                 openEvaluationResults(100, avgPathScore, coverageScore, customNote);
@@ -2561,7 +2601,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
             audioService.playErrorSound();
             setStepAlert({
               type: 'error',
-              message: 'تنبيه: يجب إيصال القلم إلى النقطة الحمراء 🔴 لإكمال الخطوة',
+              message: tr('writing_alert_reach_red', 'تنبيه: يجب إيصال القلم إلى النقطة الحمراء 🔴 لإكمال الخطوة'),
               timestamp: Date.now()
             });
             if (isLessonStarted) {
@@ -2600,6 +2640,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     evaluationModal,
     onOpenLibrary,
     strokes,
+    currentLang,
+    tr,
   });
   latestAirCtxRef.current = {
     isARMode,
@@ -2620,6 +2662,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
     evaluationModal,
     onOpenLibrary,
     strokes,
+    currentLang,
+    tr,
   };
 
   const syncAirBadge = useCallback((
@@ -2667,6 +2711,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       evaluationModal: evalModal,
       onOpenLibrary: openLib,
       strokes: currentStrokes,
+      currentLang: activeLang,
+      tr: trFn,
     } = latestAirCtxRef.current;
 
     const domEl = airCursorDomRef.current;
@@ -2717,7 +2763,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           audioService.playErrorSound();
           setStepAlert({
             type: 'error',
-            message: '⚠️ يرجى اختيار درس أولاً للبدء في التدريب 📚',
+            message: trFn('writing_alert_choose_lesson_first', '⚠️ يرجى اختيار درس أولاً للبدء في التدريب 📚'),
             timestamp: Date.now()
           });
           if (openLib) openLib();
@@ -2727,7 +2773,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           audioService.playErrorSound();
           setStepAlert({
             type: 'error',
-            message: '🔒 اكتمل التقييم! انقر (إعادة التمرين) أو اختر درساً جديداً للرسم مجدداً ✍️',
+            message: trFn('writing_alert_eval_done', '🔒 اكتمل التقييم! انقر (إعادة التمرين) أو اختر درساً جديداً للرسم مجدداً ✍️'),
             timestamp: Date.now()
           });
           return;
@@ -2736,7 +2782,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           audioService.playErrorSound();
           setStepAlert({
             type: 'error',
-            message: '⚠️ انقر على زر ( ابدأ ) في الشريط لبدء التمرين 🎧',
+            message: trFn('writing_alert_click_start', '⚠️ انقر على زر ( ابدأ ) في الشريط لبدء التمرين وسماع التوجيه 🎧'),
             timestamp: Date.now()
           });
           audioService.speakArabic('انقر زر ابدأ لبدء التمرين');
@@ -2767,7 +2813,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
             audioService.playErrorSound();
             setStepAlert({
               type: 'error',
-              message: 'تنبيه: ابدأ الرسم من النقطة الخضراء 🟢',
+              message: trFn('writing_alert_start_green', 'تنبيه: ابدأ الرسم من النقطة الخضراء 🟢'),
               timestamp: Date.now()
             });
             audioService.speakArabic('ابدأ من النقطة الخضراء');
@@ -2817,7 +2863,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 if (difficulty !== 'سهل') {
                   setStepAlert({
                     type: 'error',
-                    message: '⚠️ تنبيه: خرج القلم عن مسار الحرف! التزم بالحبر',
+                    message: trFn('writing_alert_off_path', '⚠️ تنبيه: خرج القلم عن مسار الحرف! التزم بالحبر'),
                     timestamp: Date.now()
                   });
                   audioService.playErrorSound();
@@ -2862,8 +2908,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 setStepAlert({
                   type: 'error',
                   message: brokeAway
-                    ? 'تنبيه: خرج القلم عن مسار الحرف! يجب الاستمرار على مسار الخط دون انقطاع ✍️'
-                    : 'تنبيه: يجب الرسم فوق مسار خط الحرف بدقة ✍️',
+                    ? trFn('writing_alert_off_path_strict', 'تنبيه: خرج القلم عن مسار الحرف! يجب الاستمرار على المسار دون انقطاع ✍️')
+                    : trFn('writing_alert_trace_accurately', 'تنبيه: يجب الرسم فوق مسار خط الحرف بدقة ✍️'),
                   timestamp: Date.now()
                 });
                 if (started) {
@@ -2885,7 +2931,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   audioService.playErrorSound();
                   setStepAlert({
                     type: 'error',
-                    message: `⚠️ المستوى المتقدم يتطلب تغطية سُمك الحرف بنسبة 75% على الأقل (الحالي: ${coverageScore}%) — املأ عرض الحرف`,
+                    message: trFn(
+                      'writing_alert_adv_thickness',
+                      '⚠️ المستوى المتقدم يتطلب تغطية سُمك الحرف بنسبة 75% على الأقل (الحالي: {score}%) — املأ عرض الحرف'
+                    ).replace('{score}', String(coverageScore)),
                     timestamp: Date.now()
                   });
                   if (started) {
@@ -2916,13 +2965,14 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   };
                   setCurrentStepIndex(nextIdx);
                   const nextStep = tpl.steps[nextIdx];
-                  const stepName = getArabicOrdinal(stepIdx + 1);
+                  const stepName = getLocalizedStepOrdinal(stepIdx + 1, activeLang, getArabicOrdinal);
                   const hasWarning = difficulty === 'سهل' && (brokeAway || offCenter);
                   setStepAlert({
                     type: 'success',
-                    message: hasWarning
-                      ? `تم اجتياز ${stepName} — ملاحظة: حاول الالتزام بمسار الحرف ✍️`
-                      : `رائع! أتممت ${stepName} بنجاح ✓`,
+                    message: (hasWarning
+                      ? trFn('writing_alert_step_done_warn', 'تم اجتياز {step} — ملاحظة: حاول الالتزام بمسار الحرف ✍️')
+                      : trFn('writing_alert_step_done', 'رائع! أتممت {step} بنجاح ✓')
+                    ).replace('{step}', stepName),
                     timestamp: Date.now()
                   });
                   if (started) {
@@ -2945,7 +2995,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                     : effectivePathScore;
                   const anyBroken = recorded.some(s => s.brokenAway);
                   const customNote = (difficulty === 'سهل' && anyBroken)
-                    ? 'تم اجتياز النقاط بنجاح! ننصح بالالتزام بمسار الحرف أكثر في المحاولة القادمة ✍️'
+                    ? trFn('writing_alert_all_steps_note', 'تم اجتياز النقاط بنجاح! ننصح بالالتزام بمسار الحرف أكثر في التمرين القادم ✍️')
                     : undefined;
 
                   openEval(100, avgPathScore, coverageScore, customNote);
@@ -2955,7 +3005,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               audioService.playErrorSound();
               setStepAlert({
                 type: 'error',
-                message: 'تنبيه: يجب إيصال القلم إلى النقطة الحمراء 🔴 لإكمال الخطوة',
+                message: trFn('writing_alert_reach_red', 'تنبيه: يجب إيصال القلم إلى النقطة الحمراء 🔴 لإكمال الخطوة'),
                 timestamp: Date.now()
               });
               if (started) {
@@ -3271,21 +3321,29 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
           className="absolute bottom-3 left-3 z-30 px-2.5 py-1 rounded-xl bg-slate-900/90 border border-amber-500/40 text-amber-300 text-[10px] font-bold shadow-lg flex items-center gap-1 cursor-pointer hover:bg-slate-800"
         >
           <Crosshair className="w-3 h-3" />
-          <span>توسيط اللوحة</span>
+          <span>{tr('writing_canvas_recenter', 'توسيط اللوحة')}</span>
         </button>
       )}
 
       {/* Empty State Banner when no lesson is chosen */}
       {!template && (
-        <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none z-20">
+        <div
+          dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+          className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none z-20"
+        >
           <div className="pointer-events-auto max-w-sm sm:max-w-md w-full bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-2xl text-center flex flex-col items-center gap-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-md">
               <BookOpen className="w-7 h-7" />
             </div>
             <div>
-              <h2 className="font-bold text-base sm:text-lg text-slate-100 mb-1.5">السبورة جاهزة للتدريب</h2>
+              <h2 className="font-bold text-base sm:text-lg text-slate-100 mb-1.5">
+                {tr('writing_canvas_empty_title', 'السبورة جاهزة للتدريب')}
+              </h2>
               <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                يرجى اختيار درس من مكتبة الدروس أولاً، ثم النقر على زر <span className="text-amber-400 font-bold">( ابدأ )</span> للبدء في كتابة الحرف وتقييم مسار القلم.
+                {tr(
+                  'writing_canvas_empty_desc',
+                  'يرجى اختيار درس من مكتبة الدروس أولاً، ثم النقر على زر ( ابدأ ) للبدء في كتابة الحرف وتقييم مسار القلم.'
+                )}
               </p>
             </div>
             <button
@@ -3294,23 +3352,26 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               className="mt-1 px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg hover:shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
             >
               <FolderOpen className="w-4 h-4" />
-              <span>اختيار درس من المكتبة 📚</span>
+              <span>{tr('writing_canvas_choose_lesson_btn', 'اختيار درس من المكتبة 📚')}</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* Layer 3: Unified Single-Row Top Bar (الشريط الموحد المدمج على صف واحد - رفيع وملتصق بالأعلى عند التدوير الأفقي للجوال) */}
-      <div className={`absolute z-20 pointer-events-none flex flex-col items-center gap-1.5 ${
-        isMobileLandscape ? 'top-0 inset-x-0' : 'top-2 sm:top-3 inset-x-2 sm:inset-x-4'
-      }`}>
+      {/* Layer 3: Unified Single-Row Top Bar */}
+      <div
+        dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+        className={`absolute z-20 pointer-events-none flex flex-col items-center gap-1.5 ${
+          isMobileLandscape ? 'top-0 inset-x-0' : 'top-2 sm:top-3 inset-x-2 sm:inset-x-4'
+        }`}
+      >
         <div className={`pointer-events-auto flex items-center justify-between w-full bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl text-white ${
           isMobileLandscape
             ? 'px-2.5 py-0.5 rounded-b-xl border-t-0 gap-1.5'
             : 'max-w-5xl px-2.5 sm:px-4 py-1.5 sm:py-2 rounded-2xl gap-1.5 sm:gap-2'
         }`}>
           
-          {/* Right: Topic / Lesson Title & Active Repetition Badge (hidden before start and after result) */}
+          {/* Start side: Topic / Lesson Title & Active Repetition Badge */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {isARMode && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-[10px] sm:text-xs shadow-md animate-pulse">
@@ -3321,20 +3382,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
             {template ? (
               <div className="flex items-center gap-1.5 sm:gap-2 max-w-[115px] xs:max-w-[150px] sm:max-w-[220px] md:max-w-[270px] shrink-0">
                 {(() => {
-                  const words = (template.title || '').trim().split(/\s+/);
-                  const isLong = words.length > 2 || (template.title || '').length > 16;
+                  const localizedTitle = getTranslatedWritingLessonTitle(
+                    template.topic || 'خط النسخ',
+                    template.title,
+                    template.slotIndex,
+                    currentLang,
+                    translations,
+                    template.titleEn
+                  );
+                  const words = (localizedTitle || '').trim().split(/\s+/);
+                  const isLong = words.length > 2 || (localizedTitle || '').length > 16;
 
                   if (isLong) {
                     return (
                       <div
                         className="overflow-hidden w-[95px] xs:w-[125px] sm:w-[165px] md:w-[210px] relative select-none"
-                        title={template.title}
-                        dir="rtl"
+                        title={localizedTitle}
+                        dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
                       >
                         <div className="animate-title-marquee flex items-center text-xs sm:text-sm font-bold text-slate-100 whitespace-nowrap">
-                          <span>{template.title}</span>
+                          <span>{localizedTitle}</span>
                           <span className="mx-2 text-amber-400 font-normal opacity-70">✦</span>
-                          <span>{template.title}</span>
+                          <span>{localizedTitle}</span>
                           <span className="mx-2 text-amber-400 font-normal opacity-70">✦</span>
                         </div>
                       </div>
@@ -3343,10 +3412,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
                   return (
                     <span
-                      className="font-bold text-xs sm:text-sm text-slate-100 truncate text-right block max-w-[95px] xs:max-w-[125px] sm:max-w-none"
-                      title={template.title}
+                      className={`font-bold text-xs sm:text-sm text-slate-100 truncate block max-w-[95px] xs:max-w-[125px] sm:max-w-none ${
+                        currentLang === 'ar' ? 'text-right' : 'text-left'
+                      }`}
+                      title={localizedTitle}
                     >
-                      {template.title}
+                      {localizedTitle}
                     </span>
                   );
                 })()}
@@ -3355,7 +3426,9 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   <span className="text-[10px] sm:text-[11px] text-amber-400 font-bold bg-amber-500/10 border border-amber-500/30 px-1.5 sm:px-2 py-0.5 rounded-lg flex items-center gap-0.5 sm:gap-1 shrink-0">
                     <Repeat className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                     <span className="sm:hidden">{currentRepetition || 1}/{template.repeatCount}</span>
-                    <span className="hidden sm:inline">تكرار {currentRepetition || 1} / {template.repeatCount}</span>
+                    <span className="hidden sm:inline">
+                      {tr('writing_btn_repeat_badge', 'تكرار')} {currentRepetition || 1} / {template.repeatCount}
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -3364,10 +3437,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 type="button"
                 onClick={onOpenLibrary}
                 className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer shrink-0"
-                title="فتح مكتبة الدروس لاختيار درس"
+                title={tr('writing_toolbar_open_library_tooltip', 'فتح مكتبة الحروف والكلمات والتمارين')}
               >
                 <FolderOpen className="w-3.5 h-3.5" />
-                <span>اختيار درس 📚</span>
+                <span>{tr('writing_canvas_choose_lesson_short', 'اختيار درس 📚')}</span>
               </button>
             )}
           </div>
@@ -3388,15 +3461,18 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   {pendingNextRepScore}%
                 </span>
                 <span className="hidden sm:inline text-xs font-bold text-slate-200 whitespace-nowrap">
-                  ابدأ الرسمة {getArabicDrawingOrdinal((currentRepetition || 1) + 1)}
+                  {tr('writing_next_rep_prompt', 'ابدأ الرسمة {ordinal}').replace(
+                    '{ordinal}',
+                    getLocalizedDrawingOrdinal((currentRepetition || 1) + 1, currentLang, getArabicDrawingOrdinal)
+                  )}
                 </span>
                 <button
                   type="button"
                   onClick={handleStartNextRepetition}
                   className="px-3.5 sm:px-4 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 animate-pulse"
-                  title="بدء الرسمة التالية"
+                  title={tr('writing_btn_start_next_rep', 'بدء الرسمة التالية')}
                 >
-                  ( ابدأ )
+                  {tr('writing_btn_start', '( ابدأ )')}
                 </button>
               </div>
             ) : stepAlert && !evaluationModal ? (
@@ -3416,43 +3492,43 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               </div>
             ) : template ? (
               <div className="flex items-center justify-center gap-1.5 sm:gap-2.5">
-                {/* STATE 3: Result Shown (either sidebar open or minimized/closed) -> Show ONLY prominent 'إغلاق' button */}
+                {/* STATE 3: Result Shown -> Show ONLY prominent Close button */}
                 {evaluationModal ? (
                   <button
                     type="button"
                     onClick={handleCloseEvaluationAndOpenLibrary}
                     className="px-4 sm:px-6 py-1 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-bold text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
-                    title="إغلاق ومسح السبورة والعودة لقائمة الدروس"
+                    title={tr('writing_btn_close_title', 'إغلاق ومسح السبورة والعودة لقائمة الدروس')}
                   >
-                    إغلاق
+                    {tr('writing_toolbar_close', 'إغلاق')}
                   </button>
                 ) : !isLessonStarted ? (
-                  /* STATE 1: Before Clicking Start -> Clear prominent '( ابدأ )' without cluttering steps or repeat */
+                  /* STATE 1: Before Clicking Start -> Clear prominent Start button */
                   <button
                     type="button"
                     onClick={handleStartLesson}
                     className="px-4 sm:px-6 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0 animate-pulse"
-                    title="بدء التمرين"
+                    title={tr('writing_btn_start_title', 'بدء التمرين')}
                   >
-                    ( ابدأ )
+                    {tr('writing_btn_start', '( ابدأ )')}
                   </button>
                 ) : (template.hideImage || template.hideDots || !template.steps || template.steps.length === 0) ? (
-                  /* STATE 2A: Active Normal / Repetition / Challenge Drawing -> Clean roomy 'تقييم' button without icon */
+                  /* STATE 2A: Active Normal / Repetition / Challenge Drawing -> Evaluate button */
                   <>
                     <button
                       type="button"
                       onClick={handleFinishChallengeEvaluation}
                       className="px-4 sm:px-6 py-1 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold text-xs sm:text-sm shadow-md hover:brightness-110 active:scale-95 transition-all cursor-pointer whitespace-nowrap shrink-0"
-                      title="تقييم الرسم وعرض النتيجة"
+                      title={tr('writing_btn_evaluate_title', 'تقييم الرسم وعرض النتيجة')}
                     >
-                      تقييم
+                      {tr('writing_btn_evaluate', 'تقييم')}
                     </button>
 
                     <button
                       type="button"
                       onClick={() => performFullClear(false)}
                       className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
-                      title="إعادة التمرين"
+                      title={tr('writing_lib_retry_btn', 'إعادة التمرين')}
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                     </button>
@@ -3462,8 +3538,16 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   <>
                     <div className="flex items-center gap-1 shrink-0">
                       <span className="text-amber-400 font-bold text-xs sm:text-sm whitespace-nowrap">
-                        <span className="sm:hidden">{currentStepIndex + 1} من {template.steps.length}</span>
-                        <span className="hidden sm:inline">الخطوة {currentStepIndex + 1} من {template.steps.length}</span>
+                        <span className="sm:hidden">
+                          {tr('writing_step_short', '{current} من {total}')
+                            .replace('{current}', String(currentStepIndex + 1))
+                            .replace('{total}', String(template.steps.length))}
+                        </span>
+                        <span className="hidden sm:inline">
+                          {tr('writing_step_label', 'الخطوة {current} من {total}')
+                            .replace('{current}', String(currentStepIndex + 1))
+                            .replace('{total}', String(template.steps.length))}
+                        </span>
                       </span>
                     </div>
 
@@ -3492,7 +3576,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                         }
                       }}
                       className="hidden sm:flex p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 transition-colors cursor-pointer shrink-0"
-                      title="استمع لتوجيه الخطوة"
+                      title={tr('writing_step_listen_title', 'استمع لتوجيه الخطوة')}
                     >
                       <Volume2 className="w-3.5 h-3.5" />
                     </button>
@@ -3501,7 +3585,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                       type="button"
                       onClick={() => performFullClear(false)}
                       className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
-                      title="إعادة التمرين من البداية"
+                      title={tr('writing_btn_restart_from_begin', 'إعادة التمرين من البداية')}
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                     </button>
@@ -3509,18 +3593,24 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 )}
               </div>
             ) : (
-              <span className="text-xs text-amber-300 hidden sm:inline">اختر درساً أولاً ثم انقر ( ابدأ ) لبدء الرسم</span>
+              <span className="text-xs text-amber-300 hidden sm:inline">
+                {tr('writing_canvas_choose_lesson_hint', 'اختر درساً أولاً ثم انقر ( ابدأ ) لبدء الرسم')}
+              </span>
             )}
           </div>
 
-          {/* Left: Quick Action Controls (تحريك/حجم، قفل القلم الهوائي، دليل الاستخدام وتكبير الشاشة) */}
+          {/* End side: Quick Action Controls */}
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             {/* Air Pen Lock / Unlock quick toggle in AR mode */}
             {isARMode && onToggleAirPenLock && (
               <button
                 type="button"
                 onClick={onToggleAirPenLock}
-                title={isAirPenLocked ? 'القلم الهوائي مقفل — انقر لفتح الرسم' : 'قفل القلم الهوائي مؤقتاً لمنع الشخبطة'}
+                title={
+                  isAirPenLocked
+                    ? tr('writing_toolbar_airpen_locked_tooltip', 'القلم الهوائي مقفل — انقر للفتح')
+                    : tr('writing_toolbar_airpen_active_tooltip', 'إيقاف القلم الهوائي مؤقتاً')
+                }
                 className={`p-1.5 sm:px-2 sm:py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer shrink-0 ${
                   isAirPenLocked
                     ? 'bg-rose-500/25 text-rose-300 border-rose-500/50'
@@ -3528,7 +3618,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 }`}
               >
                 {isAirPenLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                <span className="hidden md:inline">{isAirPenLocked ? 'مقفل' : 'مفعّل'}</span>
+                <span className="hidden md:inline">
+                  {isAirPenLocked
+                    ? tr('writing_airpen_locked_short', 'مقفل')
+                    : tr('writing_airpen_active_short', 'مفعّل')}
+                </span>
               </button>
             )}
 
@@ -3537,7 +3631,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               <button
                 type="button"
                 onClick={() => setIsTransformPopoverOpen(prev => !prev)}
-                title="تحريك وتكبير/تصغير موضع الصورة"
+                title={tr('writing_btn_move_title', 'تحريك وتكبير/تصغير موضع الصورة')}
                 className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer shrink-0 ${
                   isTransformPopoverOpen || isTransformLocked || templateTransform.offsetX !== 0 || templateTransform.offsetY !== 0 || templateTransform.scale !== 1
                     ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
@@ -3545,7 +3639,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 }`}
               >
                 <Move className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">تحريك</span>
+                <span className="hidden md:inline">{tr('writing_btn_move', 'تحريك')}</span>
               </button>
             )}
 
@@ -3554,7 +3648,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               <button
                 type="button"
                 onClick={onToggleLandscapeToolbar}
-                title={isLandscapeToolbarOpen ? 'إخفاء شريط الأدوات (ملء الشاشة)' : 'إظهار شريط الأدوات (الأقلام والواقع المعزز)'}
+                title={tr('writing_toolbar_mobile_menu_tooltip', 'قائمة الأدوات والخيارات')}
                 className={`p-1 px-2 rounded-lg border text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer shrink-0 ${
                   isLandscapeToolbarOpen
                     ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
@@ -3562,7 +3656,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 }`}
               >
                 <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span>الأدوات</span>
+                <span>{tr('writing_btn_tools_short', 'الأدوات')}</span>
               </button>
             )}
 
@@ -3570,7 +3664,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               <button
                 type="button"
                 onClick={onOpenLibrary}
-                title="تغيير الدرس / مكتبة الدروس"
+                title={tr('writing_toolbar_lessons', 'الدروس')}
                 className="p-1 rounded-lg bg-slate-800/85 hover:bg-slate-700 text-sky-300 border border-slate-700/60 active:scale-95 transition-all cursor-pointer shrink-0"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
@@ -3582,7 +3676,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               <button
                 type="button"
                 onClick={onOpenHelp}
-                title="دليل الاستخدام السريع"
+                title={tr('writing_help_title', 'دليل السبورة والواقع المعزز AR')}
                 className="hidden sm:flex p-1.5 sm:p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-400 border border-slate-700/60 active:scale-95 transition-all cursor-pointer"
               >
                 <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -3592,7 +3686,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
               <button
                 type="button"
                 onClick={onToggleFullscreen}
-                title={isFullscreen ? 'تصغير الشاشة' : 'تكبير الشاشة ملء العرض'}
+                title={
+                  isFullscreen
+                    ? tr('writing_btn_fullscreen_exit', 'تصغير الشاشة')
+                    : tr('writing_btn_fullscreen_enter', 'تكبير الشاشة ملء العرض')
+                }
                 className={`${isMobileLandscape ? 'p-1 rounded-lg' : 'p-1.5 sm:p-2 rounded-xl'} bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 active:scale-95 transition-all cursor-pointer`}
               >
                 {isFullscreen ? (
@@ -3614,7 +3712,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 type="button"
                 onClick={onDismissRetryBanner}
                 className="p-0.5 rounded hover:bg-slate-950/15 cursor-pointer shrink-0"
-                aria-label="إغلاق"
+                aria-label={tr('writing_toolbar_close', 'إغلاق')}
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -3625,17 +3723,20 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
       {/* Floating Template Move / Scale Control Popover */}
       {isTransformPopoverOpen && template && (
-        <div className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} left-2 sm:left-4 z-[25] w-[238px] bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-2xl p-3 shadow-2xl text-slate-100 animate-in fade-in zoom-in-95 duration-150`}>
+        <div
+          dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+          className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} left-2 sm:left-4 z-[25] w-[238px] bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-2xl p-3 shadow-2xl text-slate-100 animate-in fade-in zoom-in-95 duration-150`}
+        >
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800">
             <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
               <Move className="w-3.5 h-3.5" />
-              <span>ضبط مكان وحجم الصورة</span>
+              <span>{tr('writing_move_popover_title', 'ضبط مكان وحجم الصورة')}</span>
             </div>
             <button
               type="button"
               onClick={() => setIsTransformPopoverOpen(false)}
               className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
-              aria-label="إغلاق"
+              aria-label={tr('writing_toolbar_close', 'إغلاق')}
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -3643,24 +3744,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
           {strokes.length > 0 ? (
             <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 space-y-2 text-center">
-              <p>امسح الحبر أولاً قبل تحريك الحرف حتى تبقى دقة التقييم صحيحة.</p>
+              <p>
+                {tr(
+                  'writing_move_clear_warning',
+                  'امسح الحبر أولاً قبل تحريك الحرف حتى تبقى دقة التقييم صحيحة.'
+                )}
+              </p>
               <button
                 type="button"
                 onClick={() => performFullClear(true)}
                 className="w-full py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-[11px] hover:brightness-110 cursor-pointer"
               >
-                مسح الحبر للتحريك
+                {tr('writing_move_clear_btn', 'مسح الحبر للتحريك')}
               </button>
             </div>
           ) : (
             <div className="space-y-3">
               {/* Directional Pad: Up / Right / Center / Left / Down */}
-              <div className="grid grid-cols-3 gap-1.5 w-[132px] mx-auto">
+              <div className="grid grid-cols-3 gap-1.5 w-[132px] mx-auto" dir="rtl">
                 <div />
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(p => ({ ...p, offsetY: Math.max(-0.42, +(p.offsetY - 0.04).toFixed(2)) }))}
-                  title="تحريك للأعلى"
                   className="p-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 border border-slate-700 flex items-center justify-center active:scale-90 transition-all cursor-pointer"
                 >
                   <ArrowUp className="w-4 h-4" />
@@ -3670,7 +3775,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(p => ({ ...p, offsetX: Math.min(0.42, +(p.offsetX + 0.04).toFixed(2)) }))}
-                  title="تحريك لليمين"
                   className="p-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 border border-slate-700 flex items-center justify-center active:scale-90 transition-all cursor-pointer"
                 >
                   <ArrowRight className="w-4 h-4" />
@@ -3678,7 +3782,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(() => DEFAULT_TEMPLATE_TRANSFORM)}
-                  title="إرجاع للمنتصف"
+                  title={tr('writing_canvas_recenter', 'توسيط اللوحة')}
                   className="p-2 rounded-xl bg-slate-700 hover:bg-emerald-500 hover:text-slate-950 border border-slate-600 flex items-center justify-center active:scale-90 transition-all cursor-pointer"
                 >
                   <Crosshair className="w-4 h-4" />
@@ -3686,7 +3790,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(p => ({ ...p, offsetX: Math.max(-0.42, +(p.offsetX - 0.04).toFixed(2)) }))}
-                  title="تحريك لليسار"
                   className="p-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 border border-slate-700 flex items-center justify-center active:scale-90 transition-all cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -3696,7 +3799,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(p => ({ ...p, offsetY: Math.min(0.42, +(p.offsetY + 0.04).toFixed(2)) }))}
-                  title="تحريك للأسفل"
                   className="p-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 border border-slate-700 flex items-center justify-center active:scale-90 transition-all cursor-pointer"
                 >
                   <ArrowDown className="w-4 h-4" />
@@ -3709,7 +3811,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(p => ({ ...p, scale: Math.max(0.55, +(p.scale - 0.08).toFixed(2)) }))}
-                  title="تصغير الصورة"
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
                 >
                   <Minus className="w-3.5 h-3.5" />
@@ -3720,7 +3821,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => updateTemplateTransform(p => ({ ...p, scale: Math.min(1.60, +(p.scale + 0.08).toFixed(2)) }))}
-                  title="تكبير الصورة"
                   className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -3738,7 +3838,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 }`}
               >
                 {isTransformLocked ? <Pin className="w-3.5 h-3.5" /> : <PinOff className="w-3.5 h-3.5" />}
-                <span>{isTransformLocked ? 'مثبت لجميع الدروس ✓' : 'تثبيت هذا الموضع لكل الصور'}</span>
+                <span>
+                  {isTransformLocked
+                    ? tr('writing_move_pin_locked', 'مثبت لجميع الدروس ✓')
+                    : tr('writing_move_pin_btn', 'تثبيت هذا الموضع لكل الصور')}
+                </span>
               </button>
             </div>
           )}
@@ -3747,23 +3851,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
 
       {/* Floating Comparison Bar when inspecting Ghost Overlay outside modal */}
       {template?.hideImage && showGhostOverlay && !evaluationModal?.isOpen && (
-        <div className="absolute bottom-4 inset-x-0 z-20 flex justify-center pointer-events-none px-4">
+        <div
+          dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+          className="absolute bottom-4 inset-x-0 z-20 flex justify-center pointer-events-none px-4"
+        >
           <div className="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-900/95 border border-amber-500/40 shadow-xl text-xs">
-            <span className="text-amber-300 font-bold">👻 مقارنة الظل الذهبي للحرف</span>
+            <span className="text-amber-300 font-bold">
+              {tr('writing_ghost_comparing', '👻 مقارنة الظل الذهبي للحرف')}
+            </span>
             <button
               type="button"
               onClick={() => setShowGhostOverlay(prev => !prev)}
               className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold cursor-pointer flex items-center gap-1"
             >
               <EyeOff className="w-3.5 h-3.5" />
-              <span>إخفاء الظل</span>
+              <span>{tr('writing_ghost_hide', 'إخفاء الظل')}</span>
             </button>
             <button
               type="button"
               onClick={() => setEvaluationModal(prev => prev ? { ...prev, isOpen: true } : null)}
               className="px-2.5 py-1 rounded-xl bg-amber-500 text-slate-950 font-bold hover:brightness-110 cursor-pointer"
             >
-              العودة للتقييم
+              {tr('writing_ghost_back_eval', 'العودة للتقييم')}
             </button>
           </div>
         </div>
@@ -3772,7 +3881,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
       {/* Honor Stars Corner Badge & Diagnostic Coloring Toggle on Board during Evaluation */}
       {evaluationModal && (
         <>
-          {/* Corner 10-Star Honor Widget (opposite side of sidebar so it never collides) */}
+          {/* Corner 10-Star Honor Widget */}
           <div
             className={`absolute ${isMobileLandscape ? 'top-10' : 'top-14 sm:top-16'} z-20 pointer-events-auto flex flex-wrap lg:flex-nowrap items-center justify-center max-w-[146px] lg:max-w-none gap-0.5 lg:gap-1 px-2 py-1 lg:px-2.5 lg:py-1.5 rounded-2xl bg-slate-900/90 border border-amber-500/40 shadow-xl ${
               evalSidebarSide === 'left' ? 'right-2 sm:right-4' : 'left-2 sm:left-4'
@@ -3791,23 +3900,26 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
             })}
           </div>
 
-          {/* Bottom Diagnostic Legend Strip (hidden for freehand mode since there is no reference path error) */}
+          {/* Bottom Diagnostic Legend Strip */}
           {evaluationModal.evalMode !== 'freehand' && (
-            <div className="absolute bottom-2.5 inset-x-0 z-20 flex justify-center pointer-events-none px-2">
+            <div
+              dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+              className="absolute bottom-2.5 inset-x-0 z-20 flex justify-center pointer-events-none px-2"
+            >
               <div className="pointer-events-auto flex items-center gap-2 sm:gap-3 px-2.5 py-1 rounded-xl bg-slate-900/88 border border-slate-700/80 text-[10px] sm:text-[11px] text-slate-200 shadow-lg">
                 {showDiagnosticColors && (
                   <div className="flex items-center gap-2 sm:gap-2.5">
                     <span className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span>صحيح</span>
+                      <span>{tr('writing_diag_correct', 'صحيح')}</span>
                     </span>
                     <span className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-rose-500" />
-                      <span>خارج المسار</span>
+                      <span>{tr('writing_diag_off_path', 'خارج المسار')}</span>
                     </span>
                     <span className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-yellow-400" />
-                      <span>فراغ السُمك</span>
+                      <span>{tr('writing_diag_gap', 'فراغ السُمك')}</span>
                     </span>
                   </div>
                 )}
@@ -3817,7 +3929,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   className="px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
                 >
                   {showDiagnosticColors ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  <span>{showDiagnosticColors ? 'إخفاء التشخيص' : 'تلوين الأخطاء'}</span>
+                  <span>
+                    {showDiagnosticColors
+                      ? tr('writing_diag_hide', 'إخفاء التشخيص')
+                      : tr('writing_diag_show', 'تلوين الأخطاء')}
+                  </span>
                 </button>
               </div>
             </div>
@@ -3825,9 +3941,10 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         </>
       )}
 
-      {/* Layer 4: Zero-Blur Slim Vertical Results Sidebar (نافذة نتائج نحيفة بدون ضباب - للهواتف والتابليت < lg، كاملة لسطح المكتب lg+) */}
+      {/* Layer 4: Zero-Blur Slim Vertical Results Sidebar */}
       {evaluationModal && evaluationModal.isOpen && (
         <div
+          dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
           className={`absolute inset-y-0 z-[25] pointer-events-none flex items-center p-1.5 sm:p-2.5 lg:p-3 animate-in fade-in duration-200 ${
             evalSidebarSide === 'left' ? 'left-0 justify-end' : 'right-0 justify-start'
           }`}
@@ -3852,7 +3969,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                     setEvaluationModal(prev => prev ? { ...prev, isOpen: false } : null);
                     setIsLessonStarted(false);
                   }}
-                  title="إغلاق"
+                  title={tr('writing_toolbar_close', 'إغلاق')}
                   className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-3 h-3 lg:w-3.5 lg:h-3.5" />
@@ -3861,7 +3978,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   <button
                     type="button"
                     onClick={() => setEvalSidebarSide(prev => prev === 'left' ? 'right' : 'left')}
-                    title="نقل الشريط لليمين أو اليسار"
                     className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 cursor-pointer"
                   >
                     <ArrowLeftRight className="w-3 h-3 lg:w-3.5 lg:h-3.5" />
@@ -3869,7 +3985,6 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   <button
                     type="button"
                     onClick={() => setIsEvalSidebarCollapsed(true)}
-                    title="تصغير النافذة"
                     className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
                   >
                     {evalSidebarSide === 'left' ? <ChevronLeft className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> : <ChevronRight className="w-3 h-3 lg:w-3.5 lg:h-3.5" />}
@@ -3884,8 +3999,8 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 </div>
                 <h3 className="font-bold text-[11px] lg:text-sm text-amber-300 leading-tight">
                   {evaluationModal.repetitionBreakdown && evaluationModal.repetitionBreakdown.length > 1
-                    ? `تقييم (${evaluationModal.repetitionBreakdown.length})`
-                    : 'تقييم'}
+                    ? `${tr('writing_btn_evaluate', 'تقييم')} (${evaluationModal.repetitionBreakdown.length})`
+                    : tr('writing_btn_evaluate', 'تقييم')}
                 </h3>
               </div>
 
@@ -3911,16 +4026,16 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 </div>
               )}
 
-              {/* 4–6. Vertical Criteria List (Mode-aware: 2 metrics for guide_only, 3 artistic for freehand, 3 guided for steps) */}
+              {/* 4–6. Vertical Criteria List */}
               <div className="space-y-1 lg:space-y-1.5 bg-slate-950/55 rounded-xl border border-slate-800 p-1.5 lg:p-2 text-center">
                 {evaluationModal.evalMode !== 'guide_only' && (
                   <div>
                     <div className="text-[9px] lg:text-[10px] text-slate-300 leading-tight">
                       {evaluationModal.evalMode === 'freehand'
-                        ? 'ثبات اليد'
+                        ? tr('writing_eval_hand_steadiness', 'ثبات اليد')
                         : template?.hideImage
-                        ? 'الاتزان والبداية'
-                        : 'البداية والنهاية'}
+                        ? tr('writing_eval_balance_start', 'الاتزان والبداية')
+                        : tr('writing_eval_start_end', 'البداية والنهاية')}
                     </div>
                     <div className="font-mono font-bold text-[11px] lg:text-xs text-emerald-400 tabular-nums">
                       {evaluationModal.startEndScore}%
@@ -3934,12 +4049,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <div className={evaluationModal.evalMode !== 'guide_only' ? 'border-t border-slate-800/80 pt-1' : ''}>
                   <div className="text-[9px] lg:text-[10px] text-slate-300 leading-tight">
                     {evaluationModal.evalMode === 'freehand'
-                      ? 'توازن اللوحة'
+                      ? tr('writing_eval_board_balance', 'توازن اللوحة')
                       : template?.hideImage
-                      ? 'تطابق الشكل'
+                      ? tr('writing_eval_shape_match', 'تطابق الشكل')
                       : evaluationModal.evalMode === 'guide_only'
-                      ? 'الالتزام بالشكل'
-                      : 'دقة المسار'}
+                      ? tr('writing_eval_shape_adherence', 'الالتزام بالشكل')
+                      : tr('writing_eval_path_accuracy', 'دقة المسار')}
                   </div>
                   <div className="font-mono font-bold text-[11px] lg:text-xs text-amber-400 tabular-nums">
                     {evaluationModal.pathScore}%
@@ -3952,12 +4067,12 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <div className="border-t border-slate-800/80 pt-1">
                   <div className="text-[9px] lg:text-[10px] text-slate-300 leading-tight">
                     {evaluationModal.evalMode === 'freehand'
-                      ? 'ثراء التفاصيل'
+                      ? tr('writing_eval_detail_richness', 'ثراء التفاصيل')
                       : template?.hideImage
-                      ? 'تغطية المعالم'
+                      ? tr('writing_eval_feature_coverage', 'تغطية المعالم')
                       : evaluationModal.evalMode === 'guide_only'
-                      ? 'التغطية والامتلاء'
-                      : 'سُمك الحرف'}
+                      ? tr('writing_eval_coverage_fill', 'التغطية والامتلاء')
+                      : tr('writing_eval_letter_thickness', 'سُمك الحرف')}
                   </div>
                   <div className="font-mono font-bold text-[11px] lg:text-xs text-sky-400 tabular-nums">
                     {evaluationModal.coverageScore}%
@@ -3973,17 +4088,24 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                 <button
                   type="button"
                   onClick={() => setShowGhostOverlay(prev => !prev)}
-                  title={showGhostOverlay ? 'إخفاء الحرف' : 'عرض الحرف'}
+                  title={
+                    showGhostOverlay
+                      ? tr('writing_eval_hide_letter', 'إخفاء الحرف')
+                      : tr('writing_eval_show_letter', 'عرض الحرف')
+                  }
                   className="w-full py-1.5 px-1.5 lg:px-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-[9px] lg:text-[10px] flex items-center justify-center gap-1 cursor-pointer"
                 >
                   {showGhostOverlay ? <EyeOff className="w-3.5 h-3.5 shrink-0" /> : <Eye className="w-3.5 h-3.5 shrink-0" />}
-                  <span className="hidden lg:inline">{showGhostOverlay ? 'إخفاء الحرف' : 'عرض الحرف'}</span>
+                  <span className="hidden lg:inline">
+                    {showGhostOverlay
+                      ? tr('writing_eval_hide_letter', 'إخفاء الحرف')
+                      : tr('writing_eval_show_letter', 'عرض الحرف')}
+                  </span>
                 </button>
               )}
 
-              {/* Bottom Action Buttons: Vertically stacked (Reset above Submit), icon-only on mobile & tablet (< lg) */}
+              {/* Bottom Action Buttons */}
               <div className="flex flex-col gap-1.5">
-                {/* 7. Reset Exercise Button (إعادة التمرين) — enforces maxRetries once grade is submitted */}
                 {(() => {
                   const isLockedPostSubmit = Boolean(submitAnswerResult?.success) && canRetryAfterSubmit === false;
                   return (
@@ -3997,8 +4119,16 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                         }
                         performFullClear(false);
                       }}
-                      title={isLockedPostSubmit ? 'وصلت للحد الأقصى لمحاولات الإعادة' : 'إعادة التمرين'}
-                      aria-label={isLockedPostSubmit ? 'وصلت للحد الأقصى لمحاولات الإعادة' : 'إعادة التمرين'}
+                      title={
+                        isLockedPostSubmit
+                          ? tr('writing_eval_retry_locked', 'مقفول (انتهت الإعادة)')
+                          : tr('writing_lib_retry_btn', 'إعادة التمرين')
+                      }
+                      aria-label={
+                        isLockedPostSubmit
+                          ? tr('writing_eval_retry_locked', 'مقفول (انتهت الإعادة)')
+                          : tr('writing_lib_retry_btn', 'إعادة التمرين')
+                      }
                       className={`w-full py-2 px-1.5 lg:px-2 rounded-xl font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all ${
                         isLockedPostSubmit
                           ? 'bg-slate-800/60 text-slate-500 border border-slate-700/60 cursor-not-allowed'
@@ -4011,19 +4141,27 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                         <RotateCcw className="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0" />
                       )}
                       <span className="hidden lg:inline">
-                        {isLockedPostSubmit ? 'مقفول (انتهت الإعادة)' : 'إعادة التمرين'}
+                        {isLockedPostSubmit
+                          ? tr('writing_eval_retry_locked', 'مقفول (انتهت الإعادة)')
+                          : tr('writing_lib_retry_btn', 'إعادة التمرين')}
                       </span>
                     </button>
                   );
                 })()}
 
-                {/* 8. Submit Answer Button (تسجيل الإجابة) */}
+                {/* 8. Submit Answer Button */}
                 <button
                   type="button"
                   onClick={handleSubmitAnswer}
                   disabled={isSubmittingAnswer || submitAnswerResult?.success}
-                  title={isSubmittingAnswer ? 'جاري الحفظ...' : submitAnswerResult?.success ? 'تم تسجيل الإجابة' : 'تسجيل الإجابة'}
-                  aria-label="تسجيل الإجابة"
+                  title={
+                    isSubmittingAnswer
+                      ? tr('writing_eval_submitting', 'جاري الحفظ...')
+                      : submitAnswerResult?.success
+                      ? tr('writing_eval_submitted_msg', 'تم تسجيل الإجابة')
+                      : tr('writing_eval_submit', 'تسجيل الإجابة')
+                  }
+                  aria-label={tr('writing_eval_submit', 'تسجيل الإجابة')}
                   className={`w-full py-2 px-1.5 lg:px-2 rounded-xl font-bold text-[11px] flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer ${
                     submitAnswerResult?.success
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default'
@@ -4033,23 +4171,23 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
                   {isSubmittingAnswer ? (
                     <>
                       <Loader2 className="w-4 h-4 lg:w-3.5 lg:h-3.5 animate-spin shrink-0" />
-                      <span className="hidden lg:inline">جاري الحفظ...</span>
+                      <span className="hidden lg:inline">{tr('writing_eval_submitting', 'جاري الحفظ...')}</span>
                     </>
                   ) : submitAnswerResult?.success ? (
                     <>
                       <CheckCircle2 className="w-4 h-4 lg:w-3.5 lg:h-3.5 text-emerald-400 shrink-0" />
-                      <span className="hidden lg:inline">تم التسجيل</span>
+                      <span className="hidden lg:inline">{tr('writing_eval_submitted', 'تم التسجيل')}</span>
                     </>
                   ) : (
                     <>
                       <Save className="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0" />
-                      <span className="hidden lg:inline">تسجيل الإجابة</span>
+                      <span className="hidden lg:inline">{tr('writing_eval_submit', 'تسجيل الإجابة')}</span>
                     </>
                   )}
                 </button>
               </div>
 
-              {/* Compact Upload Result Message (Short text only, no image link) */}
+              {/* Compact Upload Result Message */}
               {submitAnswerResult && (
                 <div
                   className={`p-1.5 rounded-xl text-[9px] lg:text-[10px] font-bold text-center leading-tight ${
@@ -4066,7 +4204,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         </div>
       )}
 
-      {/* Layer 5: Virtual Air-Cursor Overlay (Positioned via direct DOM ref for zero per-frame React re-render) */}
+      {/* Layer 5: Virtual Air-Cursor Overlay */}
       {(() => {
         const { active, locked, drawing, pointClass } = airCursorBadge;
 
@@ -4078,28 +4216,28 @@ export const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvas
         if (locked) {
           ringClass = 'bg-slate-800/75 border-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.45)] scale-95';
           dotClass = 'bg-rose-400';
-          badgeText = '🔒 القلم مقفل';
+          badgeText = tr('writing_cursor_locked', '🔒 القلم مقفل');
           badgeClass = 'bg-rose-600 text-white';
         } else if (drawing) {
           if (pointClass === 'core') {
             ringClass = 'bg-emerald-500/85 border-amber-200 shadow-[0_0_20px_rgba(16,185,129,0.9)] scale-125';
             dotClass = 'bg-white';
-            badgeText = '✨ داخل الحرف';
+            badgeText = tr('writing_cursor_core', '✨ داخل الحرف');
             badgeClass = 'bg-emerald-500 text-slate-950';
           } else if (pointClass === 'grazing') {
             ringClass = 'bg-amber-500/85 border-yellow-100 shadow-[0_0_18px_rgba(245,158,11,0.9)] scale-125';
             dotClass = 'bg-white';
-            badgeText = '✍️ قريب من المسار';
+            badgeText = tr('writing_cursor_grazing', '✍️ قريب من المسار');
             badgeClass = 'bg-amber-400 text-slate-950';
           } else if (pointClass === 'off') {
             ringClass = 'bg-rose-600/90 border-white shadow-[0_0_20px_rgba(244,63,94,0.9)] scale-125';
             dotClass = 'bg-white';
-            badgeText = '⚠️ خارج المسار';
+            badgeText = tr('writing_cursor_off', '⚠️ خارج المسار');
             badgeClass = 'bg-rose-600 text-white';
           } else {
             ringClass = 'bg-amber-500/80 border-white shadow-[0_0_18px_#f59e0b] scale-125';
             dotClass = 'bg-white';
-            badgeText = '✍️ يرسم';
+            badgeText = tr('writing_cursor_drawing', '✍️ يرسم');
             badgeClass = 'bg-amber-500 text-slate-950';
           }
         }

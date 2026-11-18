@@ -5,6 +5,16 @@ import { getRetryStatus } from '../../utils/retryLimit';
 import { audioService } from '../services/audioService';
 import { formatDirectImageUrl } from '../utils/urlHelper';
 import {
+  SupportedLang,
+  TranslationItem,
+  DEFAULT_TRANSLATIONS,
+  getTranslatedString,
+  getTranslatedWritingTopic,
+  getTranslatedWritingCategory,
+  getTranslatedWritingLessonTitle,
+  getTranslatedWritingDifficulty,
+} from '../../utils/translations';
+import {
   X,
   Search,
   BookOpen,
@@ -29,6 +39,8 @@ interface TemplateLibraryModalProps {
   templates?: DrawingTemplate[];
   writingHistory?: WritingHistoryItem[];
   currentStudent?: StudentRegistrant | null;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
 }
 
 export function buildWritingRetryKey(tpl: DrawingTemplate): string {
@@ -64,8 +76,12 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
   templates = [],
   writingHistory = [],
   currentStudent = null,
+  currentLang = 'ar',
+  translations = DEFAULT_TRANSLATIONS,
 }) => {
   const allTemplates = templates || [];
+  const tr = (id: string, fallback: string) =>
+    getTranslatedString(id, currentLang, translations, fallback) || fallback;
 
   // View mode: 'list' (default as requested) or 'grid' (cards)
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -135,8 +151,29 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
     .filter(tpl => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
+      const translatedTitle = getTranslatedWritingLessonTitle(
+        tpl.topic || 'خط النسخ',
+        tpl.title,
+        tpl.slotIndex,
+        currentLang,
+        translations,
+        tpl.titleEn
+      );
+      const translatedTopic = getTranslatedWritingTopic(
+        tpl.topic || 'خط النسخ',
+        currentLang,
+        translations
+      );
+      const translatedCat = getTranslatedWritingCategory(
+        tpl.category || 'حروف',
+        currentLang,
+        translations
+      );
       return (
         tpl.title.toLowerCase().includes(q) ||
+        translatedTitle.toLowerCase().includes(q) ||
+        translatedTopic.toLowerCase().includes(q) ||
+        translatedCat.toLowerCase().includes(q) ||
         (tpl.titleEn && tpl.titleEn.toLowerCase().includes(q)) ||
         (tpl.description && tpl.description.toLowerCase().includes(q)) ||
         (tpl.arabicAudioText && tpl.arabicAudioText.toLowerCase().includes(q))
@@ -154,11 +191,20 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
     onClose();
   };
 
+  const translatedSelectedCat = getTranslatedWritingCategory(
+    selectedCategory,
+    currentLang,
+    translations
+  );
+
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div
+      dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+      className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-5 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+    >
       <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden text-slate-100">
         
-        {/* Header - Renamed to "الدروس" */}
+        {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between gap-4 bg-slate-900/95">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
@@ -166,10 +212,10 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-bold font-ruqaa text-amber-400 flex items-center gap-2">
-                <span>الدروس</span>
+                <span>{tr('writing_lib_title', 'الدروس')}</span>
               </h2>
               <p className="text-xs text-slate-400">
-                اختر درساً للشف والتمرن على السبورة التفاعلية أو بكاميرا الواقع المعزز AR
+                {tr('writing_lib_subtitle', 'اختر درساً للشف والتمرن على السبورة التفاعلية أو بكاميرا الواقع المعزز AR')}
               </p>
             </div>
           </div>
@@ -178,18 +224,18 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
             {/* View Mode Toggle Button: List vs Cards (Grid) */}
             <button
               onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
-              title={viewMode === 'list' ? 'تحويل إلى بطاقات' : 'تحويل إلى قائمة'}
+              title={viewMode === 'list' ? tr('writing_lib_view_grid', 'عرض البطاقات') : tr('writing_lib_view_list', 'عرض القائمة')}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all cursor-pointer"
             >
               {viewMode === 'list' ? (
                 <>
                   <LayoutGrid className="w-4 h-4 text-amber-400" />
-                  <span className="hidden sm:inline">عرض البطاقات</span>
+                  <span className="hidden sm:inline">{tr('writing_lib_view_grid', 'عرض البطاقات')}</span>
                 </>
               ) : (
                 <>
                   <LayoutList className="w-4 h-4 text-amber-400" />
-                  <span className="hidden sm:inline">عرض القائمة</span>
+                  <span className="hidden sm:inline">{tr('writing_lib_view_list', 'عرض القائمة')}</span>
                 </>
               )}
             </button>
@@ -197,6 +243,8 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
             {/* Close button */}
             <button
               onClick={onClose}
+              title={tr('writing_toolbar_close', 'إغلاق')}
+              aria-label={tr('writing_toolbar_close', 'إغلاق')}
               className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-all active:scale-95 cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -208,14 +256,18 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
         <div className="p-4 sm:px-6 bg-slate-950/60 border-b border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           {/* Topics Dropdown + Show/Hide Completed Eye Toggle */}
           <div className="flex items-center gap-2 flex-1">
-            <span className="text-xs font-bold text-amber-400 shrink-0">موضوع الدرس:</span>
+            <span className="text-xs font-bold text-amber-400 shrink-0">
+              {tr('writing_lib_topic_label', 'موضوع الدرس:')}
+            </span>
             <select
               value={selectedTopic}
               onChange={(e) => setSelectedTopic(e.target.value)}
               className="flex-1 max-w-xs px-3.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs sm:text-sm text-slate-100 font-bold focus:outline-hidden focus:border-amber-500 cursor-pointer"
             >
               {topics.map(top => (
-                <option key={top} value={top}>{top}</option>
+                <option key={top} value={top}>
+                  {getTranslatedWritingTopic(top, currentLang, translations)}
+                </option>
               ))}
             </select>
 
@@ -224,13 +276,13 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
               onClick={() => setShowCompleted((prev) => !prev)}
               title={
                 showCompleted
-                  ? 'إخفاء الدروس التي تم تسجيل إجابتها'
-                  : 'إظهار الدروس التي تم تسجيل إجابتها'
+                  ? tr('writing_lib_hide_completed_tooltip', 'إخفاء الدروس التي تم تسجيل إجابتها')
+                  : tr('writing_lib_show_completed_tooltip', 'إظهار الدروس التي تم تسجيل إجابتها')
               }
               aria-label={
                 showCompleted
-                  ? 'إخفاء الدروس التي تم تسجيل إجابتها'
-                  : 'إظهار الدروس التي تم تسجيل إجابتها'
+                  ? tr('writing_lib_hide_completed_tooltip', 'إخفاء الدروس التي تم تسجيل إجابتها')
+                  : tr('writing_lib_show_completed_tooltip', 'إظهار الدروس التي تم تسجيل إجابتها')
               }
               className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer shrink-0 ${
                 showCompleted
@@ -244,20 +296,28 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
 
           {/* Search Box */}
           <div className="relative min-w-[200px]">
-            <Search className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search
+              className={`w-3.5 h-3.5 absolute top-1/2 -translate-y-1/2 text-slate-400 ${
+                currentLang === 'ar' ? 'right-3' : 'left-3'
+              }`}
+            />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ابحث عن درس أو حرف..."
-              className="w-full pl-3 pr-8 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-hidden focus:border-amber-500"
+              placeholder={tr('writing_lib_search_placeholder', 'ابحث عن درس أو حرف...')}
+              className={`w-full py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-hidden focus:border-amber-500 ${
+                currentLang === 'ar' ? 'pl-3 pr-8' : 'pr-3 pl-8'
+              }`}
             />
           </div>
         </div>
 
         {/* 2. Category Tabs (Filtered by selected topic - NO 'الكل' tab) */}
         <div className="px-4 sm:px-6 py-2.5 bg-slate-900/60 border-b border-slate-800 flex items-center gap-2 overflow-x-auto scrollbar-none">
-          <span className="text-xs text-slate-400 font-semibold ml-1 shrink-0">الفئات:</span>
+          <span className="text-xs text-slate-400 font-semibold mx-1 shrink-0">
+            {tr('writing_lib_categories_label', 'الفئات:')}
+          </span>
           {categoriesInTopic.map(cat => {
             const inCat = lessonsInTopic.filter(l => (l.category || 'حروف').trim() === cat);
             const visibleCount = showCompleted
@@ -268,14 +328,14 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
-                className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
                   isCatActive
                     ? 'bg-amber-500 text-slate-950 font-bold shadow-md'
                     : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700'
                 }`}
               >
-                <span>{cat}</span>
-                <span className="mr-1.5 text-[10px] opacity-75">({visibleCount})</span>
+                <span>{getTranslatedWritingCategory(cat, currentLang, translations)}</span>
+                <span className="text-[10px] opacity-75">({visibleCount})</span>
               </button>
             );
           })}
@@ -294,6 +354,19 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                 const retryKey = buildWritingRetryKey(item);
                 const retryStatus = getRetryStatus('writing', currentStudent, retryKey, item);
                 const canRetry = retryStatus.canRetry;
+                const displayTitle = getTranslatedWritingLessonTitle(
+                  item.topic || 'خط النسخ',
+                  item.title,
+                  item.slotIndex,
+                  currentLang,
+                  translations,
+                  item.titleEn
+                );
+                const displayDifficulty = getTranslatedWritingDifficulty(
+                  item.difficulty,
+                  currentLang,
+                  translations
+                );
 
                 return (
                   <div
@@ -312,14 +385,14 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                         : 'bg-slate-900/70 hover:bg-slate-800 border-slate-800 hover:border-slate-700 cursor-pointer'
                     }`}
                   >
-                    {/* Right side: Thumbnail + Title & Info (RTL) */}
+                    {/* Start side: Thumbnail + Title & Info */}
                     <div className="flex items-center gap-3 min-w-0">
                       {/* Thumbnail on Crisp White Background for Black Calligraphy */}
                       <div className="w-14 h-14 rounded-xl bg-white border border-slate-300 shadow-inner flex items-center justify-center p-1.5 shrink-0 overflow-hidden group-hover:scale-105 transition-transform">
                         {directUrl ? (
                           <img
                             src={directUrl}
-                            alt={item.title}
+                            alt={displayTitle}
                             className="max-h-full max-w-full object-contain filter drop-shadow"
                             crossOrigin="anonymous"
                             onError={(e) => {
@@ -336,15 +409,15 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                         )}
                       </div>
 
-                      {/* Title & Description */}
+                      {/* Title & Arabic Pronunciation Preview */}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-bold text-sm text-slate-100 group-hover:text-amber-400 transition-colors truncate">
-                            {item.title}
+                            {displayTitle}
                           </h3>
                           {isSelected && (
                             <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30">
-                              محدد حالياً
+                              {tr('writing_lib_selected_badge', 'محدد حالياً')}
                             </span>
                           )}
                           {isCompleted && (
@@ -362,22 +435,31 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                           )}
                         </div>
                         <p className="text-xs text-slate-400 truncate mt-0.5">
-                          {item.arabicAudioText || item.description || 'تمرين شف وكتابة على السبورة'}
+                          {item.arabicAudioText ? (
+                            <span dir="rtl" className="inline-block">{item.arabicAudioText}</span>
+                          ) : (
+                            item.description || tr('writing_lib_default_desc', 'تمرين شف وكتابة على السبورة')
+                          )}
                         </p>
                       </div>
                     </div>
 
-                    {/* Left side: Badges, Retry / Lock & Audio Pronounce */}
+                    {/* End side: Badges, Retry / Lock & Audio Pronounce */}
                     <div className="flex items-center gap-2 shrink-0">
                       {/* Repeat Count */}
                       <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-amber-400 text-[11px] font-bold">
                         <Repeat className="w-3 h-3" />
-                        <span>التكرار: {item.repeatCount || 1}</span>
+                        <span>
+                          {tr('writing_lib_repeat_prefix', 'التكرار: {count}').replace(
+                            '{count}',
+                            String(item.repeatCount || 1)
+                          )}
+                        </span>
                       </div>
 
                       {/* Difficulty */}
                       <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 text-xs font-bold border border-slate-700">
-                        {item.difficulty || 'سهل'}
+                        {displayDifficulty}
                       </span>
 
                       {isCompleted && !retryStatus.isUnlimited && retryStatus.maxRetries > 0 && (
@@ -389,8 +471,12 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                           }`}
                           title={
                             canRetry
-                              ? `متبقٍ ${retryStatus.remainingRetries} من ${retryStatus.maxRetries}`
-                              : `وصلت للحد الأقصى لمحاولات الإعادة (${retryStatus.usedRetries} من ${retryStatus.maxRetries})`
+                              ? tr('writing_lib_retry_remaining', 'متبقٍ {remaining} من {max}')
+                                  .replace('{remaining}', String(retryStatus.remainingRetries))
+                                  .replace('{max}', String(retryStatus.maxRetries))
+                              : tr('writing_lib_retry_max_reached', 'وصلت للحد الأقصى لمحاولات الإعادة ({used} من {max})')
+                                  .replace('{used}', String(retryStatus.usedRetries))
+                                  .replace('{max}', String(retryStatus.maxRetries))
                           }
                         >
                           {canRetry
@@ -409,10 +495,12 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                             }}
                             title={
                               retryStatus.isUnlimited
-                                ? 'إعادة التمرين'
-                                : `إعادة التمرين (متبقٍ ${retryStatus.remainingRetries} من ${retryStatus.maxRetries})`
+                                ? tr('writing_lib_retry_btn', 'إعادة التمرين')
+                                : `${tr('writing_lib_retry_btn', 'إعادة التمرين')} (${tr('writing_lib_retry_remaining', 'متبقٍ {remaining} من {max}')
+                                    .replace('{remaining}', String(retryStatus.remainingRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))})`
                             }
-                            aria-label="إعادة التمرين"
+                            aria-label={tr('writing_lib_retry_btn', 'إعادة التمرين')}
                             className="p-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 transition-all cursor-pointer"
                           >
                             <RotateCcw className="w-4 h-4" />
@@ -422,10 +510,12 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                             onClick={(e) => e.stopPropagation()}
                             title={
                               retryStatus.maxRetries > 0
-                                ? `وصلت للحد الأقصى لمحاولات الإعادة (${retryStatus.usedRetries} من ${retryStatus.maxRetries})`
-                                : 'الإعادة مغلقة لهذا الدرس'
+                                ? tr('writing_lib_retry_max_reached', 'وصلت للحد الأقصى لمحاولات الإعادة ({used} من {max})')
+                                    .replace('{used}', String(retryStatus.usedRetries))
+                                    .replace('{max}', String(retryStatus.maxRetries))
+                                : tr('writing_lib_retry_locked_lesson', 'الإعادة مغلقة لهذا الدرس')
                             }
-                            aria-label="الإعادة مغلقة"
+                            aria-label={tr('writing_lib_retry_locked', 'الإعادة مغلقة')}
                             className="p-2 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 flex items-center justify-center"
                           >
                             <Lock className="w-4 h-4" />
@@ -433,14 +523,14 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                         )
                       )}
 
-                      {/* Listen button */}
+                      {/* Listen button (always Arabic TTS) */}
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           audioService.speakArabic(item.arabicAudioText || item.title);
                         }}
-                        title="استمع للنطق"
+                        title={tr('writing_lib_listen_tooltip', 'استمع للنطق')}
                         className="p-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-slate-300 transition-all cursor-pointer"
                       >
                         <Volume2 className="w-4 h-4" />
@@ -461,6 +551,19 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                 const retryKey = buildWritingRetryKey(item);
                 const retryStatus = getRetryStatus('writing', currentStudent, retryKey, item);
                 const canRetry = retryStatus.canRetry;
+                const displayTitle = getTranslatedWritingLessonTitle(
+                  item.topic || 'خط النسخ',
+                  item.title,
+                  item.slotIndex,
+                  currentLang,
+                  translations,
+                  item.titleEn
+                );
+                const displayDifficulty = getTranslatedWritingDifficulty(
+                  item.difficulty,
+                  currentLang,
+                  translations
+                );
 
                 return (
                   <div
@@ -484,7 +587,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                       {directUrl ? (
                         <img
                           src={directUrl}
-                          alt={item.title}
+                          alt={displayTitle}
                           className="max-h-full max-w-full object-contain filter drop-shadow"
                           crossOrigin="anonymous"
                           onError={(e) => {
@@ -520,7 +623,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                           e.stopPropagation();
                           audioService.speakArabic(item.arabicAudioText || item.title);
                         }}
-                        title="استمع للنطق العربي"
+                        title={tr('writing_lib_listen_tooltip', 'استمع للنطق')}
                         className="absolute bottom-2 left-2 p-1.5 rounded-lg bg-slate-900/80 hover:bg-amber-500 hover:text-slate-950 text-slate-300 transition-all opacity-0 group-hover:opacity-100"
                       >
                         <Volume2 className="w-3.5 h-3.5" />
@@ -530,9 +633,9 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                     {/* Title */}
                     <div className="w-full">
                       <h3 className="font-bold text-xs sm:text-sm text-slate-100 group-hover:text-amber-400 transition-colors line-clamp-1">
-                        {item.title}
+                        {displayTitle}
                       </h3>
-                      <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
+                      <p dir="rtl" className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
                         {item.arabicAudioText || item.title}
                       </p>
                     </div>
@@ -540,7 +643,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                     {/* Difficulty & Retry Footer */}
                     <div className="mt-2 flex items-center justify-center gap-1.5 flex-wrap">
                       <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-900 text-amber-400 border border-slate-700">
-                        {item.difficulty || 'سهل'}
+                        {displayDifficulty}
                       </span>
 
                       {isCompleted && !retryStatus.isUnlimited && retryStatus.maxRetries > 0 && (
@@ -559,7 +662,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                               e.stopPropagation();
                               handleChooseLesson(item, true);
                             }}
-                            title="إعادة التمرين"
+                            title={tr('writing_lib_retry_btn', 'إعادة التمرين')}
                             className="p-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-slate-950 border border-emerald-500/40 cursor-pointer"
                           >
                             <RotateCcw className="w-3 h-3" />
@@ -567,7 +670,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
                         ) : (
                           <span
                             onClick={(e) => e.stopPropagation()}
-                            title="الإعادة مغلقة"
+                            title={tr('writing_lib_retry_locked', 'الإعادة مغلقة')}
                             className="p-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700"
                           >
                             <Lock className="w-3 h-3" />
@@ -586,7 +689,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
               <div className="inline-flex flex-col items-center gap-2 max-w-md mx-auto p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-200">
                 <CheckCircle2 className="w-7 h-7 text-emerald-400" />
                 <p className="text-xs sm:text-sm font-bold leading-relaxed">
-                  أتممت جميع دروس هذه الفئة! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.
+                  {tr('writing_lib_all_completed', 'أتممت جميع دروس هذه الفئة! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.')}
                 </p>
               </div>
             </div>
@@ -595,13 +698,16 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
               <BookOpen className="w-8 h-8 mx-auto text-slate-500" />
               <p className="text-sm font-bold text-slate-300">
                 {allTemplates.length === 0
-                  ? 'لا توجد دروس مضافة بعد في تمرين الكتابة'
-                  : `لا توجد دروس في الفئة "${selectedCategory}"`}
+                  ? tr('writing_lib_no_lessons', 'لا توجد دروس مضافة بعد في تمرين الكتابة')
+                  : tr('writing_lib_no_lessons_in_cat', 'لا توجد دروس في الفئة "{category}"').replace(
+                      '{category}',
+                      translatedSelectedCat
+                    )}
               </p>
               <p className="text-xs text-slate-500">
                 {allTemplates.length === 0
-                  ? 'يمكنك إضافة الدروس من لوحة الإدارة في تبويب «تمرين الكتابة» أو مزامنتها من ورقة ArabicLessons.'
-                  : 'يمكنك التبديل إلى فئة أخرى أو اختيار موضوع مختلف من القائمة بالأعلى.'}
+                  ? tr('writing_lib_no_lessons_hint', 'يمكنك إضافة الدروس من لوحة الإدارة في تبويب «تمرين الكتابة» أو مزامنتها من ورقة ArabicLessons.')
+                  : tr('writing_lib_switch_cat_hint', 'يمكنك التبديل إلى فئة أخرى أو اختيار موضوع مختلف من القائمة بالأعلى.')}
               </p>
             </div>
           )}

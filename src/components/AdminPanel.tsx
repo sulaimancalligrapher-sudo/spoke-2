@@ -71,6 +71,7 @@ import {
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
 import { MatchingTranslationManager } from './MatchingTranslationManager';
+import { WritingTranslationManager } from './WritingTranslationManager';
 import { MatchingAdminManager } from './MatchingAdminManager';
 import { DictationAdminManager } from './DictationAdminManager';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
@@ -150,7 +151,7 @@ interface AdminPanelProps {
   onUpdateWritingArIntroReward?: (intro: ARRewardTier) => boolean | void;
   onPreviewWritingArReward?: (tier: ARRewardTier) => void;
   onOpenWritingMode?: () => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2';
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -216,7 +217,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenWritingMode,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1209,6 +1210,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Languages className={`w-4 h-4 ${activeTab === 'translations2' ? 'text-white' : 'text-purple-500'}`} />
             <span>إدارة وتخصيص الترجمة 2</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('translations3')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'translations3'
+                ? 'bg-amber-500 text-slate-950 shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Languages className={`w-4 h-4 ${activeTab === 'translations3' ? 'text-slate-950' : 'text-amber-500'}`} />
+            <span>إدارة وتخصيص الترجمة 3 (الكتابة)</span>
           </button>
         </div>
 
@@ -2701,6 +2714,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             translations={translations || []}
             onSaveTranslations={onUpdateTranslations || (() => {})}
             matchingSubjects={matchingSubjects || []}
+            geminiApiKey={geminiApiKey}
+            webhookUrl={sheetsConfig.webhookUrl}
+            onRefreshFromSheets={onRefreshFromSheets}
+          />
+        )}
+
+        {/* TAB 4C: WRITING TRANSLATION MANAGEMENT (الترجمة 3 - تمرين الكتابة) */}
+        {activeTab === 'translations3' && (
+          <WritingTranslationManager
+            translations={translations || []}
+            onSaveTranslations={onUpdateTranslations || (() => {})}
+            writingTemplates={writingTemplates || []}
             geminiApiKey={geminiApiKey}
             webhookUrl={sheetsConfig.webhookUrl}
             onRefreshFromSheets={onRefreshFromSheets}

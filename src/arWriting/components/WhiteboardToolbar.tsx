@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BoardStyle, PenType, GuideColor, DrawingTemplate, HandTrackingDisplayMode } from '../types/drawing';
 import { CALLIGRAPHY_COLORS } from '../data/drawingTemplates';
 import {
+  SupportedLang,
+  TranslationItem,
+  DEFAULT_TRANSLATIONS,
+  getTranslatedString,
+  getTranslatedWritingLessonTitle,
+} from '../../utils/translations';
+import {
   PenTool,
   Eraser,
   Undo2,
@@ -73,6 +80,8 @@ interface WhiteboardToolbarProps {
   onToggleAirPenLock?: () => void;
   activeRewardTitle?: string;
   isMobileLandscape?: boolean;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
 }
 
 type ActivePopover = 'drawing_tools' | 'ar_settings' | null;
@@ -116,7 +125,21 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
   onToggleAirPenLock,
   activeRewardTitle,
   isMobileLandscape = false,
+  currentLang = 'ar',
+  translations = DEFAULT_TRANSLATIONS,
 }) => {
+  const tr = (id: string, fallback: string) =>
+    getTranslatedString(id, currentLang, translations, fallback);
+  const displayTemplateTitle = template
+    ? getTranslatedWritingLessonTitle(
+        template.topic || 'خط النسخ',
+        template.title,
+        template.slotIndex,
+        currentLang,
+        translations,
+        template.titleEn
+      )
+    : '';
   const [activePopover, setActivePopover] = useState<ActivePopover>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [lastStandardBoard, setLastStandardBoard] = useState<BoardStyle>('grid');
@@ -186,9 +209,13 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           {/* 1. Lesson / Template Library Icon */}
           <button
             onClick={onOpenLibrary}
-            title={template ? `الدرس الحالي: ${template.title} (اضغط لفتح ملف / اختيار الدرس)` : 'فتح ملف / اختيار الدرس'}
+            title={
+              template
+                ? `${tr('writing_toolbar_current_lesson', 'الدرس الحالي:')} ${displayTemplateTitle} (${tr('writing_toolbar_open_file_click_hint', 'اضغط لفتح ملف / اختيار الدرس')})`
+                : tr('writing_toolbar_open_file_tooltip', 'فتح ملف / اختيار الدرس')
+            }
             className="p-2 sm:p-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-amber-400 border border-slate-700 transition-all active:scale-95 cursor-pointer relative"
-            aria-label="فتح ملف / اختيار الدرس"
+            aria-label={tr('writing_toolbar_open_file_tooltip', 'فتح ملف / اختيار الدرس')}
           >
             <FolderOpen className="w-5 h-5 text-amber-400" />
             {template && (
@@ -198,16 +225,16 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
 
           <div className="h-5 w-px bg-slate-800 mx-0.5" />
 
-          {/* 2. Drawing Tools Button (زر أدوات الرسم - يفتح نافذة الأدوات) */}
+          {/* 2. Drawing Tools Button */}
           <button
             onClick={() => togglePopover('drawing_tools')}
-            title="زر أدوات الرسم (الأقلام، الألوان، السُمك، وزاوية الخط)"
+            title={tr('writing_toolbar_drawing_tools_tooltip', 'أدوات الرسم (الأقلام، الألوان، السُمك، وزاوية الخط)')}
             className={`p-2 sm:p-2.5 rounded-xl border transition-all active:scale-95 cursor-pointer relative flex items-center justify-center ${
               activePopover === 'drawing_tools'
                 ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.4)]'
                 : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
             }`}
-            aria-label="أدوات الرسم والخط"
+            aria-label={tr('writing_toolbar_drawing_tools_title', 'أدوات الرسم والخط')}
           >
             {penType === 'calligraphy' && <PenTool className="w-5 h-5" />}
             {penType === 'marker' && <span className="w-4 h-4 rounded-full bg-current" />}
@@ -222,30 +249,34 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
 
           <div className="h-5 w-px bg-slate-800 mx-0.5" />
 
-          {/* 4. Mouse / Touch Drawing Button (زر الرسم بالفأرة أو الإصبع - أيقونة فأر بدون نص) */}
+          {/* 4. Mouse / Touch Drawing Button */}
           <button
             onClick={handleSelectMouseMode}
-            title="الرسم بالفأرة أو باللمس المباشر على الشاشة"
+            title={tr('writing_toolbar_mouse_mode_tooltip', 'الرسم بالفأرة أو باللمس المباشر على الشاشة')}
             className={`p-2 sm:p-2.5 rounded-xl border transition-all active:scale-95 cursor-pointer ${
               boardStyle !== 'ar_camera'
                 ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow-[0_0_10px_rgba(245,158,11,0.3)]'
                 : 'bg-slate-800/90 hover:bg-slate-700 text-slate-300 border-slate-700'
             }`}
-            aria-label="الرسم بالفأرة أو اللمس"
+            aria-label={tr('writing_toolbar_mouse_mode_label', 'فأرة / لمس')}
           >
             <MousePointer className="w-5 h-5" />
           </button>
 
-          {/* 5. AR Camera Button (زر واقع المعزز - أيقونة كاميرا بدون نص) */}
+          {/* 5. AR Camera Button */}
           <button
             onClick={handleToggleAR}
-            title={boardStyle === 'ar_camera' ? 'إيقاف واقع المعزز AR والعودة للسبورة' : 'تشغيل كاميرا الواقع المعزز AR وتتبع اليد بالهواء'}
+            title={
+              boardStyle === 'ar_camera'
+                ? tr('writing_toolbar_ar_off_tooltip', 'إيقاف واقع المعزز AR والعودة للسبورة')
+                : tr('writing_toolbar_ar_on_tooltip', 'تشغيل كاميرا الواقع المعزز AR وتتبع اليد بالهواء')
+            }
             className={`p-2 sm:p-2.5 rounded-xl border transition-all active:scale-95 cursor-pointer relative ${
               boardStyle === 'ar_camera'
                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 border-amber-400 shadow-[0_0_14px_rgba(245,158,11,0.5)]'
                 : 'bg-slate-800/90 hover:bg-slate-700 text-amber-400 border-slate-700'
             }`}
-            aria-label="واقع معزز AR"
+            aria-label={tr('writing_toolbar_ar_label', 'واقع معزز')}
           >
             <Camera className="w-5 h-5" />
             {boardStyle === 'ar_camera' && (
@@ -253,17 +284,17 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
             )}
           </button>
 
-          {/* 6. AR Tracking Options Popover Button (عند تشغيل AR - زر واحد يجمع خيارات التتبع) */}
+          {/* 6. AR Tracking Options Popover Button */}
           {boardStyle === 'ar_camera' && (
             <button
               onClick={() => togglePopover('ar_settings')}
-              title="إعدادات وخيارات تتبع اليدين والتاج الملكي والكاميرا"
+              title={tr('writing_toolbar_ar_options_tooltip', 'إعدادات وخيارات تتبع اليدين والتاج الملكي والكاميرا')}
               className={`p-2 sm:p-2.5 rounded-xl border transition-all active:scale-95 cursor-pointer relative ${
                 activePopover === 'ar_settings'
                   ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md'
                   : 'bg-slate-800/90 hover:bg-slate-750 text-amber-300 border-amber-500/40'
               }`}
-              aria-label="خيارات الواقع المعزز"
+              aria-label={tr('writing_toolbar_ar_options', 'خيارات الواقع المعزز')}
             >
               <SlidersHorizontal className="w-5 h-5" />
               {/* Little indicator of active tracking mode */}
@@ -282,9 +313,9 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           {template?.arabicAudioText && (
             <button
               onClick={onPronounce}
-              title={`استمع لنطق: ${template.arabicAudioText}`}
+              title={`${tr('writing_toolbar_listen_to', 'استمع لنطق:')} ${template.arabicAudioText}`}
               className="p-2 sm:p-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-amber-400 border border-slate-700 transition-all active:scale-95 cursor-pointer shrink-0"
-              aria-label="نطق الصوت"
+              aria-label={tr('writing_toolbar_pronounce_letter', 'نطق الحرف')}
             >
               <Volume2 className="w-5 h-5" />
             </button>
@@ -297,18 +328,18 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
             <button
               onClick={onUndo}
               disabled={!canUndo}
-              title="تراجع (Ctrl+Z)"
+              title={`${tr('writing_toolbar_undo', 'تراجع')} (Ctrl+Z)`}
               className="p-1.5 sm:p-2 rounded-lg text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-all active:scale-90 cursor-pointer"
-              aria-label="تراجع"
+              aria-label={tr('writing_toolbar_undo', 'تراجع')}
             >
               <Undo2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             </button>
             <button
               onClick={onRedo}
               disabled={!canRedo}
-              title="إعادة (Ctrl+Y)"
+              title={`${tr('writing_toolbar_redo', 'إعادة')} (Ctrl+Y)`}
               className="p-1.5 sm:p-2 rounded-lg text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-all active:scale-90 cursor-pointer"
-              aria-label="إعادة"
+              aria-label={tr('writing_toolbar_redo', 'إعادة')}
             >
               <Redo2 className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             </button>
@@ -317,9 +348,9 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           {/* Clear Canvas / Trash Can (Icon only) */}
           <button
             onClick={onClear}
-            title="مسح السبورة بالكامل"
+            title={tr('writing_toolbar_clear_board', 'مسح السبورة بالكامل')}
             className="p-2 sm:p-2.5 rounded-xl bg-slate-800/90 hover:bg-red-950/50 hover:text-red-400 text-slate-400 border border-slate-700/80 transition-all active:scale-95 cursor-pointer shrink-0"
-            aria-label="مسح السبورة"
+            aria-label={tr('writing_toolbar_clear_board', 'مسح السبورة')}
           >
             <Trash2 className="w-5 h-5" />
           </button>
@@ -327,9 +358,9 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           {/* Export / Download Image (Icon only) */}
           <button
             onClick={onExport}
-            title="حفظ وتنزيل اللوحة كصورة عالية الدقة PNG"
+            title={tr('writing_toolbar_save_image_tooltip', 'حفظ وتنزيل اللوحة كصورة عالية الدقة PNG')}
             className="p-2 sm:p-2.5 rounded-xl bg-slate-800/90 hover:bg-emerald-950/50 hover:text-emerald-400 text-emerald-400 border border-slate-700/80 transition-all active:scale-95 cursor-pointer shrink-0"
-            aria-label="حفظ كصورة"
+            aria-label={tr('writing_toolbar_save_image', 'حفظ كصورة')}
           >
             <Download className="w-5 h-5" />
           </button>
@@ -338,9 +369,9 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           {onOpenSettings && (
             <button
               onClick={onOpenSettings}
-              title="استوديو الإعدادات وإدارة الدروس والربط بـ Google Sheets"
+              title={tr('writing_toolbar_settings_studio', 'استوديو الإعدادات وإدارة الدروس والربط بـ Google Sheets')}
               className="p-2 sm:p-2.5 rounded-xl bg-slate-800/90 hover:bg-amber-500/20 hover:text-amber-400 text-slate-300 border border-slate-700/80 transition-all active:scale-95 cursor-pointer shrink-0"
-              aria-label="استوديو الإعدادات"
+              aria-label={tr('writing_toolbar_settings_studio', 'استوديو الإعدادات')}
             >
               <Settings className="w-5 h-5" />
             </button>
@@ -352,7 +383,6 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
 
       {/* ======================================================== */}
       {/* MOBILE TOOLBAR (الشاشات الصغيرة / الجوال)                 */}
-      {/* صف أنيق مدمج: زر القائمة المنسدلة يجمع كل الأدوات         */}
       {/* ======================================================== */}
       <div className="flex sm:hidden max-w-full px-2.5 py-2 items-center justify-between gap-2">
         
@@ -360,11 +390,11 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
         <div className="flex items-center gap-2 min-w-0">
           {template ? (
             <span className="text-xs font-bold text-amber-300 truncate max-w-[160px]">
-              {template.title}
+              {displayTemplateTitle}
             </span>
           ) : (
             <span className="text-xs font-bold text-slate-300">
-              السبورة التفاعلية
+              {tr('writing_toolbar_interactive_board', 'السبورة التفاعلية')}
             </span>
           )}
 
@@ -382,26 +412,26 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           <button
             onClick={onUndo}
             disabled={!canUndo}
-            title="تراجع"
+            title={tr('writing_toolbar_undo', 'تراجع')}
             className="p-2 rounded-xl bg-slate-800/90 text-slate-300 border border-slate-700 disabled:opacity-20 disabled:pointer-events-none active:scale-90 transition-all cursor-pointer"
-            aria-label="تراجع"
+            aria-label={tr('writing_toolbar_undo', 'تراجع')}
           >
             <Undo2 className="w-4 h-4" />
           </button>
 
-          {/* The Single Master Dropdown Button (زر قائمة الأدوات) */}
+          {/* The Single Master Dropdown Button */}
           <button
             onClick={() => {
               setIsMobileMenuOpen(prev => !prev);
               setActivePopover(null);
             }}
-            title="قائمة الأدوات والخيارات"
+            title={tr('writing_toolbar_mobile_menu_tooltip', 'قائمة الأدوات والخيارات')}
             className={`px-2.5 py-2 rounded-xl border flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer ${
               isMobileMenuOpen
                 ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-bold'
                 : 'bg-slate-800/90 text-amber-400 border-slate-700 hover:bg-slate-750'
             }`}
-            aria-label="قائمة أدوات الرسم والخيارات"
+            aria-label={tr('writing_toolbar_mobile_menu_tooltip', 'قائمة أدوات الرسم والخيارات')}
           >
             <Menu className="w-4.5 h-4.5" />
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isMobileMenuOpen ? 'rotate-180' : ''}`} />
@@ -420,12 +450,12 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           {/* Header */}
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800">
             <span className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
-              <span>أدوات وخيارات السبورة</span>
+              <span>{tr('writing_toolbar_mobile_menu_title', 'أدوات وخيارات السبورة')}</span>
             </span>
             <button
               onClick={() => setIsMobileMenuOpen(false)}
               className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
-              aria-label="إغلاق"
+              aria-label={tr('writing_toolbar_close', 'إغلاق')}
             >
               <X className="w-4 h-4" />
             </button>
@@ -442,7 +472,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-750 border border-slate-700 text-amber-400 active:scale-95 transition-all cursor-pointer"
             >
               <FolderOpen className="w-5 h-5 mb-1 text-amber-400" />
-              <span className="text-[11px] font-bold">الدروس</span>
+              <span className="text-[11px] font-bold">{tr('writing_toolbar_lessons_short', 'الدروس')}</span>
             </button>
 
             {/* 2. أدوات الرسم */}
@@ -466,9 +496,8 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   style={{ backgroundColor: penColor }}
                 />
               </div>
-              <span className="text-[11px] font-bold">أدوات الرسم</span>
+              <span className="text-[11px] font-bold">{tr('writing_toolbar_drawing_tools', 'أدوات الرسم')}</span>
             </button>
-
 
             {/* 4. وضع الفأرة واللمس */}
             <button
@@ -483,7 +512,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               }`}
             >
               <MousePointer className="w-5 h-5 mb-1" />
-              <span className="text-[11px] font-bold">فأرة / لمس</span>
+              <span className="text-[11px] font-bold">{tr('writing_toolbar_mouse_mode_label', 'فأرة / لمس')}</span>
             </button>
 
             {/* 5. الواقع المعزز AR */}
@@ -499,13 +528,13 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               }`}
             >
               <Camera className="w-5 h-5 mb-1" />
-              <span className="text-[11px] font-bold">واقع معزز</span>
+              <span className="text-[11px] font-bold">{tr('writing_toolbar_ar_label', 'واقع معزز')}</span>
               {boardStyle === 'ar_camera' && (
                 <span className="absolute top-1.5 left-1.5 w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
               )}
             </button>
 
-            {/* 6. خيارات الواقع المعزز (عند تفعيل AR) أو نطق الحرف */}
+            {/* 6. خيارات الواقع المعزز أو نطق الحرف */}
             {boardStyle === 'ar_camera' ? (
               <button
                 onClick={() => {
@@ -519,7 +548,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 }`}
               >
                 <SlidersHorizontal className="w-5 h-5 mb-1" />
-                <span className="text-[11px] font-bold">خيارات AR</span>
+                <span className="text-[11px] font-bold">{tr('writing_toolbar_ar_options', 'خيارات AR')}</span>
               </button>
             ) : (
               template?.arabicAudioText ? (
@@ -528,7 +557,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-750 border border-slate-700 text-amber-400 active:scale-95 transition-all cursor-pointer"
                 >
                   <Volume2 className="w-5 h-5 mb-1" />
-                  <span className="text-[11px] font-bold">نطق الحرف</span>
+                  <span className="text-[11px] font-bold">{tr('writing_toolbar_pronounce_letter', 'نطق الحرف')}</span>
                 </button>
               ) : (
                 <button
@@ -539,7 +568,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   className="flex flex-col items-center justify-center p-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-750 border border-slate-700 text-emerald-400 active:scale-95 transition-all cursor-pointer"
                 >
                   <Download className="w-5 h-5 mb-1" />
-                  <span className="text-[11px] font-bold">حفظ كصورة</span>
+                  <span className="text-[11px] font-bold">{tr('writing_toolbar_save_image', 'حفظ كصورة')}</span>
                 </button>
               )
             )}
@@ -550,7 +579,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
             {template?.arabicAudioText && boardStyle === 'ar_camera' && (
               <button
                 onClick={onPronounce}
-                title="استمع للنطق"
+                title={tr('writing_toolbar_pronounce_letter', 'استمع للنطق')}
                 className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 active:scale-95 transition-all cursor-pointer"
               >
                 <Volume2 className="w-5 h-5" />
@@ -560,7 +589,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
             <button
               onClick={onRedo}
               disabled={!canRedo}
-              title="إعادة"
+              title={tr('writing_toolbar_redo', 'إعادة')}
               className="flex-1 p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-20 disabled:pointer-events-none active:scale-95 transition-all flex items-center justify-center cursor-pointer"
             >
               <Redo2 className="w-5 h-5" />
@@ -571,7 +600,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 setIsMobileMenuOpen(false);
                 onClear();
               }}
-              title="مسح السبورة"
+              title={tr('writing_toolbar_clear_board', 'مسح السبورة')}
               className="flex-1 p-2.5 rounded-xl bg-slate-800 hover:bg-red-950/50 hover:text-red-400 text-slate-400 border border-slate-700 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
             >
               <Trash2 className="w-5 h-5" />
@@ -582,7 +611,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 setIsMobileMenuOpen(false);
                 onExport();
               }}
-              title="حفظ اللوحة كصورة"
+              title={tr('writing_toolbar_save_image', 'حفظ اللوحة كصورة')}
               className="flex-1 p-2.5 rounded-xl bg-slate-800 hover:bg-emerald-950/50 hover:text-emerald-400 text-emerald-400 border border-slate-700 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
             >
               <Download className="w-5 h-5" />
@@ -600,14 +629,14 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 className="w-full py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center gap-2 text-xs font-bold active:scale-95 transition-all cursor-pointer"
               >
                 <Settings className="w-4 h-4" />
-                <span>استوديو الإعدادات والربط بالشيت</span>
+                <span>{tr('writing_toolbar_settings_studio', 'استوديو الإعدادات والربط بالشيت')}</span>
               </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Backdrop overlay for small screens when any popover or mobile menu is open */}
+      {/* Backdrop overlay */}
       {(activePopover || isMobileMenuOpen) && (
         <div
           onClick={() => {
@@ -629,21 +658,23 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3.5">
             <div className="flex items-center gap-2">
               <PenTool className="w-4 h-4 text-amber-400" />
-              <h2 className="font-bold text-sm text-amber-300">أدوات الرسم والخط</h2>
+              <h2 className="font-bold text-sm text-amber-300">{tr('writing_toolbar_drawing_tools_title', 'أدوات الرسم والخط')}</h2>
             </div>
             <button
               onClick={() => setActivePopover(null)}
               className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-              aria-label="إغلاق"
+              aria-label={tr('writing_toolbar_close', 'إغلاق')}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           <div className="space-y-4">
-            {/* Pen Types: Calligraphy / Smooth Marker / Brush / Eraser */}
+            {/* Pen Types */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">نوع القلم والأداة:</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                {tr('writing_toolbar_pen_type_label', 'نوع القلم والأداة:')}
+              </label>
               <div className="grid grid-cols-3 gap-2">
                 
                 {/* 1. قلم الخط المشطوف */}
@@ -656,7 +687,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   }`}
                 >
                   <PenTool className="w-4 h-4 shrink-0" />
-                  <span>قلم الخط</span>
+                  <span>{tr('writing_toolbar_pen_calligraphy', 'قلم الخط')}</span>
                 </button>
 
                 {/* 2. حبر ناعم مستدير */}
@@ -669,7 +700,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   }`}
                 >
                   <span className="w-3.5 h-3.5 rounded-full bg-current shrink-0" />
-                  <span>حبر ناعم</span>
+                  <span>{tr('writing_toolbar_pen_marker', 'حبر ناعم')}</span>
                 </button>
 
                 {/* 3. ممحاة */}
@@ -682,13 +713,13 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   }`}
                 >
                   <Eraser className="w-4 h-4 shrink-0" />
-                  <span>ممحاة</span>
+                  <span>{tr('writing_toolbar_pen_eraser', 'ممحاة')}</span>
                 </button>
 
               </div>
             </div>
 
-            {/* Calligraphy Pen Angle (زاوية القلم لقلم الخط - افتراضياً 120 درجة) */}
+            {/* Calligraphy Pen Angle */}
             <div className={`p-3 rounded-xl border transition-all ${
               penType === 'calligraphy'
                 ? 'bg-slate-950/60 border-amber-500/30'
@@ -697,7 +728,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold flex items-center gap-1.5 text-slate-200">
                   <Compass className="w-3.5 h-3.5 text-amber-400" />
-                  <span>زاوية قلم الخط:</span>
+                  <span>{tr('writing_toolbar_pen_angle', 'زاوية قلم الخط:')}</span>
                 </span>
                 <span className="font-mono font-bold text-amber-400 text-xs px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
                   {calligraphyAngle}°
@@ -715,10 +746,12 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               />
             </div>
 
-            {/* Pen Size Slider (سمك القلم) */}
+            {/* Pen Size Slider */}
             <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-slate-200">سُمك القلم:</span>
+                <span className="text-xs font-semibold text-slate-200">
+                  {tr('writing_toolbar_pen_size', 'سُمك القلم:')}
+                </span>
                 <span className="font-mono font-bold text-amber-400 text-xs px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
                   {penSize}px
                 </span>
@@ -743,9 +776,11 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               </div>
             </div>
 
-            {/* Ink Colors Palette (ألوان الرسم) */}
+            {/* Ink Colors Palette */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">ألوان الحبر والرسم:</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                {tr('writing_toolbar_ink_colors', 'ألوان الحبر والرسم:')}
+              </label>
               <div className="grid grid-cols-5 gap-2.5">
                 {CALLIGRAPHY_COLORS.map(c => (
                   <button
@@ -768,7 +803,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 {/* Custom Color Picker */}
                 <label
                   className="h-9 rounded-xl border border-dashed border-slate-600 hover:border-amber-400 flex items-center justify-center cursor-pointer transition-transform hover:scale-105 relative bg-slate-800"
-                  title="لون مخصص"
+                  title={tr('writing_toolbar_custom_color', 'لون مخصص')}
                 >
                   <input
                     type="color"
@@ -797,12 +832,14 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
           <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3.5">
             <div className="flex items-center gap-2">
               <Camera className="w-4 h-4 text-amber-400" />
-              <h2 className="font-bold text-sm text-amber-300">خيارات الواقع المعزز AR</h2>
+              <h2 className="font-bold text-sm text-amber-300">
+                {tr('writing_toolbar_ar_options_title', 'خيارات الواقع المعزز AR')}
+              </h2>
             </div>
             <button
               onClick={() => setActivePopover(null)}
               className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-              aria-label="إغلاق"
+              aria-label={tr('writing_toolbar_close', 'إغلاق')}
             >
               <X className="w-4 h-4" />
             </button>
@@ -810,12 +847,14 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
 
           <div className="space-y-4">
             
-            {/* Tracking Mode Options: Finger Only / One Hand / Two Hands */}
+            {/* Tracking Mode Options */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">وضع تتبع اليد في الهواء:</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                {tr('writing_toolbar_ar_tracking_mode', 'وضع تتبع اليد في الهواء:')}
+              </label>
               <div className="space-y-2">
                 
-                {/* 1. تتبع إصبع واحد (السبابة) */}
+                {/* 1. تتبع إصبع واحد */}
                 <button
                   onClick={() => onSelectTrackingMode('finger_only')}
                   className={`w-full p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
@@ -827,8 +866,10 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   <div className="flex items-center gap-2">
                     <span className="text-base">☝️</span>
                     <div className="text-right">
-                      <div>تتبع إصبع السبابة فقط</div>
-                      <div className="text-[10px] opacity-80 font-normal">رسم مباشر بدقة عالية عند رأس الإصبع</div>
+                      <div>{tr('writing_toolbar_ar_finger_title', 'تتبع إصبع السبابة فقط')}</div>
+                      <div className="text-[10px] opacity-80 font-normal">
+                        {tr('writing_toolbar_ar_finger_desc', 'رسم مباشر بدقة عالية عند رأس الإصبع')}
+                      </div>
                     </div>
                   </div>
                   {trackingMode === 'finger_only' && <Check className="w-4 h-4 shrink-0" />}
@@ -846,8 +887,10 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   <div className="flex items-center gap-2">
                     <Hand className="w-4 h-4 shrink-0 text-amber-300" />
                     <div className="text-right">
-                      <div>هيكل يد واحدة كامل (21 مفصلاً)</div>
-                      <div className="text-[10px] opacity-80 font-normal">تتبع حركي كامل للمفاصل والرسم بالقرص</div>
+                      <div>{tr('writing_toolbar_ar_one_hand_title', 'هيكل يد واحدة كامل (21 مفصلاً)')}</div>
+                      <div className="text-[10px] opacity-80 font-normal">
+                        {tr('writing_toolbar_ar_one_hand_desc', 'تتبع حركي كامل للمفاصل والرسم بالقرص')}
+                      </div>
                     </div>
                   </div>
                   {trackingMode === 'one_hand' && <Check className="w-4 h-4 shrink-0" />}
@@ -865,14 +908,16 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   <div className="flex items-center gap-2">
                     <span className="text-base">🖐️🖐️</span>
                     <div className="text-right">
-                      <div>هيكل يدين معاً (اليمنى واليسرى)</div>
-                      <div className="text-[10px] opacity-80 font-normal">للألعاب والتفاعل الحركي باليدين</div>
+                      <div>{tr('writing_toolbar_ar_two_hands_title', 'هيكل يدين معاً (اليمنى واليسرى)')}</div>
+                      <div className="text-[10px] opacity-80 font-normal">
+                        {tr('writing_toolbar_ar_two_hands_desc', 'للألعاب والتفاعل الحركي باليدين')}
+                      </div>
                     </div>
                   </div>
                   {trackingMode === 'two_hands' && <Check className="w-4 h-4 shrink-0" />}
                 </button>
 
-                {/* 4. وضع اللمس السريع (إيقاف تتبع اليد لتسريع الجوال والتابلت) */}
+                {/* 4. وضع اللمس السريع */}
                 <button
                   onClick={() => onSelectTrackingMode('off')}
                   className={`w-full p-2.5 rounded-xl border text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
@@ -884,8 +929,10 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   <div className="flex items-center gap-2">
                     <span className="text-base">⚡</span>
                     <div className="text-right">
-                      <div>إيقاف تتبع اليد (رسم باللمس فقط)</div>
-                      <div className="text-[10px] opacity-80 font-normal">أسرع أداء على الجوال والتابلت مع بقاء التاج</div>
+                      <div>{tr('writing_toolbar_ar_off_title', 'إيقاف تتبع اليد (رسم باللمس فقط)')}</div>
+                      <div className="text-[10px] opacity-80 font-normal">
+                        {tr('writing_toolbar_ar_off_desc', 'أسرع أداء على الجوال والتابلت مع بقاء التاج')}
+                      </div>
                     </div>
                   </div>
                   {trackingMode === 'off' && <Check className="w-4 h-4 shrink-0" />}
@@ -894,7 +941,7 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
               </div>
             </div>
 
-            {/* Royal Crown Feature (مكافأة الرأس في الواقع المعزز) */}
+            {/* Royal Crown Feature */}
             <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
@@ -902,9 +949,11 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 </div>
                 <div>
                   <div className="text-xs font-bold text-amber-300">
-                    {activeRewardTitle || 'مكافأة التاج الملكي 👑'}
+                    {activeRewardTitle || tr('writing_toolbar_crown_default_title', 'مكافأة التاج الملكي 👑')}
                   </div>
-                  <div className="text-[10px] text-slate-400">يتوج رأس الطالب بالمكافأة المحددة عند إتقان الرسم بنجاح</div>
+                  <div className="text-[10px] text-slate-400">
+                    {tr('writing_toolbar_crown_desc', 'يتوج رأس الطالب بالمكافأة المحددة عند إتقان الرسم بنجاح')}
+                  </div>
                 </div>
               </div>
 
@@ -916,11 +965,13 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                     : 'bg-slate-800 text-slate-400 hover:text-white'
                 }`}
               >
-                {showCrown ? 'معاينة المكافأة 👑' : 'تفعيل المعاينة'}
+                {showCrown
+                  ? tr('writing_toolbar_crown_preview_on', 'معاينة المكافأة 👑')
+                  : tr('writing_toolbar_crown_preview_off', 'تفعيل المعاينة')}
               </button>
             </div>
 
-            {/* Air Pen Lock / Unlock (قفل القلم الهوائي لمنع الرسم عند ضبط الجلسة أو الكاميرا) */}
+            {/* Air Pen Lock / Unlock */}
             {onToggleAirPenLock && (
               <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -933,10 +984,12 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-100">
-                      {isAirPenLocked ? 'القلم الهوائي مقفل 🔒' : 'القلم الهوائي مفعّل ✍️'}
+                      {isAirPenLocked
+                        ? tr('writing_toolbar_airpen_locked_title', 'القلم الهوائي مقفل 🔒')
+                        : tr('writing_toolbar_airpen_unlocked_title', 'القلم الهوائي مفعّل ✍️')}
                     </div>
                     <div className="text-[10px] text-slate-400">
-                      تأمين القلم لمنع الرسم العشوائي أثناء تعديل جلستك أو الكاميرا
+                      {tr('writing_toolbar_airpen_desc', 'تأمين القلم لمنع الرسم العشوائي أثناء تعديل جلستك أو الكاميرا')}
                     </div>
                   </div>
                 </div>
@@ -950,7 +1003,9 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                       : 'bg-emerald-600 text-white shadow-sm'
                   }`}
                 >
-                  {isAirPenLocked ? 'فتح القلم' : 'قفل القلم'}
+                  {isAirPenLocked
+                    ? tr('writing_toolbar_airpen_unlock_btn', 'فتح القلم')
+                    : tr('writing_toolbar_airpen_lock_btn', 'قفل القلم')}
                 </button>
               </div>
             )}
@@ -968,7 +1023,11 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 }`}
               >
                 <FlipHorizontal className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>{isMirrored ? 'مرآة: مفعّلة' : 'مرآة: معطّلة'}</span>
+                <span>
+                  {isMirrored
+                    ? tr('writing_toolbar_mirror_on', 'مرآة: مفعّلة')
+                    : tr('writing_toolbar_mirror_off', 'مرآة: معطّلة')}
+                </span>
               </button>
 
               {/* Camera Switch (Front / Back) */}
@@ -977,7 +1036,11 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>{facingMode === 'user' ? 'كاميرا أمامية' : 'كاميرا خلفية'}</span>
+                <span>
+                  {facingMode === 'user'
+                    ? tr('writing_toolbar_cam_front', 'كاميرا أمامية')
+                    : tr('writing_toolbar_cam_back', 'كاميرا خلفية')}
+                </span>
               </button>
 
             </div>
@@ -996,17 +1059,19 @@ export const WhiteboardToolbar: React.FC<WhiteboardToolbarProps> = React.memo(({
                 }`} />
                 <span className="truncate">
                   {trackingMode === 'off'
-                    ? '⚡ الرسم باللمس السريع (تتبع اليد متوقف)'
+                    ? tr('writing_toolbar_status_touch', '⚡ الرسم باللمس السريع (تتبع اليد متوقف)')
                     : arDetectionStatus.handsCount > 0
                     ? arDetectionStatus.isPinching
-                      ? '✍️ يرسم الآن في الهواء'
+                      ? tr('writing_toolbar_status_drawing', '✍️ يرسم الآن في الهواء')
                       : trackingMode === 'finger_only'
-                      ? '☝️ السبابة متصلة • قرّب الإبهام للرسم'
+                      ? tr('writing_toolbar_status_finger_ready', '☝️ السبابة متصلة • قرّب الإبهام للرسم')
                       : trackingMode === 'two_hands' && arDetectionStatus.handsCount >= 2
-                      ? '🖐️🖐️ تم اكتشاف اليدين معاً'
-                      : '🖐️ هيكل اليد متصل ومطابق'
-                    : 'وجّه يدك نحو الكاميرا للبدء'}
-                  {arDetectionStatus.faceDetected && showCrown && ' • 👑 التاج مثبت'}
+                      ? tr('writing_toolbar_status_two_hands_ready', '🖐️🖐️ تم اكتشاف اليدين معاً')
+                      : tr('writing_toolbar_status_one_hand_ready', '🖐️ هيكل اليد متصل ومطابق')
+                    : tr('writing_toolbar_status_point_hand', 'وجّه يدك نحو الكاميرا للبدء')}
+                  {arDetectionStatus.faceDetected &&
+                    showCrown &&
+                    tr('writing_toolbar_status_crown_locked', ' • 👑 التاج مثبت')}
                 </span>
               </div>
             )}

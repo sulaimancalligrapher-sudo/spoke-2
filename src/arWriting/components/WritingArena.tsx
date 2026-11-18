@@ -24,6 +24,12 @@ import { StudentRegistrant, WritingHistoryItem } from '../../types';
 import { getRetryStatus, recordStudentRetryAttempt, formatStudentRetryBannerMessage } from '../../utils/retryLimit';
 import { buildWritingRetryKey } from './TemplateLibraryModal';
 import {
+  SupportedLang,
+  TranslationItem,
+  DEFAULT_TRANSLATIONS,
+  getTranslatedString,
+} from '../../utils/translations';
+import {
   Award,
   X,
   Lightbulb,
@@ -64,6 +70,8 @@ interface WritingArenaProps {
     completionStatus?: string;
   }) => void;
   onRefreshWritingHistory?: () => void;
+  currentLang?: SupportedLang;
+  translations?: TranslationItem[];
 }
 
 export const WritingArena: React.FC<WritingArenaProps> = ({
@@ -89,7 +97,14 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
   writingHistory = [],
   onWritingSubmitted,
   onRefreshWritingHistory,
+  currentLang = 'ar',
+  translations = DEFAULT_TRANSLATIONS,
 }) => {
+  const tr = useCallback(
+    (id: string, fallback: string) =>
+      getTranslatedString(id, currentLang, translations, fallback) || fallback,
+    [currentLang, translations]
+  );
   const [writingRetryBanner, setWritingRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
   const openWritingLibrary = useCallback(() => {
     onRefreshWritingHistory?.();
@@ -400,7 +415,11 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
       setLastArScore(acc);
       if (matched) {
         setShowCrown(true);
-        setCelebrationMessage(`${matched.title} — درجة الإتقان ${acc}%!`);
+        setCelebrationMessage(
+          tr('writing_celebrate_ar', '{title} — درجة الإتقان {score}%!')
+            .replace('{title}', matched.title)
+            .replace('{score}', String(acc))
+        );
       } else {
         setShowCrown(false);
         setCelebrationMessage(null);
@@ -409,9 +428,15 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
       setLastArScore(null);
       setShowCrown(false);
       if (acc >= 85) {
-        setCelebrationMessage(`🌟 إبداع رائع! أتقنت كتابة الحرف بدرجة ${acc}%`);
+        setCelebrationMessage(
+          tr('writing_celebrate_high', '🌟 إبداع رائع! أتقنت كتابة الحرف بدرجة {score}%')
+            .replace('{score}', String(acc))
+        );
       } else if (acc >= 70) {
-        setCelebrationMessage(`👏 أحسنت! أتممت التمرين بنجاح بدرجة ${acc}%`);
+        setCelebrationMessage(
+          tr('writing_celebrate_good', '👏 أحسنت! أتممت التمرين بنجاح بدرجة {score}%')
+            .replace('{score}', String(acc))
+        );
       } else {
         setCelebrationMessage(null);
       }
@@ -480,6 +505,8 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
           onToggleAirPenLock={handleToggleAirPenLock}
           activeRewardTitle={activeRewardTitle}
           isMobileLandscape={isMobileLandscape}
+          currentLang={currentLang}
+          translations={translations}
         />
       )}
 
@@ -505,6 +532,8 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
             onVideoElementReady={setVideoElement}
             onCrownCanvasReady={setCrownCanvas}
             onDetectionUpdate={setArDetectionStatus}
+            currentLang={currentLang}
+            translations={translations}
           />
 
           <WhiteboardCanvas
@@ -527,6 +556,8 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
             currentRepetition={currentRepetition}
             isFullscreen={isFullscreen}
             isMobileLandscape={isMobileLandscape}
+            currentLang={currentLang}
+            translations={translations}
             isLandscapeToolbarOpen={showToolbarInLandscape}
             onToggleLandscapeToolbar={() => setShowToolbarInLandscape((prev) => !prev)}
             onToggleFullscreen={toggleFullscreen}
@@ -556,7 +587,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
                 selectedTemplate,
                 webhookUrl
               );
-              const msg = formatStudentRetryBannerMessage(outcome, currentStudent, (_, fb) => fb);
+              const msg = formatStudentRetryBannerMessage(outcome, currentStudent, (id, fb) => tr(id, fb));
               setWritingRetryBanner({ nonce: Date.now(), message: msg });
               return true;
             }}
@@ -602,8 +633,11 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
           )}
 
           {penType === 'calligraphy' && (
-            <div className="hidden sm:flex absolute bottom-3 right-3 z-20 items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-700/80 backdrop-blur-md text-[11px] text-slate-300 pointer-events-none">
-              <span>شطفة قلم القصبة:</span>
+            <div
+              dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+              className="hidden sm:flex absolute bottom-3 right-3 z-20 items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-700/80 backdrop-blur-md text-[11px] text-slate-300 pointer-events-none"
+            >
+              <span>{tr('writing_reed_bevel', 'شطفة قلم القصبة:')}</span>
               <div
                 className="w-4 h-1.5 rounded-[1px] shadow-sm transition-transform"
                 style={{ backgroundColor: penColor, transform: `rotate(-${calligraphyAngle}deg)` }}
@@ -615,16 +649,22 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
 
         {/* Help Modal */}
         {isHelpOpen && (
-          <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div
+            dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+            className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150"
+          >
             <div className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl text-slate-100">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2 text-amber-400 font-bold">
                   <Lightbulb className="w-5 h-5" />
-                  <span className="text-base font-ruqaa">دليل السبورة والواقع المعزز AR</span>
+                  <span className="text-base font-ruqaa">
+                    {tr('writing_help_title', 'دليل السبورة والواقع المعزز AR')}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsHelpOpen(false)}
+                  aria-label={tr('writing_toolbar_close', 'إغلاق')}
                   className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-4 h-4" />
@@ -633,34 +673,58 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
               <div className="space-y-3.5 mt-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
                 <div className="flex items-start gap-2.5">
                   <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 font-bold text-xs">
-                    ١
+                    {currentLang === 'ar' ? '١' : '1'}
                   </span>
                   <div>
-                    <strong className="text-white">السبورة التفاعلية:</strong> استخدم إصبعك أو قلم الشاشة أو الماوس للرسم. يمكنك التحكم بزاوية وسُمك القلم والألوان من زر أدوات الرسم.
+                    <strong className="text-white">
+                      {tr('writing_help_s1_title', 'السبورة التفاعلية:')}
+                    </strong>{' '}
+                    {tr(
+                      'writing_help_s1_desc',
+                      'استخدم إصبعك أو قلم الشاشة أو الماوس للرسم. يمكنك التحكم بزاوية وسُمك القلم والألوان من زر أدوات الرسم.'
+                    )}
                   </div>
                 </div>
                 <div className="flex items-start gap-2.5">
                   <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 font-bold text-xs">
-                    ٢
+                    {currentLang === 'ar' ? '٢' : '2'}
                   </span>
                   <div>
-                    <strong className="text-white">خيارات التتبع المجمعة:</strong> عند تشغيل الواقع المعزز AR، اضغط زر خيارات التتبع للتبديل بين تتبع السبابة ☝️، أو هيكل يد واحدة 🖐️، أو هيكل يدين 🖐️🖐️، وتفعيل التاج الملكي 👑.
+                    <strong className="text-white">
+                      {tr('writing_help_s2_title', 'خيارات التتبع المجمعة:')}
+                    </strong>{' '}
+                    {tr(
+                      'writing_help_s2_desc',
+                      'عند تشغيل الواقع المعزز AR، اضغط زر خيارات التتبع للتبديل بين تتبع السبابة ☝️، أو هيكل يد واحدة 🖐️، أو هيكل يدين 🖐️🖐️، وتفعيل التاج الملكي 👑.'
+                    )}
                   </div>
                 </div>
                 <div className="flex items-start gap-2.5">
                   <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 font-bold text-xs">
-                    ٣
+                    {currentLang === 'ar' ? '٣' : '3'}
                   </span>
                   <div>
-                    <strong className="text-white">الرسم الدقيق في الهواء:</strong> تطابق نقطة الرسم طرف إصبع السبابة تماماً. عند تقريب الإبهام والسبابة (Pinch) يبدأ القلم بالرسم من طرف إصبعك مباشرة.
+                    <strong className="text-white">
+                      {tr('writing_help_s3_title', 'الرسم الدقيق في الهواء:')}
+                    </strong>{' '}
+                    {tr(
+                      'writing_help_s3_desc',
+                      'تطابق نقطة الرسم طرف إصبع السبابة تماماً. عند تقريب الإبهام والسبابة (Pinch) يبدأ القلم بالرسم من طرف إصبعك مباشرة.'
+                    )}
                   </div>
                 </div>
                 <div className="flex items-start gap-2.5">
                   <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 font-bold text-xs">
-                    ٤
+                    {currentLang === 'ar' ? '٤' : '4'}
                   </span>
                   <div>
-                    <strong className="text-white">رفع نماذج مخصصة:</strong> من خلال مكتبة الدروس، يمكنك اختيار أي حرف عربي أو رفع أي صورة من جهازك لتحويلها لنموذج شفاف قابل للشف والتلوين.
+                    <strong className="text-white">
+                      {tr('writing_help_s4_title', 'مكتبة الدروس والمتابعة:')}
+                    </strong>{' '}
+                    {tr(
+                      'writing_help_s4_desc',
+                      'من خلال مكتبة الدروس، يمكنك اختيار أي حرف أو كلمة أو رسمة للتدريب والتقييم وحفظ النتيجة في سجل الطالب.'
+                    )}
                   </div>
                 </div>
               </div>
@@ -669,7 +733,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
                 onClick={() => setIsHelpOpen(false)}
                 className="mt-6 w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-md transition-all active:scale-95 cursor-pointer"
               >
-                فهمت، لنبدأ الرسم!
+                {tr('writing_help_got_it', 'فهمت، لنبدأ الرسم!')}
               </button>
             </div>
           </div>
@@ -684,6 +748,8 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
         templates={allTemplates}
         writingHistory={writingHistory}
         currentStudent={currentStudent}
+        currentLang={currentLang}
+        translations={translations}
         onSelectTemplate={(tpl, isRetry) => {
           if (isRetry) {
             const rKey = buildWritingRetryKey(tpl);
@@ -698,7 +764,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
               tpl,
               webhookUrl
             );
-            const msg = formatStudentRetryBannerMessage(outcome, currentStudent, (_, fb) => fb);
+            const msg = formatStudentRetryBannerMessage(outcome, currentStudent, (id, fb) => tr(id, fb));
             setWritingRetryBanner({ nonce: Date.now(), message: msg });
           } else {
             setWritingRetryBanner(null);
