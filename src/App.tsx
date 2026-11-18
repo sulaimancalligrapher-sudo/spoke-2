@@ -13,6 +13,8 @@ import {
   MatchingHistoryItem,
   DictationLessonSubject,
   DictationHistoryItem,
+  CatchLessonSubject,
+  CatchHistoryItem,
   WritingHistoryItem,
 } from './types';
 import {
@@ -22,11 +24,13 @@ import {
 } from './data/arabicCurriculum';
 import { INITIAL_MATCHING_SUBJECTS } from './data/matchingCurriculum';
 import { INITIAL_DICTATION_SUBJECTS } from './data/dictationCurriculum';
+import { INITIAL_CATCH_SUBJECTS } from './data/catchCurriculum';
 import { Navbar } from './components/Navbar';
 import { PracticeCard } from './components/PracticeCard';
 import { EvaluationCard } from './components/EvaluationCard';
 import { WordMatchingArena } from './components/WordMatchingArena';
 import { DictationArena } from './components/DictationArena';
+import { CatchArena } from './components/CatchArena';
 import { WritingArena } from './arWriting/components/WritingArena';
 import { StatsModal } from './components/StatsModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -35,6 +39,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { LessonsModal } from './components/LessonsModal';
 import { MatchingLessonsModal } from './components/MatchingLessonsModal';
 import { DictationLessonsModal } from './components/DictationLessonsModal';
+import { CatchLessonsModal } from './components/CatchLessonsModal';
 import { StudentLoginModal } from './components/StudentLoginModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
@@ -48,19 +53,29 @@ import {
   saveStoredARIntroReward,
 } from './arWriting/services/arRewardsService';
 import {
+  getStoredCatchARRewards,
+  saveStoredCatchARRewards,
+  getStoredCatchARIntroReward,
+  saveStoredCatchARIntroReward,
+} from './utils/catchArRewards';
+import {
   fetchCurriculumFromSheets,
   fetchHomeConfigFromSheets,
   fetchStudentSubmissionsFromSheet,
   fetchStudentMatchingHistory,
   fetchStudentDictationHistory,
+  fetchStudentCatchHistory,
   fetchStudentWritingHistory,
   saveLocalWritingSubmission,
   fetchTranslationsFromSheets,
   saveTranslationsToSheets,
   fetchMatchingExercisesFromSheets,
   fetchDictationExercisesFromSheets,
+  fetchCatchExercisesFromSheets,
+  fetchCatchARRewardsFromSheet,
   STORAGE_KEY_MATCHING_CURRICULUM,
   STORAGE_KEY_DICTATION_CURRICULUM,
+  STORAGE_KEY_CATCH_CURRICULUM,
   DEFAULT_WEBHOOK_URL,
   DEFAULT_DRIVE_AUDIO_FOLDER_ID,
   STUDENT_AUDIO_DRIVE_FOLDER_ID,
@@ -75,6 +90,7 @@ import {
   getTranslatedString,
   getTranslatedMatchingSubject,
   getTranslatedDictationSubject,
+  getTranslatedCatchSubject,
 } from './utils/translations';
 import {
   formatStudentRetryBannerMessage,
@@ -105,6 +121,7 @@ import {
   Mic,
   List,
   Pencil,
+  Target,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -154,10 +171,10 @@ export default function App() {
   // Main UI Mode: 'landing' (الرئيسية التعريفية) or 'practice' (صفحة التدريب والتسجيل)
   const [currentView, setCurrentView] = useState<'landing' | 'practice'>('landing');
 
-  // Exercise Mode: 'pronunciation', 'matching', 'dictation', or 'writing'
-  const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing'>('pronunciation');
+  // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', or 'catch'
+  const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -208,15 +225,38 @@ export default function App() {
     return INITIAL_DICTATION_SUBJECTS;
   });
 
+  // Exercise 5: AR Catch & Connect Curriculum (Sheet: "صيد") + Independent AR Rewards (Sheet: "مكافآت صيد AR")
+  const [catchSubjects, setCatchSubjects] = useState<CatchLessonSubject[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CATCH_CURRICULUM);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_CATCH_SUBJECTS;
+  });
+  const [catchArRewards, setCatchArRewards] = useState<ARRewardTier[]>(() => getStoredCatchARRewards());
+  const [catchArIntroReward, setCatchArIntroReward] = useState<ARRewardTier>(() =>
+    getStoredCatchARIntroReward()
+  );
+  const [catchPreviewRewardRequest, setCatchPreviewRewardRequest] = useState<{
+    tier: ARRewardTier;
+    nonce: number;
+  } | null>(null);
+
   const [isLessonsModalOpen, setIsLessonsModalOpen] = useState(false);
   const [isMatchingLessonsModalOpen, setIsMatchingLessonsModalOpen] = useState(false);
   const [isDictationLessonsModalOpen, setIsDictationLessonsModalOpen] = useState(false);
+  const [isCatchLessonsModalOpen, setIsCatchLessonsModalOpen] = useState(false);
   const [landingLessonsMenuOpen, setLandingLessonsMenuOpen] = useState(false);
   const landingLessonsMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeMatchingSubjectId, setActiveMatchingSubjectId] = useState<string>('');
   const [activeMatchingExerciseIdx, setActiveMatchingExerciseIdx] = useState<number>(0);
   const [activeDictationSubjectId, setActiveDictationSubjectId] = useState<string>('');
   const [activeDictationExerciseIdx, setActiveDictationExerciseIdx] = useState<number>(0);
+  const [activeCatchSubjectId, setActiveCatchSubjectId] = useState<string>('');
+  const [activeCatchExerciseIdx, setActiveCatchExerciseIdx] = useState<number>(0);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent | TouchEvent) => {
@@ -265,6 +305,10 @@ export default function App() {
   const [dictationHistory, setDictationHistory] = useState<DictationHistoryItem[]>([]);
   const [isSyncingDictation, setIsSyncingDictation] = useState(false);
 
+  // Student AR Catch Exercise History (from sheet "اجابات صيد")
+  const [catchHistory, setCatchHistory] = useState<CatchHistoryItem[]>([]);
+  const [isSyncingCatch, setIsSyncingCatch] = useState(false);
+
   // Student Writing Exercise History (from sheet "answers 4")
   const [writingHistory, setWritingHistory] = useState<WritingHistoryItem[]>([]);
 
@@ -278,9 +322,11 @@ export default function App() {
   const [pronunciationRetryNonce, setPronunciationRetryNonce] = useState(0);
   const [matchingRetryNonce, setMatchingRetryNonce] = useState(0);
   const [dictationRetryNonce, setDictationRetryNonce] = useState(0);
+  const [catchRetryNonce, setCatchRetryNonce] = useState(0);
   const [pronunciationRetryBanner, setPronunciationRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
   const [matchingRetryBanner, setMatchingRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
   const [dictationRetryBanner, setDictationRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
+  const [catchRetryBanner, setCatchRetryBanner] = useState<{ nonce: number; message: string } | null>(null);
 
   // Google Sheets Config (Defaulted to verified Webhook URL for seamless cross-device sync)
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig>({
@@ -406,13 +452,15 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, transRes, matchRes, dictRes, writingLessons, writingRewards] =
+    const [currRes, homeCfg, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
         fetchTranslationsFromSheets(url),
         fetchMatchingExercisesFromSheets(url),
         fetchDictationExercisesFromSheets(url),
+        fetchCatchExercisesFromSheets(url),
+        fetchCatchARRewardsFromSheet(url),
         writingSheetService.fetchLessonsFromSheet().catch(() => null),
         writingSheetService.fetchARRewardsFromSheet().catch(() => null),
       ]);
@@ -475,6 +523,24 @@ export default function App() {
       try {
         localStorage.setItem(STORAGE_KEY_DICTATION_CURRICULUM, JSON.stringify(dictRes.subjects));
       } catch {}
+    }
+
+    // 5B. Update AR Catch curriculum from sheet "صيد" & rewards from "مكافآت صيد AR"
+    if (catchRes && catchRes.success && catchRes.subjects && catchRes.subjects.length > 0) {
+      setCatchSubjects(catchRes.subjects);
+      try {
+        localStorage.setItem(STORAGE_KEY_CATCH_CURRICULUM, JSON.stringify(catchRes.subjects));
+      } catch {}
+    }
+    if (catchRewardsRes && catchRewardsRes.success) {
+      if (catchRewardsRes.rewards && catchRewardsRes.rewards.length > 0) {
+        setCatchArRewards(catchRewardsRes.rewards);
+        saveStoredCatchARRewards(catchRewardsRes.rewards);
+      }
+      if (catchRewardsRes.introReward) {
+        setCatchArIntroReward(catchRewardsRes.introReward);
+        saveStoredCatchARIntroReward(catchRewardsRes.introReward);
+      }
     }
 
     // 6. Update writing lessons from sheet "ArabicLessons"
@@ -860,6 +926,37 @@ export default function App() {
             console.warn('Auto-fetch dictation notice:', err);
           });
 
+        // Auto-fetch AR Catch exercises from sheet "صيد" & rewards from "مكافآت صيد AR"
+        fetchCatchExercisesFromSheets(activeConfig.webhookUrl)
+          .then((cRes) => {
+            if (cRes && cRes.success && cRes.subjects && cRes.subjects.length > 0) {
+              setCatchSubjects(cRes.subjects);
+              try {
+                localStorage.setItem(STORAGE_KEY_CATCH_CURRICULUM, JSON.stringify(cRes.subjects));
+              } catch {}
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto-fetch catch notice:', err);
+          });
+
+        fetchCatchARRewardsFromSheet(activeConfig.webhookUrl)
+          .then((crRes) => {
+            if (crRes && crRes.success) {
+              if (crRes.rewards && crRes.rewards.length > 0) {
+                setCatchArRewards(crRes.rewards);
+                saveStoredCatchARRewards(crRes.rewards);
+              }
+              if (crRes.introReward) {
+                setCatchArIntroReward(crRes.introReward);
+                saveStoredCatchARIntroReward(crRes.introReward);
+              }
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto-fetch catch AR rewards notice:', err);
+          });
+
         // Auto-fetch writing lessons ("ArabicLessons") and AR rewards ("AR Rewards")
         writingSheetService.setOverrideUrl(activeConfig.webhookUrl);
         writingSheetService
@@ -927,6 +1024,11 @@ export default function App() {
                 if (dh && dh.length > 0) setDictationHistory(dh);
               })
               .catch(() => {});
+            fetchStudentCatchHistory(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((ch) => {
+                if (ch && ch.length > 0) setCatchHistory(ch);
+              })
+              .catch(() => {});
             fetchStudentWritingHistory(activeConfig.webhookUrl, parsed.id, parsed.name)
               .then((wh) => {
                 if (wh && wh.length > 0) setWritingHistory(wh);
@@ -944,6 +1046,11 @@ export default function App() {
         fetchStudentDictationHistory('', '', '')
           .then((dh) => {
             if (dh && dh.length > 0) setDictationHistory(dh);
+          })
+          .catch(() => {});
+        fetchStudentCatchHistory('', '', '')
+          .then((ch) => {
+            if (ch && ch.length > 0) setCatchHistory(ch);
           })
           .catch(() => {});
         fetchStudentWritingHistory('', '', '')
@@ -1017,6 +1124,14 @@ export default function App() {
         .catch(() => {})
         .finally(() => setIsSyncingDictation(false));
 
+      setIsSyncingCatch(true);
+      fetchStudentCatchHistory(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((ch) => {
+          if (ch) setCatchHistory(ch);
+        })
+        .catch(() => {})
+        .finally(() => setIsSyncingCatch(false));
+
       fetchStudentWritingHistory(sheetsConfig.webhookUrl, student.id, student.name)
         .then((wh) => {
           if (wh) setWritingHistory(wh);
@@ -1032,6 +1147,7 @@ export default function App() {
     setStudentHistory([]);
     setMatchingHistory([]);
     setDictationHistory([]);
+    setCatchHistory([]);
     setWritingHistory([]);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
@@ -1345,7 +1461,94 @@ export default function App() {
     }
     setAppMode('pronunciation');
     setCurrentView('practice');
+    closeAllLessonModals();
+  };
+
+  const closeAllLessonModals = () => {
     setIsLessonsModalOpen(false);
+    setIsMatchingLessonsModalOpen(false);
+    setIsDictationLessonsModalOpen(false);
+    setIsCatchLessonsModalOpen(false);
+    setLandingLessonsMenuOpen(false);
+  };
+
+  const openPronunciationLessonsModal = () => {
+    closeAllLessonModals();
+    setIsLessonsModalOpen(true);
+  };
+
+  const openMatchingLessonsModal = () => {
+    closeAllLessonModals();
+    if (currentStudent && sheetsConfig.webhookUrl) {
+      fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+        .then((mh) => {
+          if (mh) setMatchingHistory(mh);
+        })
+        .catch(() => {});
+    } else {
+      fetchStudentMatchingHistory('', '', '')
+        .then((mh) => {
+          if (mh) setMatchingHistory(mh);
+        })
+        .catch(() => {});
+    }
+    setIsMatchingLessonsModalOpen(true);
+  };
+
+  const openDictationLessonsModal = () => {
+    closeAllLessonModals();
+    if (currentStudent && sheetsConfig.webhookUrl) {
+      fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+        .then((dh) => {
+          if (dh) setDictationHistory(dh);
+        })
+        .catch(() => {});
+    } else {
+      fetchStudentDictationHistory('', '', '')
+        .then((dh) => {
+          if (dh) setDictationHistory(dh);
+        })
+        .catch(() => {});
+    }
+    setIsDictationLessonsModalOpen(true);
+  };
+
+  const openCatchLessonsModal = () => {
+    closeAllLessonModals();
+    if (currentStudent && sheetsConfig.webhookUrl) {
+      fetchStudentCatchHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+        .then((ch) => {
+          if (ch) setCatchHistory(ch);
+        })
+        .catch(() => {});
+    } else {
+      fetchStudentCatchHistory('', '', '')
+        .then((ch) => {
+          if (ch) setCatchHistory(ch);
+        })
+        .catch(() => {});
+    }
+    setIsCatchLessonsModalOpen(true);
+  };
+
+  const openWritingExercise = () => {
+    closeAllLessonModals();
+    setSelectedWritingTemplate(null);
+    if (currentStudent && sheetsConfig.webhookUrl) {
+      fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+        .then((wh) => {
+          if (wh) setWritingHistory(wh);
+        })
+        .catch(() => {});
+    } else {
+      fetchStudentWritingHistory('', '', '')
+        .then((wh) => {
+          if (wh) setWritingHistory(wh);
+        })
+        .catch(() => {});
+    }
+    setAppMode('writing');
+    setCurrentView('practice');
   };
 
   const handleNextWord = () => {
@@ -1397,7 +1600,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -1525,6 +1728,29 @@ export default function App() {
             setCurrentView('practice');
             handleBackToStudent();
           }}
+          catchSubjects={catchSubjects}
+          onUpdateCatchSubjects={(next) => {
+            setCatchSubjects(next);
+            try {
+              localStorage.setItem(STORAGE_KEY_CATCH_CURRICULUM, JSON.stringify(next));
+            } catch {}
+          }}
+          catchArRewards={catchArRewards}
+          onUpdateCatchArRewards={(tiers) => {
+            setCatchArRewards(tiers);
+            return saveStoredCatchARRewards(tiers);
+          }}
+          catchArIntroReward={catchArIntroReward}
+          onUpdateCatchArIntroReward={(intro) => {
+            setCatchArIntroReward(intro);
+            return saveStoredCatchARIntroReward(intro);
+          }}
+          onPreviewCatchArReward={(tier) => {
+            setCatchPreviewRewardRequest({ tier, nonce: Date.now() });
+            setAppMode('catch');
+            setCurrentView('practice');
+            handleBackToStudent();
+          }}
         />
 
         <SettingsModal
@@ -1586,6 +1812,14 @@ export default function App() {
               })
               .catch(() => {})
               .finally(() => setIsSyncingDictation(false));
+
+            setIsSyncingCatch(true);
+            fetchStudentCatchHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+              .then((ch) => {
+                if (ch) setCatchHistory(ch);
+              })
+              .catch(() => {})
+              .finally(() => setIsSyncingCatch(false));
           } else {
             fetchStudentMatchingHistory('', '', '')
               .then((mh) => {
@@ -1595,6 +1829,11 @@ export default function App() {
             fetchStudentDictationHistory('', '', '')
               .then((dh) => {
                 if (dh) setDictationHistory(dh);
+              })
+              .catch(() => {});
+            fetchStudentCatchHistory('', '', '')
+              .then((ch) => {
+                if (ch) setCatchHistory(ch);
               })
               .catch(() => {});
           }
@@ -1605,8 +1844,11 @@ export default function App() {
         isAdminAuthenticated={isAdminAuthenticated}
         onAdminLogout={handleAdminLogout}
         isSheetsActive={sheetsConfig.enabled && !!sheetsConfig.webhookUrl}
-        onOpenLessons={() => setIsLessonsModalOpen(true)}
-        onGoHome={() => setCurrentView('landing')}
+        onOpenLessons={openPronunciationLessonsModal}
+        onGoHome={() => {
+          closeAllLessonModals();
+          setCurrentView('landing');
+        }}
         currentView={currentView}
         currentStudent={currentStudent}
         onOpenLogin={() => setIsLoginModalOpen(true)}
@@ -1617,73 +1859,16 @@ export default function App() {
         currentLang={currentLang}
         onSelectLang={handleSelectLang}
         t={t}
-        onOpenMatchingLessons={() => {
-          if (currentStudent && sheetsConfig.webhookUrl) {
-            fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-              .then((mh) => {
-                if (mh) setMatchingHistory(mh);
-              })
-              .catch(() => {});
-          } else {
-            fetchStudentMatchingHistory('', '', '')
-              .then((mh) => {
-                if (mh) setMatchingHistory(mh);
-              })
-              .catch(() => {});
-          }
-          setIsMatchingLessonsModalOpen(true);
-        }}
-        onOpenDictationLessons={() => {
-          if (currentStudent && sheetsConfig.webhookUrl) {
-            fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-              .then((dh) => {
-                if (dh) setDictationHistory(dh);
-              })
-              .catch(() => {});
-          } else {
-            fetchStudentDictationHistory('', '', '')
-              .then((dh) => {
-                if (dh) setDictationHistory(dh);
-              })
-              .catch(() => {});
-          }
-          setIsDictationLessonsModalOpen(true);
-        }}
-        onOpenWriting={() => {
-          setSelectedWritingTemplate(null);
-          if (currentStudent && sheetsConfig.webhookUrl) {
-            fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-              .then((wh) => {
-                if (wh) setWritingHistory(wh);
-              })
-              .catch(() => {});
-          } else {
-            fetchStudentWritingHistory('', '', '')
-              .then((wh) => {
-                if (wh) setWritingHistory(wh);
-              })
-              .catch(() => {});
-          }
-          setAppMode('writing');
-          setCurrentView('practice');
-        }}
+        onOpenMatchingLessons={openMatchingLessonsModal}
+        onOpenDictationLessons={openDictationLessonsModal}
+        onOpenWriting={openWritingExercise}
+        onOpenCatchLessons={openCatchLessonsModal}
         currentMode={appMode}
         onSelectMode={(mode) => {
+          closeAllLessonModals();
           if (mode === 'writing') {
-            setSelectedWritingTemplate(null);
-            if (currentStudent && sheetsConfig.webhookUrl) {
-              fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-                .then((wh) => {
-                  if (wh) setWritingHistory(wh);
-                })
-                .catch(() => {});
-            } else {
-              fetchStudentWritingHistory('', '', '')
-                .then((wh) => {
-                  if (wh) setWritingHistory(wh);
-                })
-                .catch(() => {});
-            }
+            openWritingExercise();
+            return;
           }
           setAppMode(mode);
           if (currentView === 'landing') {
@@ -1815,10 +2000,7 @@ export default function App() {
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => {
-                          setLandingLessonsMenuOpen(false);
-                          setIsLessonsModalOpen(true);
-                        }}
+                        onClick={openPronunciationLessonsModal}
                         className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-indigo-50 hover:text-indigo-900 transition-colors cursor-pointer"
                       >
                         <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
@@ -1830,23 +2012,7 @@ export default function App() {
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => {
-                          setLandingLessonsMenuOpen(false);
-                          if (currentStudent && sheetsConfig.webhookUrl) {
-                            fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-                              .then((mh) => {
-                                if (mh) setMatchingHistory(mh);
-                              })
-                              .catch(() => {});
-                          } else {
-                            fetchStudentMatchingHistory('', '', '')
-                              .then((mh) => {
-                                if (mh) setMatchingHistory(mh);
-                              })
-                              .catch(() => {});
-                          }
-                          setIsMatchingLessonsModalOpen(true);
-                        }}
+                        onClick={openMatchingLessonsModal}
                         className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-purple-50 hover:text-purple-900 transition-colors cursor-pointer"
                       >
                         <span className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
@@ -1858,23 +2024,7 @@ export default function App() {
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => {
-                          setLandingLessonsMenuOpen(false);
-                          if (currentStudent && sheetsConfig.webhookUrl) {
-                            fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-                              .then((dh) => {
-                                if (dh) setDictationHistory(dh);
-                              })
-                              .catch(() => {});
-                          } else {
-                            fetchStudentDictationHistory('', '', '')
-                              .then((dh) => {
-                                if (dh) setDictationHistory(dh);
-                              })
-                              .catch(() => {});
-                          }
-                          setIsDictationLessonsModalOpen(true);
-                        }}
+                        onClick={openDictationLessonsModal}
                         className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-teal-50 hover:text-teal-900 transition-colors cursor-pointer"
                       >
                         <span className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
@@ -1886,31 +2036,25 @@ export default function App() {
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => {
-                          setLandingLessonsMenuOpen(false);
-                          setSelectedWritingTemplate(null);
-                          if (currentStudent && sheetsConfig.webhookUrl) {
-                            fetchStudentWritingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-                              .then((wh) => {
-                                if (wh) setWritingHistory(wh);
-                              })
-                              .catch(() => {});
-                          } else {
-                            fetchStudentWritingHistory('', '', '')
-                              .then((wh) => {
-                                if (wh) setWritingHistory(wh);
-                              })
-                              .catch(() => {});
-                          }
-                          setAppMode('writing');
-                          setCurrentView('practice');
-                        }}
+                        onClick={openWritingExercise}
                         className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-amber-50 hover:text-amber-900 transition-colors cursor-pointer"
                       >
                         <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
                           <Pencil className="w-4 h-4" />
                         </span>
                         <span className="flex-1">{t('nav_writing_exercise', 'تمرين الكتابة')}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={openCatchLessonsModal}
+                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-sky-50 hover:text-sky-900 transition-colors cursor-pointer"
+                      >
+                        <span className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                          <Target className="w-4 h-4" />
+                        </span>
+                        <span className="flex-1">{t('nav_catch_exercise', 'تحدي الصيد (AR)')}</span>
                       </button>
                     </div>
                   )}
@@ -1960,22 +2104,7 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        if (currentStudent && sheetsConfig.webhookUrl) {
-                          fetchStudentMatchingHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-                            .then((mh) => {
-                              if (mh) setMatchingHistory(mh);
-                            })
-                            .catch(() => {});
-                        } else {
-                          fetchStudentMatchingHistory('', '', '')
-                            .then((mh) => {
-                              if (mh) setMatchingHistory(mh);
-                            })
-                            .catch(() => {});
-                        }
-                        setIsMatchingLessonsModalOpen(true);
-                      }}
+                      onClick={openMatchingLessonsModal}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
                       title={t('matching_lessons_list_btn', 'قائمة الدروس 📑')}
                     >
@@ -2060,7 +2189,7 @@ export default function App() {
                 setActiveMatchingSubjectId(sId);
                 setActiveMatchingExerciseIdx(exIdx);
               }}
-              onOpenMatchingLessonsModal={() => setIsMatchingLessonsModalOpen(true)}
+              onOpenMatchingLessonsModal={openMatchingLessonsModal}
               onBackToPronunciation={() => setAppMode('pronunciation')}
               onRequestLogin={() => setIsLoginModalOpen(true)}
               matchingHistory={matchingHistory}
@@ -2141,22 +2270,7 @@ export default function App() {
 
                     <button
                       type="button"
-                      onClick={() => {
-                        if (currentStudent && sheetsConfig.webhookUrl) {
-                          fetchStudentDictationHistory(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-                            .then((dh) => {
-                              if (dh) setDictationHistory(dh);
-                            })
-                            .catch(() => {});
-                        } else {
-                          fetchStudentDictationHistory('', '', '')
-                            .then((dh) => {
-                              if (dh) setDictationHistory(dh);
-                            })
-                            .catch(() => {});
-                        }
-                        setIsDictationLessonsModalOpen(true);
-                      }}
+                      onClick={openDictationLessonsModal}
                       className="p-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
                       title={t('dictation_lessons_list_btn', 'قائمة الدروس')}
                       aria-label={t('dictation_lessons_list_btn', 'قائمة الدروس')}
@@ -2392,6 +2506,171 @@ export default function App() {
               }}
             />
           </div>
+        ) : appMode === 'catch' ? (
+          /* ========================================================
+             6. AR CATCH & CONNECT ARENA (تحدي اصطياد وتوصيل الحروف - صيد)
+             ======================================================== */
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            {(() => {
+              const resolvedSubject =
+                catchSubjects.find((s) => s.id === activeCatchSubjectId) ||
+                catchSubjects[0] ||
+                null;
+              const resolvedSubjectId = resolvedSubject?.id || '';
+              const totalExercises = resolvedSubject?.exercises.length || 0;
+              const safeExIdx =
+                totalExercises > 0
+                  ? Math.min(Math.max(0, activeCatchExerciseIdx), totalExercises - 1)
+                  : 0;
+              const activeExNumber =
+                resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
+
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setCurrentView('landing')}
+                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
+                    >
+                      <Home className="w-4 h-4 text-slate-700" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={openCatchLessonsModal}
+                      className="p-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={t('catch_lessons_list_btn', 'قائمة دروس الصيد')}
+                      aria-label={t('catch_lessons_list_btn', 'قائمة دروس الصيد')}
+                    >
+                      <List className="w-4 h-4 text-sky-700" />
+                    </button>
+                  </div>
+
+                  {resolvedSubject && (
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
+                      <div className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-900 font-bold border border-sky-200/80 flex items-center">
+                        <select
+                          value={resolvedSubjectId}
+                          onChange={(e) => {
+                            setActiveCatchSubjectId(e.target.value);
+                            setActiveCatchExerciseIdx(0);
+                          }}
+                          className="bg-transparent font-bold text-sky-950 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
+                        >
+                          {catchSubjects.map((subj) => (
+                            <option key={subj.id} value={subj.id}>
+                              {getTranslatedCatchSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl px-1.5 py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx > 0) {
+                              setActiveCatchSubjectId(resolvedSubjectId);
+                              setActiveCatchExerciseIdx(safeExIdx - 1);
+                            }
+                          }}
+                          disabled={safeExIdx === 0}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين السابق' : 'Previous'}
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="px-1.5 text-slate-800 font-bold whitespace-nowrap">
+                          {t('matching_exercise_label', 'التمرين')} {activeExNumber} {t('matching_of_label', 'من')} {totalExercises}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx < totalExercises - 1) {
+                              setActiveCatchSubjectId(resolvedSubjectId);
+                              setActiveCatchExerciseIdx(safeExIdx + 1);
+                            }
+                          }}
+                          disabled={safeExIdx >= totalExercises - 1}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين التالي' : 'Next'}
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <CatchArena
+              subjects={catchSubjects}
+              currentStudent={currentStudent}
+              webhookUrl={sheetsConfig.webhookUrl}
+              currentLang={currentLang}
+              translations={translations}
+              t={t}
+              activeSubjectId={activeCatchSubjectId || catchSubjects[0]?.id}
+              activeExerciseIndex={activeCatchExerciseIdx}
+              onSelectSubjectExercise={(sId, exIdx) => {
+                setActiveCatchSubjectId(sId);
+                setActiveCatchExerciseIdx(exIdx);
+              }}
+              onBackToPronunciation={() => setAppMode('pronunciation')}
+              onRequestLogin={() => setIsLoginModalOpen(true)}
+              catchHistory={catchHistory}
+              retryNonce={catchRetryNonce}
+              retryBanner={catchRetryBanner}
+              arRewards={catchArRewards}
+              arIntroReward={catchArIntroReward}
+              previewRewardRequest={catchPreviewRewardRequest}
+              onCatchSubmitted={(submitted) => {
+                if (!submitted) return;
+                const ts = new Date().toLocaleString('ar-SA');
+                setCatchHistory((prev) => {
+                  const cleanSubj = submitted.subjectName.trim();
+                  const existingIdx = prev.findIndex((item) => (item.lessonSubject || '').trim() === cleanSubj);
+                  const newEntry = {
+                    exerciseNumber: submitted.exerciseNumber,
+                    formulaString: submitted.formulaString,
+                    percentage: submitted.percentage,
+                  };
+                  if (existingIdx >= 0) {
+                    const next = [...prev];
+                    const existing = next[existingIdx];
+                    const filteredEx = (existing.exercises || []).filter(
+                      (e) => e.exerciseNumber !== submitted.exerciseNumber
+                    );
+                    filteredEx.push(newEntry);
+                    filteredEx.sort((a, b) => a.exerciseNumber - b.exerciseNumber);
+                    next[existingIdx] = {
+                      ...existing,
+                      timestamp: ts,
+                      completionStatus: submitted.completionStatus,
+                      exercises: filteredEx,
+                    };
+                    return next;
+                  }
+                  return [
+                    {
+                      id: `local-catch-${Date.now()}`,
+                      timestamp: ts,
+                      studentId: currentStudent?.id || '',
+                      studentName: currentStudent?.name || '',
+                      lessonSubject: cleanSubj,
+                      completionStatus: submitted.completionStatus,
+                      exercises: [newEntry],
+                    },
+                    ...prev,
+                  ];
+                });
+              }}
+            />
+          </div>
         ) : (
           /* ========================================================
              2. PRACTICE & RECORDING ARENA (صفحة الدرس والتسجيل)
@@ -2409,7 +2688,7 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setIsLessonsModalOpen(true)}
+                  onClick={openPronunciationLessonsModal}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
                   title={t('eval_open_lessons_btn', 'فتح الدروس')}
                 >
@@ -2467,7 +2746,7 @@ export default function App() {
                 currentIndex={currentIndex}
                 totalCount={activeSubjectWords.length}
                 onUpdateSettings={handleUpdateSettings}
-                onOpenLessons={() => setIsLessonsModalOpen(true)}
+                onOpenLessons={openPronunciationLessonsModal}
                 isSubmitted={isCurrentAnswerSubmitted}
                 onReRecord={() => {
                   setIsCurrentAnswerSubmitted(false);
@@ -2525,7 +2804,7 @@ export default function App() {
                     setRecordedAudioUrl(null);
                   }}
                   onNext={handleNextWord}
-                  onOpenLessons={() => setIsLessonsModalOpen(true)}
+                  onOpenLessons={openPronunciationLessonsModal}
                   audioEngine={settings.engine}
                   currentStudent={currentStudent}
                   webhookUrl={sheetsConfig.webhookUrl}
@@ -2627,13 +2906,17 @@ export default function App() {
         history={currentStudent ? studentHistory : history}
         matchingHistory={matchingHistory}
         dictationHistory={dictationHistory}
+        catchHistory={catchHistory}
         onClearHistory={handleClearHistory}
         currentStudent={currentStudent}
         isSyncingFromSheets={isSyncingAnswers1}
         isSyncingMatching={isSyncingMatching}
         isSyncingDictation={isSyncingDictation}
+        isSyncingCatch={isSyncingCatch}
         defaultTab={
-          appMode === 'dictation'
+          appMode === 'catch'
+            ? 'catch'
+            : appMode === 'dictation'
             ? 'dictation'
             : appMode === 'matching'
             ? 'matching'
@@ -2710,11 +2993,12 @@ export default function App() {
           } else {
             setMatchingRetryBanner(null);
           }
+          closeAllLessonModals();
           setAppMode('matching');
           setCurrentView('practice');
         }}
         onOpenAdminMatching={() => {
-          setIsMatchingLessonsModalOpen(false);
+          closeAllLessonModals();
           handleOpenAdmin();
         }}
         matchingHistory={matchingHistory}
@@ -2759,14 +3043,65 @@ export default function App() {
           } else {
             setDictationRetryBanner(null);
           }
+          closeAllLessonModals();
           setAppMode('dictation');
           setCurrentView('practice');
         }}
         onOpenAdminDictation={() => {
-          setIsDictationLessonsModalOpen(false);
+          closeAllLessonModals();
           handleOpenAdmin();
         }}
         dictationHistory={dictationHistory}
+        currentStudent={currentStudent}
+        currentLang={currentLang}
+        translations={translations}
+        t={t}
+      />
+
+      {/* AR Catch Lessons Selector Modal (ورقة صيد) */}
+      <CatchLessonsModal
+        isOpen={isCatchLessonsModalOpen}
+        onClose={() => setIsCatchLessonsModalOpen(false)}
+        subjects={catchSubjects}
+        activeSubjectId={activeCatchSubjectId || catchSubjects[0]?.id}
+        activeExerciseIndex={activeCatchExerciseIdx}
+        onSelectSubjectExercise={(subjId, exIdx, isRetry) => {
+          setActiveCatchSubjectId(subjId);
+          setActiveCatchExerciseIdx(exIdx);
+          if (isRetry) {
+            const subj = catchSubjects.find((s) => s.id === subjId);
+            const ex = subj?.exercises[exIdx];
+            if (subj && ex) {
+              const rKey = `${subj.subjectName.trim()}::ex-${ex.exerciseNumber}`;
+              const status = getRetryStatus('catch', currentStudent, rKey, ex);
+              if (status.canRetry) {
+                const outcome = recordStudentRetryAttempt(
+                  'catch',
+                  currentStudent,
+                  rKey,
+                  ex,
+                  sheetsConfig.webhookUrl
+                );
+                const nextNonce = catchRetryNonce + 1;
+                setCatchRetryNonce(nextNonce);
+                setCatchRetryBanner({
+                  nonce: nextNonce,
+                  message: formatStudentRetryBannerMessage(outcome, currentStudent, t),
+                });
+              }
+            }
+          } else {
+            setCatchRetryBanner(null);
+          }
+          closeAllLessonModals();
+          setAppMode('catch');
+          setCurrentView('practice');
+        }}
+        onOpenAdminCatch={() => {
+          closeAllLessonModals();
+          handleOpenAdmin('catch');
+        }}
+        catchHistory={catchHistory}
         currentStudent={currentStudent}
         currentLang={currentLang}
         translations={translations}

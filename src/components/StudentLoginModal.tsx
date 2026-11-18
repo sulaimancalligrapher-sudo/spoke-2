@@ -86,8 +86,8 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs font-cairo animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs font-cairo animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl max-w-md w-full max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-[#0c3868] text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">

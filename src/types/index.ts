@@ -284,3 +284,39 @@ export interface WritingHistoryItem {
   exercises: WritingExerciseHistoryEntry[];
 }
 
+export type CatchQuestionType = DictationQuestionType;
+
+export interface CatchExercise {
+  id: string;
+  exerciseNumber: number;
+  questionText: string; // Col 1: نص | صورة:رابط | صوت:رابط
+  scrambledPool: string; // Col 2: الحروف / الحروف المتصلة / الكلمات المشتتة
+  correctAnswer: string; // Col 3: الإجابة الصحيحة (تقبل |...| للفراغ الناقص)
+  settingsString?: string; // Col 4: الإعدادات (تراجع / إعادة ...)
+  lockOnMistake?: boolean; // لا يمكن التراجع (true) أو إتاحة المحاولة (false)
+  allowRetry?: boolean; // السماح بإعادة التمرين بعد التسجيل (افتراضي true)
+  maxRetries?: number; // الحد الأقصى لمحاولات الإعادة (افتراضي 3، 0 = منع، -1 = غير محدود)
+}
+
+export interface CatchLessonSubject {
+  id: string;
+  subjectName: string;
+  exercises: CatchExercise[];
+}
+
+export interface CatchExerciseHistoryEntry {
+  exerciseNumber: number;
+  formulaString: string;
+  percentage: number;
+}
+
+export interface CatchHistoryItem {
+  id: string;
+  timestamp: string;
+  studentId: string;
+  studentName: string;
+  lessonSubject: string;
+  completionStatus: string;
+  exercises: CatchExerciseHistoryEntry[];
+}
+

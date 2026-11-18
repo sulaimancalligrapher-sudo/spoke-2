@@ -110,32 +110,38 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl border border-slate-100 relative max-h-[92vh] flex flex-col">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute left-5 top-5 p-2 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
-          title={tr('btn_close', 'إغلاق')}
-        >
-          <X className="w-5 h-5" />
-        </button>
-
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[90] flex items-center justify-center p-2.5 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+    >
+      <div className="bg-white rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[90dvh] flex flex-col overflow-hidden">
         {/* Modal Header */}
-        <div className="flex items-center gap-3.5 pb-4 border-b border-slate-100">
-          <div className="w-11 h-11 rounded-2xl bg-linear-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-600/20 shrink-0">
-            <Sparkles className="w-6 h-6 text-purple-100" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-amiri tracking-wide">
+        <div className="flex items-center justify-between gap-3 pb-3.5 sm:pb-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-linear-to-tr from-purple-600 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md shadow-purple-600/20 shrink-0">
+              <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-purple-100" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-2xl font-black text-slate-900 font-amiri tracking-wide truncate">
                 {tr('matching_modal_title', 'تمارين وصل 🔗')}
               </h2>
+              <p className="text-xs text-slate-500 mt-0.5 truncate">
+                {tr('matching_modal_subtitle', 'اختر موضوع الدرس ثم ابدأ التمرين المطلوب مباشرة')}
+              </p>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {tr('matching_modal_subtitle', 'اختر موضوع الدرس ثم ابدأ التمرين المطلوب مباشرة')}
-            </p>
           </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-9 h-9 rounded-full bg-slate-50 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer border border-slate-200 shrink-0"
+            title={tr('btn_close', 'إغلاق')}
+            aria-label={tr('btn_close', 'إغلاق')}
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Dropdown Subject Selector + Icon-only Eye Toggle */}

@@ -90,6 +90,14 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     en: 'Writing Exercise',
   },
   {
+    id: 'nav_catch_exercise',
+    category: 'home',
+    categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
+    ar: 'تحدي الصيد (AR)',
+    th: 'ท้าทายจับตัวอักษร (AR)',
+    en: 'AR Catch Challenge',
+  },
+  {
     id: 'nav_open_lessons',
     category: 'home',
     categoryLabel: 'نافذة التسجيل والصفحة الرئيسية',
@@ -2092,6 +2100,70 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     ar: 'نتائج تمارين الإملاء وترتيب الكلمات حسب الموضوع:',
     th: 'ผลแบบฝึกหัดสะกดคำและเรียงคำตามหัวข้อ:',
     en: 'Dictation Exercise Results by Subject:',
+  },
+  {
+    id: 'stats_tab_catch',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'سجل الصيد',
+    th: 'ประวัติเกมจับคำ (AR)',
+    en: 'AR Catch Log',
+  },
+  {
+    id: 'stats_catch_verified_sheet',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: '(موثق في ورقة اجابات صيد)',
+    th: '(บันทึกในชีต اجابات صيد แล้ว)',
+    en: '(Recorded in اجابات صيد sheet)',
+  },
+  {
+    id: 'stats_catch_syncing',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'جاري مزامنة درجات تحدي الصيد...',
+    th: 'กำลังซิงค์คะแนนเกมจับตัวอักษร...',
+    en: 'Syncing AR Catch scores...',
+  },
+  {
+    id: 'stats_catch_history_title',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'نتائج تمارين تحدي اصطياد الحروف حسب الموضوع:',
+    th: 'ผลเกมจับตัวอักษรและเรียงคำ (AR) ตามหัวข้อ:',
+    en: 'AR Catch Challenge Results by Subject:',
+  },
+  {
+    id: 'stats_catch_empty',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'لم تكمل أي تحدي في «تحدي الصيد (AR)» بعد. أتمم تحدياً لتظهر نتيجتك هنا!',
+    th: 'ยังไม่มีประวัติในเกมจับตัวอักษร (AR) ลองเล่นเพื่อดูผลคะแนนที่นี่!',
+    en: 'No AR Catch challenges completed yet. Finish a challenge to see your score here!',
+  },
+  {
+    id: 'catch_modal_subtitle',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'اصطد الحروف والكلمات في الهواء بالكاميرا التفاعلية (ورقة صيد)',
+    th: 'จับตัวอักษรและคำกลางอากาศด้วยกล้อง AR (ชีต صيد)',
+    en: 'Catch & arrange letters in mid-air via AR camera (صيد sheet)',
+  },
+  {
+    id: 'catch_admin_manage_link',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'إدارة وإضافة تمارين الصيد في لوحة التحكم',
+    th: 'จัดการและเพิ่มแบบฝึกหัดจับตัวอักษรในแผงควบคุม',
+    en: 'Manage & Add AR Catch Exercises in Admin',
+  },
+  {
+    id: 'catch_lessons_list_btn',
+    category: 'dictation',
+    categoryLabel: 'تمرين الصيد وتوصيل الحروف بالواقع المعزز',
+    ar: 'قائمة دروس الصيد',
+    th: 'รายการบทเรียนจับตัวอักษร',
+    en: 'Catch Lessons',
   },
   {
     id: 'stats_dictation_empty',
@@ -5284,4 +5356,51 @@ export function getLocalizedDrawingOrdinal(
   if (lang === 'en') return `#${num}`;
   return arabicDrawingOrdinalFn(num);
 }
+
+// ==========================================
+// AR Catch & Connect Dynamic Helpers (Exercise 5 - صيد)
+// ==========================================
+
+export function getCatchSubjectTranslationId(subjectName: string): string {
+  return `catch_subj_${(subjectName || '').trim()}`;
+}
+
+export function getCatchQuestionTranslationId(subjectName: string, exerciseNumber: number): string {
+  return `catch_q_${(subjectName || '').trim()}_${exerciseNumber}`;
+}
+
+export function getTranslatedCatchSubject(
+  subjectName: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (subjectName || '').trim();
+  if (!clean) return '';
+  const id = getCatchSubjectTranslationId(clean);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
+export function getTranslatedCatchQuestionText(
+  subjectName: string,
+  exerciseNumber: number,
+  fallbackPlainText: string,
+  lang: SupportedLang,
+  items: TranslationItem[] = []
+): string {
+  const clean = (fallbackPlainText || '').trim();
+  if (!clean) return '';
+  const id = getCatchQuestionTranslationId(subjectName, exerciseNumber);
+  const found = items.find((i) => i.id === id);
+  if (!found) return clean;
+  if (lang === 'ar') return found.ar?.trim() ? found.ar.trim() : clean;
+  if (lang === 'th') return found.th?.trim() ? found.th.trim() : clean;
+  if (lang === 'en') return found.en?.trim() ? found.en.trim() : clean;
+  return clean;
+}
+
 

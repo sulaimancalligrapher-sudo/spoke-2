@@ -18,11 +18,26 @@ import {
   DictationExerciseHistoryEntry,
   WritingHistoryItem,
   WritingExerciseHistoryEntry,
+  CatchLessonSubject,
+  CatchHistoryItem,
+  CatchExerciseHistoryEntry,
 } from '../types';
 import { removeTashkeel } from './arabicMatcher';
 import { INITIAL_MATCHING_SUBJECTS } from '../data/matchingCurriculum';
 import { INITIAL_DICTATION_SUBJECTS } from '../data/dictationCurriculum';
+import { INITIAL_CATCH_SUBJECTS } from '../data/catchCurriculum';
 import { formatDictationSettingsString, parseDictationSettingsString } from './dictationUtils';
+import {
+  ARRewardTier,
+  AR_INTRO_ID,
+  getDefaultARRewards,
+  splitARRewardsPayload,
+} from '../arWriting/services/arRewardsService';
+import {
+  formatCatchSettingsString,
+  getDefaultCatchARIntroReward,
+  parseCatchSettingsString,
+} from './catchArRewards';
 import {
   formatRetrySettingToken,
   parseRetryCountFromSettingsText,
@@ -32,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbw9gK59eVW3j6FpxRmXxz7U1qB_fxI90C4_sxAwsS2UjPNN6F5nZQuMvHoZ9yy8vEk5qw/exec';
+  'https://script.google.com/macros/s/AKfycbxpOZFT1T4lWwuDmK8WYrJ0At10Fj8v4UeWUQCQun9sb90J7PoH2_C8sQNGaN4hbOqslQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -2040,6 +2055,582 @@ export async function fetchStudentDictationHistory(
   return Array.from(mergedMap.values());
 }
 
+export const STORAGE_KEY_CATCH_CURRICULUM = 'faseeh_catch_curriculum_v1';
+
+/**
+ * Fetch Catch & Connect exercises from sheet "صيد" (Col A: موضوع الدرس, 4 cols per exercise)
+ */
+export async function fetchCatchExercisesFromSheets(webhookUrl: string): Promise<{
+  success: boolean;
+  subjects: CatchLessonSubject[];
+  error?: string;
+}> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY_CATCH_CURRICULUM);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return { success: true, subjects: parsed };
+        }
+      }
+    } catch {}
+    return { success: true, subjects: INITIAL_CATCH_SUBJECTS };
+  }
+
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const targetUrl = cleanUrl.includes('?')
+      ? `${cleanUrl}&action=get_catch&_t=${Date.now()}`
+      : `${cleanUrl}?action=get_catch&_t=${Date.now()}`;
+
+    let res: any = null;
+    try {
+      const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+      if (proxyRes.ok) {
+        res = await proxyRes.json().catch(() => null);
+      }
+    } catch (proxyErr) {
+      console.warn('Proxy GET catch failed, trying direct:', proxyErr);
+    }
+
+    if (!res || !res.subjects) {
+      try {
+        const directRes = await fetch(targetUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (directRes.ok) {
+          res = await directRes.json().catch(() => null);
+        }
+      } catch (directErr) {
+        console.warn('Direct GET catch failed:', directErr);
+      }
+    }
+
+    if (res && res.success && Array.isArray(res.subjects) && res.subjects.length > 0) {
+      const normalizedSubjects: CatchLessonSubject[] = res.subjects.map((s: any, sIdx: number) => ({
+        id: s.id || `catch-subj-${sIdx + 1}`,
+        subjectName: String(s.subjectName || s.subject || `الموضوع ${sIdx + 1}`).trim(),
+        exercises: Array.isArray(s.exercises)
+          ? s.exercises.map((ex: any, eIdx: number) => {
+              const parsedSet = parseCatchSettingsString(ex.settingsString || ex.settings || '');
+              return {
+                id: ex.id || `catch-ex-${eIdx + 1}`,
+                exerciseNumber: ex.exerciseNumber || eIdx + 1,
+                questionText: String(ex.questionText || `اصطد الحروف الصحيحة ${eIdx + 1}`).trim(),
+                scrambledPool: String(ex.scrambledPool || '').trim(),
+                correctAnswer: String(ex.correctAnswer || '').trim(),
+                settingsString: String(ex.settingsString || ex.settings || '').trim(),
+                lockOnMistake:
+                  ex.lockOnMistake !== undefined ? Boolean(ex.lockOnMistake) : parsedSet.lockOnMistake,
+                allowRetry:
+                  typeof ex.maxRetries === 'number'
+                    ? ex.maxRetries !== 0
+                    : ex.allowRetry !== undefined
+                    ? Boolean(ex.allowRetry)
+                    : parsedSet.allowRetry,
+                maxRetries:
+                  typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+                    ? ex.maxRetries < 0
+                      ? -1
+                      : Math.max(0, Math.floor(ex.maxRetries))
+                    : ex.allowRetry === false
+                    ? 0
+                    : parsedSet.maxRetries,
+              };
+            })
+          : [],
+      }));
+
+      try {
+        localStorage.setItem(STORAGE_KEY_CATCH_CURRICULUM, JSON.stringify(normalizedSubjects));
+      } catch {}
+      return { success: true, subjects: normalizedSubjects };
+    }
+  } catch (err: any) {
+    console.warn('Failed to fetch catch exercises from sheets:', err);
+  }
+
+  try {
+    const cached = localStorage.getItem(STORAGE_KEY_CATCH_CURRICULUM);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return { success: true, subjects: parsed };
+      }
+    }
+  } catch {}
+
+  return { success: true, subjects: INITIAL_CATCH_SUBJECTS };
+}
+
+/**
+ * Save or update a single Catch exercise in sheet "صيد"
+ */
+export async function saveCatchExerciseToSheets(
+  webhookUrl: string,
+  payload: {
+    subjectName: string;
+    exerciseNumber: number;
+    questionText: string;
+    scrambledPool: string;
+    correctAnswer: string;
+    lockOnMistake?: boolean;
+    allowRetry?: boolean;
+    maxRetries?: number;
+  }
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
+  }
+
+  const settingsString = formatCatchSettingsString(payload);
+  const postPayload = {
+    action: 'save_catch_exercise',
+    sheetName: 'صيد',
+    subjectName: payload.subjectName.trim(),
+    subject: payload.subjectName.trim(),
+    exerciseNumber: payload.exerciseNumber,
+    exerciseIndex: payload.exerciseNumber,
+    questionText: payload.questionText.trim(),
+    scrambledPool: payload.scrambledPool.trim(),
+    correctAnswer: payload.correctAnswer.trim(),
+    settingsString,
+    settings: settingsString,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    error: res.error,
+    message: res.success ? 'تم حفظ التمرين بنجاح في ورقة "صيد"!' : res.error,
+  };
+}
+
+/**
+ * Bulk export all Catch exercises to sheet "صيد" (4 columns per exercise)
+ */
+export async function exportAllCatchCurriculumToSheets(
+  webhookUrl: string,
+  subjects: CatchLessonSubject[]
+): Promise<{ success: boolean; message: string; count: number }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets Webhook غير متوفر', count: 0 };
+  }
+
+  const formattedSubjects = subjects.map((subj) => ({
+    subjectName: subj.subjectName,
+    exercises: subj.exercises.map((ex) => {
+      const parsedFallback = parseCatchSettingsString(ex.settingsString || '');
+      const normalizedEx = {
+        lockOnMistake:
+          ex.lockOnMistake !== undefined ? Boolean(ex.lockOnMistake) : parsedFallback.lockOnMistake,
+        allowRetry:
+          typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+            ? ex.maxRetries !== 0
+            : ex.allowRetry !== undefined
+            ? Boolean(ex.allowRetry)
+            : parsedFallback.allowRetry,
+        maxRetries:
+          typeof ex.maxRetries === 'number' && !isNaN(ex.maxRetries)
+            ? ex.maxRetries
+            : ex.allowRetry === false
+            ? 0
+            : parsedFallback.maxRetries,
+      };
+      return {
+        exerciseNumber: ex.exerciseNumber,
+        questionText: ex.questionText,
+        scrambledPool: ex.scrambledPool,
+        correctAnswer: ex.correctAnswer,
+        settingsString: formatCatchSettingsString(normalizedEx),
+      };
+    }),
+  }));
+
+  const totalExercises = subjects.reduce((sum, s) => sum + s.exercises.length, 0);
+
+  const bulkRes = await callGoogleSheetsPost(webhookUrl, {
+    action: 'export_catch_curriculum',
+    sheetName: 'صيد',
+    subjects: formattedSubjects,
+  });
+
+  if (bulkRes.success) {
+    return {
+      success: true,
+      message: `تم تصدير ${subjects.length} مواضيع و ${totalExercises} تمارين صيد بنجاح إلى ورقة "صيد"!`,
+      count: totalExercises,
+    };
+  }
+
+  let savedCount = 0;
+  for (const subj of subjects) {
+    for (const ex of subj.exercises) {
+      await saveCatchExerciseToSheets(webhookUrl, {
+        subjectName: subj.subjectName,
+        exerciseNumber: ex.exerciseNumber,
+        questionText: ex.questionText,
+        scrambledPool: ex.scrambledPool,
+        correctAnswer: ex.correctAnswer,
+        lockOnMistake: ex.lockOnMistake,
+        allowRetry: ex.allowRetry,
+        maxRetries: ex.maxRetries,
+      });
+      savedCount++;
+    }
+  }
+
+  return {
+    success: true,
+    message: `تم تصدير ${subjects.length} مواضيع و ${savedCount} تمارين صيد إلى ورقة "صيد"!`,
+    count: savedCount,
+  };
+}
+
+/**
+ * Submit student Catch answer to sheet "اجابات صيد" + local cache
+ */
+export async function submitCatchAnswerToSheet(
+  webhookUrl: string,
+  payload: {
+    studentId: string;
+    studentName: string;
+    subjectName: string;
+    exerciseNumber: number;
+    wrongAttempts: number;
+    percentage: number;
+    totalExercisesInSubject: number;
+    completedCountInSubject: number;
+    overallPercentage: number;
+    summaryString?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const summaryString =
+    payload.summaryString ||
+    (payload.wrongAttempts > 0
+      ? `(صحيح - أخطاء التحقق ${payload.wrongAttempts} = ${payload.percentage}%)`
+      : `(صحيح من أول محاولة = ${payload.percentage}%)`);
+
+  const completionStatus =
+    payload.completedCountInSubject >= payload.totalExercisesInSubject
+      ? `مكتمل (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة: ${payload.overallPercentage}%`
+      : `جاري الإنجاز (${payload.completedCountInSubject} من ${payload.totalExercisesInSubject} تمارين) - النسبة التراكمية: ${payload.overallPercentage}%`;
+
+  const timestampStr = new Date().toLocaleString('ar-SA');
+
+  try {
+    const cleanId = (payload.studentId || '').trim();
+    const cacheKey = cleanId ? `faseeh_catch_sub_${cleanId}` : 'faseeh_catch_sub_guest';
+    const raw = localStorage.getItem(cacheKey);
+    const list: CatchHistoryItem[] = raw ? JSON.parse(raw) : [];
+    const safeList = Array.isArray(list) ? list : [];
+    const subjName = payload.subjectName.trim();
+    const existingIdx = safeList.findIndex((item) => item.lessonSubject === subjName);
+    const newEntry: CatchExerciseHistoryEntry = {
+      exerciseNumber: payload.exerciseNumber,
+      formulaString: summaryString,
+      percentage: payload.percentage,
+    };
+
+    if (existingIdx >= 0) {
+      const existing = safeList[existingIdx];
+      const filteredEx = (existing.exercises || []).filter(
+        (ex) => ex.exerciseNumber !== payload.exerciseNumber
+      );
+      filteredEx.push(newEntry);
+      filteredEx.sort((a, b) => a.exerciseNumber - b.exerciseNumber);
+      safeList[existingIdx] = {
+        ...existing,
+        timestamp: timestampStr,
+        completionStatus,
+        exercises: filteredEx,
+      };
+    } else {
+      safeList.unshift({
+        id: `local-catch-${Date.now()}`,
+        timestamp: timestampStr,
+        studentId: cleanId,
+        studentName: payload.studentName,
+        lessonSubject: subjName,
+        completionStatus,
+        exercises: [newEntry],
+      });
+    }
+    localStorage.setItem(cacheKey, JSON.stringify(safeList));
+  } catch {}
+
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets Webhook غير متوفر' };
+  }
+
+  const postPayload = {
+    action: 'submit_catch_answer',
+    sheetName: 'اجابات صيد',
+    studentId: payload.studentId,
+    studentName: payload.studentName,
+    subjectName: payload.subjectName,
+    lessonSubject: payload.subjectName,
+    exerciseNumber: payload.exerciseNumber,
+    exerciseIndex: payload.exerciseNumber,
+    resultFormula: summaryString,
+    summaryString,
+    completionStatus,
+    percentage: payload.percentage,
+    timestamp: timestampStr,
+  };
+
+  const res = await callGoogleSheetsPost(webhookUrl, postPayload);
+  return {
+    success: res.success,
+    error: res.error,
+  };
+}
+
+/**
+ * Fetch student Catch history from sheet "اجابات صيد" and merge with local cache
+ */
+export async function fetchStudentCatchHistory(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<CatchHistoryItem[]> {
+  const cleanId = (studentId || '').trim();
+  const cleanName = (studentName || '').trim();
+  const mergedMap = new Map<string, CatchHistoryItem>();
+
+  if (webhookUrl && webhookUrl.trim().startsWith('http') && (cleanId || cleanName)) {
+    try {
+      const cleanUrl = webhookUrl.trim();
+      const separator = cleanUrl.includes('?') ? '&' : '?';
+      const targetUrl = `${cleanUrl}${separator}action=get_student_catch_history&studentId=${encodeURIComponent(
+        cleanId
+      )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+      let data: any = null;
+      try {
+        const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+        if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+      } catch {}
+
+      if (!data || !Array.isArray(data.catchHistory)) {
+        try {
+          const directRes = await fetch(targetUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+          });
+          if (directRes.ok) data = await directRes.json().catch(() => null);
+        } catch {}
+      }
+
+      if (data && Array.isArray(data.catchHistory)) {
+        for (const item of data.catchHistory) {
+          const subj = String(item.lessonSubject || item.subjectName || '').trim();
+          if (!subj) continue;
+          const exercises: CatchExerciseHistoryEntry[] = Array.isArray(item.exercises)
+            ? item.exercises
+                .map((ex: any) => {
+                  const formulaStr = String(ex.formulaString || '').trim();
+                  return {
+                    exerciseNumber: Number(ex.exerciseNumber) || 1,
+                    formulaString: formulaStr,
+                    percentage: extractPercentageFromMatchingText(formulaStr, ex.percentage),
+                  };
+                })
+                .sort(
+                  (a: CatchExerciseHistoryEntry, b: CatchExerciseHistoryEntry) =>
+                    a.exerciseNumber - b.exerciseNumber
+                )
+            : [];
+          mergedMap.set(subj, {
+            id: item.id || `catch-ans-${subj}`,
+            timestamp: String(item.timestamp || '').trim(),
+            studentId: String(item.studentId || cleanId).trim(),
+            studentName: String(item.studentName || cleanName).trim(),
+            lessonSubject: subj,
+            completionStatus: String(item.completionStatus || '').trim(),
+            exercises,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching student catch history from Google Sheets:', e);
+    }
+  }
+
+  try {
+    const cacheKey = cleanId ? `faseeh_catch_sub_${cleanId}` : 'faseeh_catch_sub_guest';
+    const rawCache = localStorage.getItem(cacheKey);
+    if (rawCache) {
+      const localItems: CatchHistoryItem[] = JSON.parse(rawCache);
+      if (Array.isArray(localItems)) {
+        for (const localItem of localItems) {
+          const subj = (localItem.lessonSubject || '').trim();
+          if (!subj) continue;
+          const normalizedLocalExercises = (localItem.exercises || []).map((ex) => ({
+            ...ex,
+            percentage: extractPercentageFromMatchingText(ex.formulaString, ex.percentage),
+          }));
+          const existing = mergedMap.get(subj);
+          if (!existing) {
+            mergedMap.set(subj, {
+              ...localItem,
+              exercises: normalizedLocalExercises,
+            });
+          } else {
+            const exMap = new Map<number, CatchExerciseHistoryEntry>();
+            for (const ex of existing.exercises) exMap.set(ex.exerciseNumber, ex);
+            for (const ex of normalizedLocalExercises) {
+              if (!exMap.has(ex.exerciseNumber)) {
+                exMap.set(ex.exerciseNumber, ex);
+              }
+            }
+            existing.exercises = Array.from(exMap.values()).sort(
+              (a, b) => a.exerciseNumber - b.exerciseNumber
+            );
+            if (!existing.completionStatus && localItem.completionStatus) {
+              existing.completionStatus = localItem.completionStatus;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(mergedMap.values());
+}
+
+/**
+ * Fetch Catch-specific AR Rewards from sheet "مكافآت صيد AR"
+ */
+export async function fetchCatchARRewardsFromSheet(webhookUrl: string): Promise<{
+  success: boolean;
+  rewards: ARRewardTier[];
+  introReward: ARRewardTier | null;
+  needsScriptUpdate?: boolean;
+  error?: string;
+}> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return {
+      success: false,
+      rewards: getDefaultARRewards(),
+      introReward: getDefaultCatchARIntroReward(),
+      error: 'رابط Google Sheets غير متوفر',
+    };
+  }
+
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const targetUrl = `${cleanUrl}${sep}action=get_catch_ar_rewards&_t=${Date.now()}`;
+
+    let res: any = null;
+    try {
+      const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+      if (proxyRes.ok) res = await proxyRes.json().catch(() => null);
+    } catch {}
+
+    if (!res) {
+      try {
+        const directRes = await fetch(targetUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (directRes.ok) res = await directRes.json().catch(() => null);
+      } catch {}
+    }
+
+    if (res && Array.isArray(res.rewards)) {
+      const { intro, tiers } = splitARRewardsPayload(res.rewards);
+      return {
+        success: true,
+        rewards: tiers,
+        introReward: intro,
+      };
+    }
+
+    if (res && Array.isArray(res.curriculum)) {
+      return {
+        success: false,
+        rewards: [],
+        introReward: null,
+        needsScriptUpdate: true,
+        error: 'كود Apps Script يحتاج تحديث لإضافة دعم ورقة مكافآت صيد AR',
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      rewards: [],
+      introReward: null,
+      error: err?.message || 'تعذر جلب مكافآت صيد AR',
+    };
+  }
+
+  return {
+    success: false,
+    rewards: [],
+    introReward: null,
+    error: 'تعذر جلب مكافآت صيد AR',
+  };
+}
+
+/**
+ * Save Catch-specific AR Rewards to sheet "مكافآت صيد AR"
+ */
+export async function saveCatchARRewardsToSheet(
+  webhookUrl: string,
+  rewards: ARRewardTier[],
+  introReward?: ARRewardTier | null
+): Promise<{
+  success: boolean;
+  rewards?: ARRewardTier[];
+  introReward?: ARRewardTier | null;
+  needsScriptUpdate?: boolean;
+  error?: string;
+}> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, error: 'رابط Google Sheets غير متوفر' };
+  }
+
+  const allItems: ARRewardTier[] = [
+    ...(introReward ? [{ ...introReward, id: AR_INTRO_ID, minScore: 0, maxScore: 0 }] : []),
+    ...rewards.filter((r) => r.id !== AR_INTRO_ID),
+  ];
+
+  const postRes = await callGoogleSheetsPost(webhookUrl, {
+    action: 'save_catch_ar_rewards',
+    sheetName: 'مكافآت صيد AR',
+    rewards: allItems.map((r) => ({
+      ...r,
+      imageUrl: r.presetId ? '' : r.imageUrl,
+    })),
+  });
+
+  if (postRes.success && postRes.data && Array.isArray(postRes.data.rewards)) {
+    const { intro, tiers } = splitARRewardsPayload(postRes.data.rewards);
+    return {
+      success: true,
+      rewards: tiers,
+      introReward: intro,
+    };
+  }
+
+  if (postRes.success && postRes.data && postRes.data.status !== 'success' && postRes.data.success === undefined) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      error: 'كود Apps Script يحتاج تحديث لحفظ ورقة مكافآت صيد AR',
+    };
+  }
+
+  return {
+    success: postRes.success,
+    error: postRes.error,
+  };
+}
+
 /**
  * Save a completed writing exercise entry to local storage cache so completed lessons hide immediately
  */
@@ -2789,6 +3380,68 @@ function getARRewardsSheet(ss) {
   return sheet;
 }
 
+// دوال مساعدة للتمرين الخامس: تحدي الصيد AR ("صيد" + "اجابات صيد" + "مكافآت صيد AR")
+function getCatchSheet(ss) {
+  var sheet = ss.getSheetByName("صيد");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim() === "صيد") {
+        sheet = all[i];
+        break;
+      }
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet("صيد");
+      var headers = ["موضوع الدرس"];
+      for (var ex = 1; ex <= 10; ex++) {
+        headers.push("السؤال " + ex);
+        headers.push("الحروف والكلمات المشتتة " + ex);
+        headers.push("الإجابة الصحيحة " + ex);
+        headers.push("الإعدادات " + ex);
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setBackground("#0284c7").setFontColor("#ffffff").setFontWeight("bold");
+    }
+  }
+  return sheet;
+}
+
+function getCatchAnswersSheet(ss) {
+  var sheet = ss.getSheetByName("اجابات صيد");
+  if (!sheet) {
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getName().trim() === "اجابات صيد") {
+        sheet = all[i];
+        break;
+      }
+    }
+    if (!sheet) {
+      sheet = ss.insertSheet("اجابات صيد");
+      var headers = ["وقت الإرسال", "ID المشترك", "اسم المشترك", "موضوع الدرس", "حالة الإنجاز"];
+      for (var ex = 1; ex <= 20; ex++) {
+        headers.push("تمرين " + ex);
+      }
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.getRange(1, 1, 1, headers.length).setBackground("#0369a1").setFontColor("#ffffff").setFontWeight("bold");
+    }
+  }
+  return sheet;
+}
+
+function getCatchARRewardsSheet(ss) {
+  var sheet = ss.getSheetByName("مكافآت صيد AR");
+  if (!sheet) {
+    sheet = ss.insertSheet("مكافآت صيد AR");
+    var headers = ["المعرف", "العنوان", "من درجة", "إلى درجة", "التصميم الجاهز", "رابط الصورة", "الحجم", "الإزاحة", "مفعّل"];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#0369a1").setFontColor("#f8fafc").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
 function saveWritingRewardBase64ToDrive(imageBase64, filePrefix) {
   var folder = getOrCreateAudioFolder(AR_REWARDS_DRIVE_FOLDER_ID);
   var markerIdx = imageBase64.indexOf("base64,");
@@ -3399,6 +4052,149 @@ function doGet(e) {
         status: "success",
         count: rewards.length,
         rewards: rewards
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-8) جلب أسئلة التمرين الخامس (صيد) من ورقة "صيد"
+    if (e && e.parameter && e.parameter.action === "get_catch") {
+      var cSheet = getCatchSheet(ss);
+      var lastR = cSheet.getLastRow();
+      var lastC = Math.max(5, cSheet.getLastColumn());
+      var catchSubjects = [];
+      if (lastR > 1) {
+        var rows = cSheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          var subjName = String(row[0] || "").trim();
+          if (subjName) {
+            var exercises = [];
+            var exNum = 1;
+            for (var c = 1; c < row.length; c += 4) {
+              var qText = String(row[c] || "").trim();
+              var poolStr = String(row[c + 1] || "").trim();
+              var ansStr = String(row[c + 2] || "").trim();
+              var setStr = String(row[c + 3] || "").trim();
+              if (qText || poolStr || ansStr || setStr) {
+                var parsedCatchR = parseRetryLimitSettingGS(setStr);
+                exercises.push({
+                  id: "catch-ex-" + (r + 2) + "-" + exNum,
+                  exerciseNumber: exNum,
+                  questionText: qText || ("اصطد الحروف الصحيحة " + exNum),
+                  scrambledPool: poolStr,
+                  correctAnswer: ansStr,
+                  settingsString: setStr,
+                  lockOnMistake: setStr.indexOf("لا تراجع") !== -1 || setStr.indexOf("لا يمكن التراجع") !== -1 || setStr.indexOf("قفل") !== -1,
+                  allowRetry: parsedCatchR.allowRetry,
+                  maxRetries: parsedCatchR.maxRetries
+                });
+                exNum++;
+              }
+            }
+            catchSubjects.push({
+              id: "catch-subj-" + (r + 1),
+              subjectName: subjName,
+              subject: subjName,
+              exercises: exercises
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        subjects: catchSubjects
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-9) جلب سجل إجابات التمرين الخامس من ورقة "اجابات صيد"
+    if (e && e.parameter && e.parameter.action === "get_student_catch_history") {
+      var caSheet = getCatchAnswersSheet(ss);
+      var qId = String(e.parameter.studentId || "").trim();
+      var qName = String(e.parameter.studentName || "").trim();
+      var lastR = caSheet.getLastRow();
+      var lastC = Math.max(6, caSheet.getLastColumn());
+      var catchList = [];
+
+      if (lastR > 1) {
+        var dataRows = caSheet.getRange(2, 1, lastR - 1, lastC).getValues();
+        for (var r = 0; r < dataRows.length; r++) {
+          var row = dataRows[r];
+          var rowTime = String(row[0] || "").trim();
+          var rowId = String(row[1] || "").trim();
+          var rowName = String(row[2] || "").trim();
+          var rowSubj = String(row[3] || "").trim();
+          var rowStatus = String(row[4] || "").trim();
+
+          var isMatch = (qId && rowId === qId) || (qName && rowName === qName);
+          if (isMatch && rowSubj) {
+            var exercisesArr = [];
+            for (var c = 5; c < row.length; c++) {
+              var cellRaw = row[c];
+              var cellStr = String(cellRaw || "").trim();
+              if (cellStr) {
+                var normCell = cellStr.replace(/[٠-٩]/g, function(d) { return String("٠١٢٣٤٥٦٧٨٩".indexOf(d)); });
+                var pctMatch = normCell.match(/(\\d+(?:\\.\\d+)?)\\s*[%٪]/) || normCell.match(/[%٪]\\s*(\\d+(?:\\.\\d+)?)/) || normCell.match(/=\\s*(\\d+(?:\\.\\d+)?)/);
+                var pctVal = 0;
+                if (pctMatch) {
+                  pctVal = Math.round(parseFloat(pctMatch[1]));
+                } else if (typeof cellRaw === "number" && cellRaw > 0 && cellRaw <= 1) {
+                  pctVal = Math.round(cellRaw * 100);
+                }
+                exercisesArr.push({
+                  exerciseNumber: (c - 5) + 1,
+                  formulaString: cellStr,
+                  percentage: pctVal
+                });
+              }
+            }
+            catchList.push({
+              id: "catch-ans-r" + (r + 2),
+              timestamp: rowTime,
+              studentId: rowId || qId,
+              studentName: rowName || qName,
+              lessonSubject: rowSubj,
+              completionStatus: rowStatus,
+              exercises: exercisesArr
+            });
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        studentId: qId,
+        studentName: qName,
+        catchHistory: catchList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-10) جلب مكافآت الواقع المعزز الخاصة بتحدي الصيد من ورقة "مكافآت صيد AR"
+    if (e && e.parameter && e.parameter.action === "get_catch_ar_rewards") {
+      var carSheet = getCatchARRewardsSheet(ss);
+      var carData = carSheet.getDataRange().getValues();
+      var catchRewards = [];
+      for (var i = 1; i < carData.length; i++) {
+        var row = carData[i];
+        var id = String(row[0] || "").trim();
+        var title = String(row[1] || "").trim();
+        var presetId = String(row[4] || "").trim();
+        var imageUrl = String(row[5] || "").trim();
+        if (!id && !title && !presetId && !imageUrl) continue;
+        catchRewards.push({
+          id: id || ("tier_" + i),
+          title: title,
+          minScore: Number(row[2]) || 0,
+          maxScore: row[3] !== "" && row[3] !== null && row[3] !== undefined ? Number(row[3]) : 100,
+          presetId: presetId || undefined,
+          imageUrl: imageUrl,
+          scaleRatio: Number(row[6]) || 1.35,
+          offsetYRatio: row[7] !== "" && row[7] !== null && row[7] !== undefined ? Number(row[7]) : -0.45,
+          enabled: String(row[8] !== undefined ? row[8] : "true").toLowerCase() !== "false" && String(row[8]) !== "0"
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        status: "success",
+        count: catchRewards.length,
+        rewards: catchRewards
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -4188,6 +4984,202 @@ function doPost(e) {
       }
       if (rowsToWrite.length > 0) {
         arSheet.getRange(2, 1, rowsToWrite.length, 9).setValues(rowsToWrite);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        status: "success",
+        count: rowsToWrite.length,
+        rewards: savedRewards
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-ل) التمرين الخامس (تحدي الصيد AR): تصدير كافة التمارين دفعة واحدة إلى ورقة "صيد"
+    if (data.action === "export_catch_curriculum") {
+      var cSheet = getCatchSheet(ss);
+      var subjectsArr = data.subjects || [];
+      if (!Array.isArray(subjectsArr)) subjectsArr = [];
+
+      var maxEx = 10;
+      for (var s = 0; s < subjectsArr.length; s++) {
+        if (subjectsArr[s].exercises && subjectsArr[s].exercises.length > maxEx) {
+          maxEx = subjectsArr[s].exercises.length;
+        }
+      }
+
+      var headers = ["موضوع الدرس"];
+      for (var ex = 1; ex <= maxEx; ex++) {
+        headers.push("السؤال " + ex);
+        headers.push("الحروف والكلمات المشتتة " + ex);
+        headers.push("الإجابة الصحيحة " + ex);
+        headers.push("الإعدادات " + ex);
+      }
+
+      cSheet.clearContents();
+      cSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      cSheet.getRange(1, 1, 1, headers.length).setBackground("#0284c7").setFontColor("#ffffff").setFontWeight("bold");
+
+      var dataRows = [];
+      var totalExCount = 0;
+      for (var i = 0; i < subjectsArr.length; i++) {
+        var subj = subjectsArr[i];
+        var row = [String(subj.subjectName || "").trim()];
+        var exercises = subj.exercises || [];
+        for (var e = 0; e < maxEx; e++) {
+          if (e < exercises.length) {
+            var exItem = exercises[e];
+            row.push(String(exItem.questionText || "").trim());
+            row.push(String(exItem.scrambledPool || "").trim());
+            row.push(String(exItem.correctAnswer || "").trim());
+            row.push(String(exItem.settingsString || "").trim());
+            totalExCount++;
+          } else {
+            row.push("", "", "", "");
+          }
+        }
+        dataRows.push(row);
+      }
+
+      if (dataRows.length > 0) {
+        cSheet.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم تصدير " + subjectsArr.length + " مواضيع و " + totalExCount + " تمارين بنجاح إلى ورقة (صيد)",
+        count: totalExCount
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-ل-2) حفظ أو تحديث تمرين صيد واحد في ورقة "صيد"
+    if (data.action === "save_catch_exercise") {
+      var cSheet = getCatchSheet(ss);
+      var subjName = String(data.subjectName || data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseNumber || data.exerciseIndex || 1);
+      var qText = String(data.questionText || "").trim();
+      var poolStr = String(data.scrambledPool || "").trim();
+      var ansStr = String(data.correctAnswer || "").trim();
+      var setStr = String(data.settingsString || data.settings || "").trim();
+
+      var lastR = cSheet.getLastRow();
+      var targetRow = -1;
+      if (lastR > 1) {
+        var sVals = cSheet.getRange(2, 1, lastR - 1, 1).getValues();
+        for (var i = 0; i < sVals.length; i++) {
+          if (String(sVals[i][0] || "").trim() === subjName) {
+            targetRow = i + 2;
+            break;
+          }
+        }
+      }
+      if (targetRow === -1) {
+        targetRow = lastR + 1;
+        cSheet.getRange(targetRow, 1).setValue(subjName);
+      }
+
+      var startCol = 2 + (exIdx - 1) * 4;
+      cSheet.getRange(targetRow, startCol, 1, 4).setValues([[qText, poolStr, ansStr, setStr]]);
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم حفظ التمرين في ورقة (صيد) بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-ل-3) تسجيل نتائج إجابة التمرين الخامس في ورقة "اجابات صيد"
+    if (data.action === "submit_catch_answer") {
+      var caSheet = getCatchAnswersSheet(ss);
+      var timestamp = data.timestamp || new Date().toLocaleString("ar-SA");
+      var sId = String(data.studentId || "").trim();
+      var sName = String(data.studentName || "").trim();
+      var subj = String(data.lessonSubject || data.subjectName || data.subject || "").trim();
+      var exIdx = parseInt(data.exerciseIndex || data.exerciseNumber || 1);
+      var formula = String(data.resultFormula || data.summaryString || "").trim();
+      var compStatus = String(data.completionStatus || "").trim();
+
+      var lastR = caSheet.getLastRow();
+      var foundRow = -1;
+      if (lastR > 1) {
+        var rows = caSheet.getRange(2, 2, lastR - 1, 3).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var rId = String(rows[r][0] || "").trim();
+          var rName = String(rows[r][1] || "").trim();
+          var rSubj = String(rows[r][2] || "").trim();
+          if ((sId && rId === sId && rSubj === subj) || (rName === sName && rSubj === subj)) {
+            foundRow = r + 2;
+            break;
+          }
+        }
+      }
+
+      var exCol = 6 + (exIdx - 1);
+      if (foundRow > 0) {
+        caSheet.getRange(foundRow, 1).setValue(timestamp);
+        if (sId) caSheet.getRange(foundRow, 2).setValue(sId);
+        if (sName) caSheet.getRange(foundRow, 3).setValue(sName);
+        if (subj) caSheet.getRange(foundRow, 4).setValue(subj);
+        if (compStatus) caSheet.getRange(foundRow, 5).setValue(compStatus);
+        caSheet.getRange(foundRow, exCol).setValue(formula);
+      } else {
+        var newRow = [timestamp, sId, sName, subj, compStatus];
+        while (newRow.length < 5 + exIdx) {
+          newRow.push("");
+        }
+        newRow[5 + (exIdx - 1)] = formula;
+        caSheet.appendRow(newRow);
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        message: "تم تسجيل إجابة تحدي الصيد في ورقة (اجابات صيد) بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-ل-4) حفظ مكافآت الواقع المعزز الخاصة بتحدي الصيد في ورقة "مكافآت صيد AR"
+    if (data.action === "save_catch_ar_rewards") {
+      var carSheet = getCatchARRewardsSheet(ss);
+      var inputRewards = Array.isArray(data.rewards) ? data.rewards : [];
+      var savedRewards = [];
+      var rowsToWrite = [];
+      for (var i = 0; i < inputRewards.length; i++) {
+        var item = inputRewards[i] || {};
+        var id = String(item.id || ("tier_" + (i + 1))).trim();
+        var title = String(item.title || "");
+        var minScore = Math.max(0, Math.min(100, Number(item.minScore) || 0));
+        var maxScore = Math.max(0, Math.min(100, item.maxScore !== undefined ? Number(item.maxScore) : 100));
+        var presetId = String(item.presetId || "").trim();
+        var resolvedUrl = String(item.imageUrl || "").trim();
+        var scaleRatio = Number(item.scaleRatio) || 1.35;
+        var offsetYRatio = item.offsetYRatio !== undefined ? Number(item.offsetYRatio) : -0.45;
+        var enabled = item.enabled !== false;
+        if (presetId) {
+          resolvedUrl = "";
+        } else if (resolvedUrl.indexOf("data:image/") === 0) {
+          try {
+            var uploaded = saveWritingRewardBase64ToDrive(resolvedUrl, "catch_ar_reward_" + id);
+            resolvedUrl = uploaded.imageUrl;
+          } catch (driveErr) {
+            if (resolvedUrl.length > 45000) resolvedUrl = "";
+          }
+        }
+        savedRewards.push({
+          id: id,
+          title: title,
+          minScore: Math.min(minScore, maxScore),
+          maxScore: Math.max(minScore, maxScore),
+          presetId: presetId || undefined,
+          imageUrl: resolvedUrl,
+          scaleRatio: scaleRatio,
+          offsetYRatio: offsetYRatio,
+          enabled: enabled
+        });
+        rowsToWrite.push([id, title, Math.min(minScore, maxScore), Math.max(minScore, maxScore), presetId, resolvedUrl, scaleRatio, offsetYRatio, enabled ? "true" : "false"]);
+      }
+      var lastRowCAR = carSheet.getLastRow();
+      if (lastRowCAR > 1) {
+        carSheet.getRange(2, 1, lastRowCAR - 1, 9).clearContent();
+      }
+      if (rowsToWrite.length > 0) {
+        carSheet.getRange(2, 1, rowsToWrite.length, 9).setValues(rowsToWrite);
       }
       return ContentService.createTextOutput(JSON.stringify({
         success: true,

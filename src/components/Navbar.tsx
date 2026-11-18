@@ -15,6 +15,7 @@ import {
   Link2,
   PenTool,
   Pencil,
+  Target,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import { LanguageSelector } from './LanguageSelector';
@@ -46,8 +47,9 @@ interface NavbarProps {
   onOpenMatchingLessons?: () => void;
   onOpenDictationLessons?: () => void;
   onOpenWriting?: () => void;
-  currentMode?: 'pronunciation' | 'matching' | 'dictation' | 'writing';
-  onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation' | 'writing') => void;
+  onOpenCatchLessons?: () => void;
+  currentMode?: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch';
+  onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -75,6 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenMatchingLessons,
   onOpenDictationLessons,
   onOpenWriting,
+  onOpenCatchLessons,
   currentMode = 'pronunciation',
   onSelectMode,
 }) => {
@@ -124,7 +127,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   customTitle !== undefined && customTitle !== null
                     ? customTitle
                     : tr('nav_platform_title', '');
-                const resolvedBadge = tr('nav_smart_eval_badge', '');
                 const resolvedSubtitle =
                   customSubtitle !== undefined && customSubtitle !== null
                     ? customSubtitle
@@ -132,18 +134,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 return (
                   <>
-                    {(Boolean(resolvedTitle) || Boolean(resolvedBadge)) && (
+                    {Boolean(resolvedTitle) && (
                       <div className="flex items-center gap-1.5 sm:gap-2">
-                        {Boolean(resolvedTitle) && (
-                          <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
-                            {resolvedTitle}
-                          </h1>
-                        )}
-                        {Boolean(resolvedBadge) && (
-                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/80 rounded-full text-[10px] font-bold">
-                            {resolvedBadge}
-                          </span>
-                        )}
+                        <h1 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight font-cairo">
+                          {resolvedTitle}
+                        </h1>
                       </div>
                     )}
                     {Boolean(resolvedSubtitle) && (
@@ -192,7 +187,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Unified Lessons Dropdown Button (دروس) */}
-          {(onOpenLessons || onOpenMatchingLessons || onOpenDictationLessons || onOpenWriting) && (
+          {(onOpenLessons || onOpenMatchingLessons || onOpenDictationLessons || onOpenWriting || onOpenCatchLessons) && (
             <div ref={lessonsMenuRef} className="relative flex-1 sm:flex-none">
               <button
                 type="button"
@@ -296,6 +291,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <Pencil className="w-3.5 h-3.5" />
                       </span>
                       <span className="flex-1">{tr('nav_writing_exercise', 'تمرين الكتابة')}</span>
+                    </button>
+                  )}
+
+                  {onOpenCatchLessons && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLessonsMenuOpen(false);
+                        onOpenCatchLessons();
+                      }}
+                      className={`w-full px-3.5 py-2.5 text-right flex items-center gap-2.5 text-xs font-bold transition-colors cursor-pointer ${
+                        currentView === 'practice' && currentMode === 'catch'
+                          ? 'bg-sky-50 text-sky-900'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="w-7 h-7 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                        <Target className="w-3.5 h-3.5" />
+                      </span>
+                      <span className="flex-1">{tr('nav_catch_exercise', 'تحدي الصيد (AR)')}</span>
                     </button>
                   )}
                 </div>

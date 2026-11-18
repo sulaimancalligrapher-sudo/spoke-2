@@ -1,0 +1,66 @@
+import { CatchLessonSubject } from '../types';
+import { DEFAULT_MAX_RETRIES } from '../utils/retryLimit';
+
+export const INITIAL_CATCH_SUBJECTS: CatchLessonSubject[] = [
+  {
+    id: 'catch-subj-1',
+    subjectName: 'تحدي اصطياد الحروف والكلمات (أساسي)',
+    exercises: [
+      {
+        id: 'catch-ex-1-1',
+        exerciseNumber: 1,
+        questionText: 'اصطد الحروف الصحيحة بالترتيب لتكوين كلمة «باب»',
+        scrambledPool: 'ب ا ب ف ر',
+        correctAnswer: 'باب',
+        settingsString: 'إتاحة المحاولة | إعادة 3',
+        lockOnMistake: false,
+        allowRetry: true,
+        maxRetries: DEFAULT_MAX_RETRIES,
+      },
+      {
+        id: 'catch-ex-1-2',
+        exerciseNumber: 2,
+        questionText: 'اختر شكل الحرف المتصل الصحيح لإكمال كلمة «السلام»',
+        scrambledPool: '( ـسـ ) وسط ( سـ ) بداية ( ـكـ ) وسط ( ك ) مفرد ( س ) مفرد',
+        correctAnswer: 'الـ|ـسـ|ـلام',
+        settingsString: 'إتاحة المحاولة | إعادة 3',
+        lockOnMistake: false,
+        allowRetry: true,
+        maxRetries: DEFAULT_MAX_RETRIES,
+      },
+      {
+        id: 'catch-ex-1-3',
+        exerciseNumber: 3,
+        questionText: 'اصطد الكلمات بالترتيب الصحيح لتكوين الجملة المفيدة',
+        scrambledPool: 'المدرسة محمد إلى ذهب',
+        correctAnswer: 'ذهب محمد إلى المدرسة',
+        settingsString: 'إتاحة المحاولة | إعادة 3',
+        lockOnMistake: false,
+        allowRetry: true,
+        maxRetries: DEFAULT_MAX_RETRIES,
+      },
+      {
+        id: 'catch-ex-1-4',
+        exerciseNumber: 4,
+        questionText: 'اصطد الكلمة المناسبة لإكمال الجملة التالية',
+        scrambledPool: 'إلى جلس نام فوق',
+        correctAnswer: 'ذهب محمد |إلى| المدرسة',
+        settingsString: 'إتاحة المحاولة | إعادة 3',
+        lockOnMistake: false,
+        allowRetry: true,
+        maxRetries: DEFAULT_MAX_RETRIES,
+      },
+      {
+        id: 'catch-ex-1-5',
+        exerciseNumber: 5,
+        questionText: 'اصطد الحروف لتكوين تحية «السلام عليكم»',
+        scrambledPool: 'ا ل س ل ا م ع ل ي ك م',
+        correctAnswer: 'السلام عليكم',
+        settingsString: 'إتاحة المحاولة | إعادة 3',
+        lockOnMistake: false,
+        allowRetry: true,
+        maxRetries: DEFAULT_MAX_RETRIES,
+      },
+    ],
+  },
+];

@@ -67,6 +67,7 @@ import {
   LogOut,
   Languages,
   Pencil,
+  Target,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
@@ -74,10 +75,11 @@ import { MatchingTranslationManager } from './MatchingTranslationManager';
 import { WritingTranslationManager } from './WritingTranslationManager';
 import { MatchingAdminManager } from './MatchingAdminManager';
 import { DictationAdminManager } from './DictationAdminManager';
+import { CatchAdminManager } from './CatchAdminManager';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
-import { MatchingLessonSubject, DictationLessonSubject } from '../types';
+import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -151,7 +153,14 @@ interface AdminPanelProps {
   onUpdateWritingArIntroReward?: (intro: ARRewardTier) => boolean | void;
   onPreviewWritingArReward?: (tier: ARRewardTier) => void;
   onOpenWritingMode?: () => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3';
+  catchSubjects?: CatchLessonSubject[];
+  onUpdateCatchSubjects?: (subjects: CatchLessonSubject[]) => void;
+  catchArRewards?: ARRewardTier[];
+  onUpdateCatchArRewards?: (tiers: ARRewardTier[]) => boolean | void;
+  catchArIntroReward?: ARRewardTier;
+  onUpdateCatchArIntroReward?: (intro: ARRewardTier) => boolean | void;
+  onPreviewCatchArReward?: (tier: ARRewardTier) => void;
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -215,9 +224,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateWritingArIntroReward,
   onPreviewWritingArReward,
   onOpenWritingMode,
+  catchSubjects = [],
+  onUpdateCatchSubjects,
+  catchArRewards = [],
+  onUpdateCatchArRewards,
+  catchArIntroReward,
+  onUpdateCatchArIntroReward,
+  onPreviewCatchArReward,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1154,6 +1170,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Pencil className={`w-4 h-4 ${activeTab === 'writing' ? 'text-slate-950' : 'text-amber-500'}`} />
             <span>تمرين الكتابة</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('catch')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'catch'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Target className={`w-4 h-4 ${activeTab === 'catch' ? 'text-white' : 'text-sky-600'}`} />
+            <span>صيد</span>
           </button>
 
           <button
@@ -2779,6 +2807,21 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             arIntroReward={writingArIntroReward}
             onUpdateARIntroReward={onUpdateWritingArIntroReward}
             onPreviewARReward={onPreviewWritingArReward}
+          />
+        )}
+
+        {/* TAB 8: AR CATCH & CONNECT MANAGEMENT (صيد) */}
+        {activeTab === 'catch' && (
+          <CatchAdminManager
+            subjects={catchSubjects || []}
+            onUpdateSubjects={onUpdateCatchSubjects || (() => {})}
+            webhookUrl={sheetsConfig.webhookUrl}
+            driveFolderId={sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId}
+            arRewards={catchArRewards}
+            onUpdateArRewards={onUpdateCatchArRewards}
+            arIntroReward={catchArIntroReward}
+            onUpdateArIntroReward={onUpdateCatchArIntroReward}
+            onPreviewArReward={onPreviewCatchArReward}
           />
         )}
 

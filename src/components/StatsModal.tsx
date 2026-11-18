@@ -1,17 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  CatchHistoryItem,
   DictationHistoryItem,
   MatchingHistoryItem,
   PracticeHistoryItem,
   StudentRegistrant,
 } from '../types';
-import { X, Award, Play, Pause, User, Loader2, Link2, CheckCircle2, Clock, Sparkles } from 'lucide-react';
+import { X, Award, Play, Pause, User, Loader2, Link2, CheckCircle2, Clock, Sparkles, Target } from 'lucide-react';
 import {
   SupportedLang,
   TranslationItem,
   translateEvaluationFeedback,
   getTranslatedMatchingSubject,
   getTranslatedDictationSubject,
+  getTranslatedCatchSubject,
   translateMatchingCompletionStatus,
   translateMatchingFormulaString,
 } from '../utils/translations';
@@ -24,12 +26,14 @@ interface StatsModalProps {
   history: PracticeHistoryItem[];
   matchingHistory?: MatchingHistoryItem[];
   dictationHistory?: DictationHistoryItem[];
+  catchHistory?: CatchHistoryItem[];
   onClearHistory?: () => void;
   currentStudent?: StudentRegistrant | null;
   isSyncingFromSheets?: boolean;
   isSyncingMatching?: boolean;
   isSyncingDictation?: boolean;
-  defaultTab?: 'pronunciation' | 'matching' | 'dictation';
+  isSyncingCatch?: boolean;
+  defaultTab?: 'pronunciation' | 'matching' | 'dictation' | 'catch';
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
@@ -41,17 +45,19 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   history,
   matchingHistory = [],
   dictationHistory = [],
+  catchHistory = [],
   currentStudent,
   isSyncingFromSheets = false,
   isSyncingMatching = false,
   isSyncingDictation = false,
+  isSyncingCatch = false,
   defaultTab = 'pronunciation',
   currentLang = 'ar',
   translations,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
-  const [activeTab, setActiveTab] = useState<'pronunciation' | 'matching' | 'dictation'>(defaultTab);
+  const [activeTab, setActiveTab] = useState<'pronunciation' | 'matching' | 'dictation' | 'catch'>(defaultTab);
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -120,6 +126,30 @@ export const StatsModal: React.FC<StatsModalProps> = ({
         )
       : 0;
 
+  // AR Catch stats (اجابات صيد)
+  const totalCatchSubjects = catchHistory.length;
+  const allCatchExercises = catchHistory.flatMap((c) =>
+    (c.exercises || []).map((ex) => ({
+      ...ex,
+      resolvedPercentage: extractPercentageFromMatchingText(ex.formulaString, ex.percentage),
+    }))
+  );
+  const totalCatchExercises = allCatchExercises.length;
+  const avgCatchScore =
+    totalCatchExercises > 0
+      ? Math.round(
+          allCatchExercises.reduce((acc, ex) => acc + ex.resolvedPercentage, 0) /
+            totalCatchExercises
+        )
+      : totalCatchSubjects > 0
+      ? Math.round(
+          catchHistory.reduce(
+            (acc, c) => acc + extractPercentageFromMatchingText(c.completionStatus || '', 0),
+            0
+          ) / totalCatchSubjects
+        )
+      : 0;
+
   const handlePlayVoice = (url: string) => {
     if (activeAudioUrl === url && isPlaying) {
       if (audioRef.current) audioRef.current.pause();
@@ -160,8 +190,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[90dvh] flex flex-col overflow-hidden">
         <button
           onClick={onClose}
           className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -188,7 +218,9 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                   ID: {currentStudent.id}
                 </span>
                 <span className="text-[10px] text-emerald-600 font-normal">
-                  {activeTab === 'dictation'
+                  {activeTab === 'catch'
+                    ? tr('stats_catch_verified_sheet', '(موثق في ورقة اجابات صيد)')
+                    : activeTab === 'dictation'
                     ? tr('stats_dictation_verified_sheet', '(موثق في ورقة answers 3)')
                     : activeTab === 'matching'
                     ? tr('stats_matching_verified_sheet', '(موثق في ورقة answers 2)')
@@ -203,8 +235,8 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           </div>
         </div>
 
-        {/* Three Tabs: [ 🎙️ سجل النطق ] | [ 🔗 سجل التوصيل ] | [ 📝 سجل الإملاء ] */}
-        <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-4 border border-slate-200/80">
+        {/* Four Tabs: [ 🎙️ سجل النطق ] | [ 🔗 سجل التوصيل ] | [ 📝 سجل الإملاء ] | [ 🎯 سجل الصيد ] */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-4 border border-slate-200/80">
           <button
             type="button"
             onClick={() => setActiveTab('pronunciation')}
@@ -242,6 +274,19 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           >
             <span>📝</span>
             <span className="truncate">{tr('stats_tab_dictation', 'سجل الإملاء')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('catch')}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+              activeTab === 'catch'
+                ? 'bg-white text-sky-800 shadow-xs border border-sky-200/80'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>🎯</span>
+            <span className="truncate">{tr('stats_tab_catch', 'سجل الصيد')}</span>
           </button>
         </div>
 
@@ -528,7 +573,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               )}
             </div>
           </>
-        ) : (
+        ) : activeTab === 'dictation' ? (
           <>
             {/* Live Sync Banner if syncing dictation (answers 3) */}
             {isSyncingDictation && (
@@ -648,6 +693,162 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                             return (
                               <div
                                 key={`${subjItem.lessonSubject}-dict-ex-${ex.exerciseNumber}`}
+                                className="flex items-center justify-between gap-2 px-2.5 py-2 bg-white rounded-xl border border-slate-200/70"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 font-bold text-[11px] shrink-0">
+                                    {tr('matching_modal_exercise_word', 'تمرين')} {ex.exerciseNumber}
+                                  </span>
+                                  <span
+                                    className="text-[11px] text-slate-700 font-semibold truncate"
+                                    dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
+                                    title={translatedFormula}
+                                  >
+                                    {translatedFormula}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`px-2 py-0.5 rounded-lg font-extrabold text-[11px] shrink-0 ${
+                                    resolvedPct >= 85
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : resolvedPct >= 70
+                                      ? 'bg-sky-100 text-sky-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {resolvedPct}%
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Live Sync Banner if syncing AR Catch (اجابات صيد) */}
+            {isSyncingCatch && (
+              <div className="mb-4 py-2 px-3 bg-sky-50/90 border border-sky-200 rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-sky-900 animate-pulse">
+                <Loader2 className="w-4 h-4 text-sky-600 animate-spin shrink-0" />
+                <span>{tr('stats_catch_syncing', 'جاري مزامنة درجات تحدي الصيد...')}</span>
+              </div>
+            )}
+
+            {/* Catch KPI Cards */}
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-center">
+                <span className="text-[11px] text-slate-400 font-medium block mb-1">
+                  {tr('stats_matching_subjects', 'المواضيع المسجلة')}
+                </span>
+                <span className="text-2xl font-bold font-cairo text-slate-800">
+                  {totalCatchSubjects}
+                </span>
+              </div>
+
+              <div className="bg-sky-50/70 border border-sky-200/80 rounded-2xl p-3 text-center">
+                <span className="text-[11px] text-sky-700 font-medium block mb-1">
+                  {tr('stats_matching_completed', 'التمارين المنجزة')}
+                </span>
+                <span className="text-2xl font-bold font-cairo text-sky-800">
+                  {totalCatchExercises}
+                </span>
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3 text-center">
+                <span className="text-[11px] text-emerald-700 font-medium block mb-1">
+                  {tr('stats_matching_avg', 'معدل الإتقان')}
+                </span>
+                <span className="text-2xl font-bold font-cairo text-emerald-800">
+                  {avgCatchScore}%
+                </span>
+              </div>
+            </div>
+
+            {/* Catch History List */}
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-bold text-slate-700">
+                {tr('stats_catch_history_title', 'نتائج تمارين تحدي اصطياد الحروف حسب الموضوع:')}
+              </h4>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-0.5">
+              {catchHistory.length === 0 ? (
+                isSyncingCatch ? (
+                  <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
+                    <Loader2 className="w-6 h-6 text-sky-500 animate-spin" />
+                    <span>{tr('stats_catch_syncing', 'جاري مزامنة درجات تحدي الصيد...')}</span>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-slate-400 text-xs">
+                    {tr('stats_catch_empty', 'لم تكمل أي تحدي في «تحدي الصيد (AR)» بعد. أتمم تحدياً لتظهر نتيجتك هنا!')}
+                  </div>
+                )
+              ) : (
+                catchHistory.map((subjItem) => {
+                  const isDoneAll = subjItem.completionStatus?.includes('مكتمل');
+                  return (
+                    <div
+                      key={subjItem.id || subjItem.lessonSubject}
+                      className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2.5 text-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
+                            <Target className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <h5 className="font-extrabold text-slate-900 text-sm truncate">
+                              {getTranslatedCatchSubject(subjItem.lessonSubject, currentLang, translations)}
+                            </h5>
+                            {subjItem.timestamp && (
+                              <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                <Clock className="w-3 h-3" />
+                                <span>{subjItem.timestamp}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {subjItem.completionStatus && (
+                          <span
+                            className={`px-2 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1 shrink-0 border ${
+                              isDoneAll
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                : 'bg-sky-50 text-sky-800 border-sky-200'
+                            }`}
+                          >
+                            {isDoneAll && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                            <span>
+                              {translateMatchingCompletionStatus(
+                                subjItem.completionStatus,
+                                currentLang,
+                                translations
+                              )}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+
+                      {subjItem.exercises && subjItem.exercises.length > 0 && (
+                        <div className="space-y-1.5 pt-1 border-t border-slate-200/70">
+                          {subjItem.exercises.map((ex) => {
+                            const resolvedPct = extractPercentageFromMatchingText(
+                              ex.formulaString,
+                              ex.percentage
+                            );
+                            const translatedFormula = translateMatchingFormulaString(
+                              ex.formulaString,
+                              currentLang,
+                              translations
+                            );
+                            return (
+                              <div
+                                key={`${subjItem.lessonSubject}-catch-ex-${ex.exerciseNumber}`}
                                 className="flex items-center justify-between gap-2 px-2.5 py-2 bg-white rounded-xl border border-slate-200/70"
                               >
                                 <div className="flex items-center gap-2 min-w-0">
