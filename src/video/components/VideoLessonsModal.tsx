@@ -52,9 +52,13 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
 
   const [selectedTopic, setSelectedTopic] = useState<string>('ALL');
-  const [hideCompleted, setHideCompleted] = useState<boolean>(false);
+  const [hideCompleted, setHideCompleted] = useState<boolean>(true);
   const [confirmRetryLessonId, setConfirmRetryLessonId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const completedCount = useMemo(() => {
+    return lessons.filter((l) => progressMap[l.id]?.completed === 'تم').length;
+  }, [lessons, progressMap]);
 
   const topics = useMemo(() => {
     const set = new Set<string>();
@@ -170,13 +174,17 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               type="button"
               onClick={() => setHideCompleted((prev) => !prev)}
               className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer min-h-[38px] ${
-                hideCompleted
+                !hideCompleted
                   ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
                   : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
               }`}
             >
               {hideCompleted ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              <span>{hideCompleted ? 'إظهار المكتملة' : 'إخفاء المكتملة'}</span>
+              <span>
+                {hideCompleted
+                  ? `إظهار المكتملة (${completedCount})`
+                  : `إخفاء المكتملة (${completedCount})`}
+              </span>
             </button>
           </div>
 
@@ -196,8 +204,22 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
         {/* Lessons List */}
         <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-3">
           {filteredLessons.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200">
-              لا توجد دروس فيديو مطابقة للتصفية الحالية.
+            <div className="text-center py-12 px-4 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+              <div>
+                {hideCompleted && completedCount > 0
+                  ? 'أحسنت! تم إكمال جميع الدروس المتاحة حالياً وإخفاؤها من القائمة.'
+                  : 'لا توجد دروس فيديو مطابقة للتصفية الحالية.'}
+              </div>
+              {hideCompleted && completedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setHideCompleted(false)}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>عرض الدروس المكتملة ({completedCount})</span>
+                </button>
+              )}
             </div>
           ) : (
             filteredLessons.map((lesson) => {

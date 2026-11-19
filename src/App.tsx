@@ -599,6 +599,13 @@ export default function App() {
       saveLocalVideoLessons(videoLessonsRes);
       setActiveVideoLessonId((prev) => prev || videoLessonsRes[0].id);
     }
+    if (currentStudent && url) {
+      fetchStudentVideoProgress(url, currentStudent.id, currentStudent.name)
+        .then((vp) => {
+          if (vp) setVideoProgressMap(vp);
+        })
+        .catch(() => {});
+    }
   };
 
   // Settings: Defaults to 'whisper' (In-Browser WebAssembly Whisper) across all devices and browsers
@@ -1243,6 +1250,7 @@ export default function App() {
         })
         .catch(() => {});
 
+      setVideoProgressMap(getLocalVideoProgressMap(student.id));
       fetchStudentVideoProgress(sheetsConfig.webhookUrl, student.id, student.name)
         .then((vp) => {
           if (vp) setVideoProgressMap(vp);
@@ -1673,16 +1681,27 @@ export default function App() {
     }
   };
 
+  const refreshAllVideoData = async () => {
+    await refreshVideoLessons();
+    if (currentStudent && sheetsConfig.webhookUrl) {
+      const vp = await fetchStudentVideoProgress(
+        sheetsConfig.webhookUrl,
+        currentStudent.id,
+        currentStudent.name
+      );
+      if (vp) setVideoProgressMap(vp);
+    }
+  };
+
+  useEffect(() => {
+    if (appMode === 'video') {
+      refreshAllVideoData().catch(() => {});
+    }
+  }, [appMode, currentStudent?.id, sheetsConfig.webhookUrl]);
+
   const openVideoLessonsModal = () => {
     closeAllLessonModals();
-    refreshVideoLessons().catch(() => {});
-    if (currentStudent && sheetsConfig.webhookUrl) {
-      fetchStudentVideoProgress(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
-        .then((vp) => {
-          if (vp) setVideoProgressMap(vp);
-        })
-        .catch(() => {});
-    }
+    refreshAllVideoData().catch(() => {});
     setIsVideoLessonsModalOpen(true);
   };
 
@@ -2759,6 +2778,7 @@ export default function App() {
               onUpdateProgress={(lessonId, nextProg) => {
                 setVideoProgressMap((prev) => ({ ...prev, [lessonId]: nextProg }));
               }}
+              onRefreshVideo={refreshAllVideoData}
             />
           </div>
         ) : (
@@ -3218,7 +3238,7 @@ export default function App() {
           setIsVideoLessonsModalOpen(false);
           setIsVideoCorrectionModalOpen(true);
         }}
-        onRefreshLessons={refreshVideoLessons}
+        onRefreshLessons={refreshAllVideoData}
         onUpdateProgress={(lessonId, nextProg) => {
           setVideoProgressMap((prev) => ({ ...prev, [lessonId]: nextProg }));
         }}
@@ -3239,6 +3259,7 @@ export default function App() {
             ? videoLessons.find((l) => l.id === activeVideoLessonId)?.title
             : undefined
         }
+        onRefreshProgress={refreshAllVideoData}
         t={t}
       />
 

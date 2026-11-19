@@ -4816,6 +4816,7 @@ function doPost(e) {
           answeredAt: String(data.answeredAt || nowFormatted)
         };
         if (data.videoScore !== undefined) existingRow[7] = Number(data.videoScore) || 0;
+        if (data.autoComplete === true || data.completed === "تم") existingRow[6] = "تم";
       } else if (data.action === "upload_video_media" && data.base64Data) {
         uploadedUrl = uploadVideoBase64ToDriveGS(
           data.base64Data,

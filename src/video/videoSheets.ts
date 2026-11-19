@@ -303,6 +303,12 @@ export function saveLocalVideoProgressMap(
   } catch {}
 }
 
+export function clearLocalVideoProgress(studentId?: string): void {
+  try {
+    localStorage.removeItem(getProgressStorageKey(studentId));
+  } catch {}
+}
+
 export async function fetchStudentVideoProgress(
   webhookUrl: string,
   studentId: string,
@@ -322,33 +328,33 @@ export async function fetchStudentVideoProgress(
     });
     const rows = res?.data?.answers || res?.data?.items;
     if (res.success && Array.isArray(rows)) {
-      const merged = { ...localMap };
+      const sheetMap: Record<string, VideoStudentProgress> = {};
       rows.forEach((row: any) => {
         const lid = String(row.lessonId || row.id || row.title || '').trim();
         if (!lid) return;
-        const existing = merged[lid];
-        merged[lid] = {
+        const parsedAns =
+          row.answeredQuestions && typeof row.answeredQuestions === 'object'
+            ? row.answeredQuestions
+            : {};
+        sheetMap[lid] = {
           lessonId: lid,
-          topic: String(row.topic || existing?.topic || '').trim(),
-          title: String(row.title || existing?.title || '').trim(),
-          completed: (row.completed as any) || existing?.completed || '',
-          videoScore: Number(row.videoScore ?? existing?.videoScore ?? 0) || 0,
-          explainAudioScore: Number(row.explainAudioScore ?? existing?.explainAudioScore ?? 0) || 0,
-          answeredQuestions:
-            row.answeredQuestions && typeof row.answeredQuestions === 'object'
-              ? { ...(existing?.answeredQuestions || {}), ...row.answeredQuestions }
-              : existing?.answeredQuestions || {},
+          topic: String(row.topic || '').trim(),
+          title: String(row.title || '').trim(),
+          completed: (row.completed as any) || '',
+          videoScore: Number(row.videoScore ?? 0) || 0,
+          explainAudioScore: Number(row.explainAudioScore ?? 0) || 0,
+          answeredQuestions: parsedAns,
           retryResetCount:
             row.retryResetCount !== undefined && row.retryResetCount !== null
               ? Number(row.retryResetCount)
-              : existing?.retryResetCount ?? 0,
-          imageLink: String(row.imageLink || existing?.imageLink || '').trim() || undefined,
-          recordingLink: String(row.recordingLink || existing?.recordingLink || '').trim() || undefined,
-          updatedAt: String(row.updatedAt || existing?.updatedAt || '').trim() || undefined,
+              : 0,
+          imageLink: String(row.imageLink || '').trim() || undefined,
+          recordingLink: String(row.recordingLink || '').trim() || undefined,
+          updatedAt: String(row.updatedAt || '').trim() || undefined,
         };
       });
-      saveLocalVideoProgressMap(studentId, merged);
-      return merged;
+      saveLocalVideoProgressMap(studentId, sheetMap);
+      return sheetMap;
     }
   } catch (e) {
     console.warn('Video progress fetch fallback to local:', e);
@@ -384,6 +390,12 @@ export async function saveVideoQuestionAnswer(
       ? Math.round((answeredValues.length / totalQs) * 100)
       : 100;
 
+  const allMainVideoAnswered =
+    lesson.questions.length > 0
+      ? lesson.questions.every((_, idx) => Boolean(nextAnswers[`vq_${idx}`]))
+      : lesson.audioQuestions.length > 0 &&
+        lesson.audioQuestions.every((_, idx) => Boolean(nextAnswers[`aq_${idx}`]));
+
   const updatedProgress: VideoStudentProgress = {
     ...currentProgress,
     lessonId: lesson.id,
@@ -391,6 +403,7 @@ export async function saveVideoQuestionAnswer(
     title: lesson.title,
     answeredQuestions: nextAnswers,
     videoScore,
+    completed: allMainVideoAnswered ? 'تم' : currentProgress.completed,
     updatedAt: new Date().toISOString(),
   };
 
@@ -414,6 +427,8 @@ export async function saveVideoQuestionAnswer(
         isCorrect: entry.isCorrect,
         questionType: entry.type,
         videoScore,
+        autoComplete: allMainVideoAnswered,
+        completed: allMainVideoAnswered ? 'تم' : currentProgress.completed,
         answeredAt: entry.answeredAt,
       });
       return { success: res.success, updatedProgress };

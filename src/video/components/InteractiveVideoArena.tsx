@@ -27,6 +27,7 @@ import {
   AlertCircle,
   UserCheck,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 import { StudentRegistrant } from '../../types';
 import { SupportedLang } from '../../utils/translations';
@@ -67,6 +68,7 @@ interface InteractiveVideoArenaProps {
   onRequestLogin: () => void;
   onGoHome: () => void;
   onUpdateProgress: (lessonId: string, nextProgress: VideoStudentProgress) => void;
+  onRefreshVideo?: () => Promise<void>;
 }
 
 function formatTime(sec: number): string {
@@ -90,8 +92,10 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   onRequestLogin,
   onGoHome,
   onUpdateProgress,
+  onRefreshVideo,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
+  const [refreshingSync, setRefreshingSync] = useState(false);
 
   const lesson = useMemo(() => {
     return lessons.find((l) => l.id === activeLessonId) || lessons[0];
@@ -219,6 +223,15 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     stopCamera();
     stopRecording();
   }, [lesson?.id, isResetMode]);
+
+  // Clear session-triggered keys if answers were reset or deleted from Google Sheets
+  useEffect(() => {
+    for (const key of Array.from(triggeredKeysSessionRef.current)) {
+      if (!progress.answeredQuestions[key]) {
+        triggeredKeysSessionRef.current.delete(key);
+      }
+    }
+  }, [progress.answeredQuestions]);
 
   // Listen to fullscreen changes
   useEffect(() => {
@@ -824,6 +837,26 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
             <Award className="w-3.5 h-3.5 text-amber-600" />
             <span>{tr('video_teacher_corrections_btn', 'تصحيح المعلم')}</span>
           </button>
+
+          {onRefreshVideo && (
+            <button
+              type="button"
+              disabled={refreshingSync}
+              onClick={async () => {
+                setRefreshingSync(true);
+                try {
+                  await onRefreshVideo();
+                } finally {
+                  setRefreshingSync(false);
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap"
+              title="مزامنة وتحديث الأسئلة والإجابات من الشيت"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshingSync ? 'animate-spin text-indigo-600' : ''}`} />
+              <span className="hidden md:inline">تحديث</span>
+            </button>
+          )}
 
           {totalQsCount > 0 && (
             <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-800 whitespace-nowrap">

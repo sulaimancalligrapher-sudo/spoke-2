@@ -30,6 +30,7 @@ interface VideoCorrectionModalProps {
   lessons: VideoLesson[];
   progressMap: Record<string, VideoStudentProgress>;
   selectedLessonTitle?: string;
+  onRefreshProgress?: () => Promise<void>;
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -82,6 +83,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
   lessons,
   progressMap,
   selectedLessonTitle,
+  onRefreshProgress,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -104,7 +106,10 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
     if (!studentId && !studentName) return;
     setLoading(true);
     try {
-      const list = await fetchVideoCorrections(webhookUrl, studentId, studentName);
+      const [list] = await Promise.all([
+        fetchVideoCorrections(webhookUrl, studentId, studentName),
+        onRefreshProgress ? onRefreshProgress().catch(() => {}) : Promise.resolve(),
+      ]);
       if (isMountedRef.current) {
         setCorrections(list);
       }
