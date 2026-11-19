@@ -16,6 +16,7 @@ import {
   PenTool,
   Pencil,
   Target,
+  Film,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import { LanguageSelector } from './LanguageSelector';
@@ -48,8 +49,9 @@ interface NavbarProps {
   onOpenDictationLessons?: () => void;
   onOpenWriting?: () => void;
   onOpenCatchLessons?: () => void;
-  currentMode?: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch';
-  onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch') => void;
+  onOpenVideoLessons?: () => void;
+  currentMode?: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video';
+  onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -78,6 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenDictationLessons,
   onOpenWriting,
   onOpenCatchLessons,
+  onOpenVideoLessons,
   currentMode = 'pronunciation',
   onSelectMode,
 }) => {
@@ -317,6 +320,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               )}
             </div>
+          )}
+
+          {/* Standalone Interactive Video Button (فيديو) beside Lessons dropdown */}
+          {onOpenVideoLessons && (
+            <button
+              type="button"
+              onClick={() => {
+                setLessonsMenuOpen(false);
+                onOpenVideoLessons();
+              }}
+              className={`flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap shrink-0 ${
+                currentView === 'practice' && currentMode === 'video'
+                  ? 'bg-emerald-600 text-white shadow-emerald-600/20'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/15'
+              }`}
+              title={tr('video_modal_title', 'دروس الفيديو التفاعلي')}
+            >
+              <Film className="w-3.5 h-3.5 shrink-0 text-emerald-300" />
+              <span>{tr('nav_video_btn', 'فيديو')}</span>
+            </button>
           )}
 
           {/* Student Status on Desktop (اسم المشترك وزر خروج أيقونة فقط) */}

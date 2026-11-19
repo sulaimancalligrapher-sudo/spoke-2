@@ -47,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxpOZFT1T4lWwuDmK8WYrJ0At10Fj8v4UeWUQCQun9sb90J7PoH2_C8sQNGaN4hbOqslQ/exec';
+  'https://script.google.com/macros/s/AKfycbwnfbpR4kKIIR49ioYnEsAs3UHhNTKc5UAsNFCBglM2qdjppk0zfRB12zO9PB0izK1rsQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -3442,6 +3442,258 @@ function getCatchARRewardsSheet(ss) {
   return sheet;
 }
 
+// =========================================================================
+// دوال مساعدة لقسم الفيديو التفاعلي وبوت تيليغرام (مستقل تماماً عن التمارين الأخرى)
+// =========================================================================
+var VIDEO_QUESTIONS_SHEET_NAME = "فيديو_الأسئلة";
+var VIDEO_ANSWERS_SHEET_NAME = "فيديو_الإجابات";
+var VIDEO_CORRECTIONS_SHEET_NAME = "فيديو_التصحيح";
+var TELEGRAM_CONFIG_SHEET_NAME = "تيليغرام_الإعدادات";
+var TELEGRAM_USERS_SHEET_NAME = "تيليغرام_الطلاب";
+
+function getVideoQuestionsSheet(ss) {
+  var sheet = ss.getSheetByName(VIDEO_QUESTIONS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(VIDEO_QUESTIONS_SHEET_NAME);
+    var headers = [
+      "ID", "موضوع الدرس", "عنوان الدرس", "التعليمات", "رابط الفيديو",
+      "رابط صوت الشرح", "صورة الدرس", "إظهار النتيجة", "السماح بالتسجيل",
+      "مدة التسجيل (ث)", "السماح برفع صورة", "عنوان الواجب", "عدد الإعادات",
+      "تاريخ البدء", "تاريخ الانتهاء", "ينتهي بعد أيام", "الأسئلة الزمنية JSON", "أسئلة الصوت JSON"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getVideoAnswersSheet(ss) {
+  var sheet = ss.getSheetByName(VIDEO_ANSWERS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(VIDEO_ANSWERS_SHEET_NAME);
+    var headers = [
+      "آخر تحديث", "ID المشترك", "اسم المشترك", "معرف الدرس", "موضوع الدرس",
+      "عنوان الدرس", "حالة الإكمال", "درجة الفيديو", "درجة الصوت",
+      "الإجابات JSON", "المحاولات المتبقية", "رابط الصورة", "رابط التسجيل الصوتي"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getVideoCorrectionsSheet(ss) {
+  var sheet = ss.getSheetByName(VIDEO_CORRECTIONS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(VIDEO_CORRECTIONS_SHEET_NAME);
+    var headers = [
+      "عنوان الدرس", "ID المشترك", "اسم المشترك",
+      "حالة الصورة", "درجة الصورة", "الصورة المصححة", "صور إضافية JSON", "تاريخ تصحيح الصورة", "ملاحظات الصورة",
+      "حالة الصوت", "درجة الصوت", "تسجيلات المعلم JSON", "فيديوهات المعلم JSON", "تاريخ تصحيح الصوت", "ملاحظات الصوت"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#7c2d12").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getTelegramConfigSheet(ss) {
+  var sheet = ss.getSheetByName(TELEGRAM_CONFIG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(TELEGRAM_CONFIG_SHEET_NAME);
+    sheet.appendRow(["المفتاح", "القيمة"]);
+    sheet.getRange(1, 1, 1, 2).setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.appendRow(["botToken", ""]);
+    sheet.appendRow(["botUsername", ""]);
+    sheet.appendRow(["enabled", "false"]);
+    sheet.appendRow(["welcomeMessage", "مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم."]);
+  }
+  return sheet;
+}
+
+function getTelegramUsersSheet(ss) {
+  var sheet = ss.getSheetByName(TELEGRAM_USERS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(TELEGRAM_USERS_SHEET_NAME);
+    sheet.appendRow(["ID المشترك", "اسم المشترك", "Chat ID", "معرف تيليغرام", "تاريخ الربط", "الإشعارات مفعلة"]);
+    sheet.getRange(1, 1, 1, 6).setBackground("#0284c7").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readTelegramConfigGS(ss) {
+  var sheet = getTelegramConfigSheet(ss);
+  var rows = sheet.getDataRange().getValues();
+  var cfg = { botToken: "", botUsername: "", enabled: false, welcomeMessage: "مرحباً بك! تم ربط حسابك بنجاح." };
+  for (var i = 1; i < rows.length; i++) {
+    var k = String(rows[i][0] || "").trim();
+    var v = String(rows[i][1] || "").trim();
+    if (k === "botToken") cfg.botToken = v;
+    else if (k === "botUsername") cfg.botUsername = v;
+    else if (k === "enabled") cfg.enabled = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
+    else if (k === "welcomeMessage" && v) cfg.welcomeMessage = v;
+  }
+  return cfg;
+}
+
+function writeTelegramConfigGS(ss, cfg) {
+  var sheet = getTelegramConfigSheet(ss);
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
+  }
+  sheet.getRange(2, 1, 4, 2).setValues([
+    ["botToken", String(cfg.botToken || "").trim()],
+    ["botUsername", String(cfg.botUsername || "").trim()],
+    ["enabled", cfg.enabled ? "true" : "false"],
+    ["welcomeMessage", String(cfg.welcomeMessage || "مرحباً بك! تم ربط حسابك بنجاح.").trim()]
+  ]);
+}
+
+function sendTelegramBotMessageGS(ss, chatId, text, photoUrl) {
+  var cfg = readTelegramConfigGS(ss);
+  if (!cfg.botToken || !chatId) return false;
+  try {
+    var apiBase = "https://api.telegram.org/bot" + cfg.botToken;
+    var endpoint = photoUrl ? (apiBase + "/sendPhoto") : (apiBase + "/sendMessage");
+    var body = photoUrl
+      ? { chat_id: String(chatId), photo: String(photoUrl), caption: String(text || ""), parse_mode: "HTML" }
+      : { chat_id: String(chatId), text: String(text || ""), parse_mode: "HTML" };
+    var resp = UrlFetchApp.fetch(endpoint, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(body),
+      muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    return code >= 200 && code < 300;
+  } catch (tgErr) {
+    Logger.log("Telegram send error: " + tgErr);
+    return false;
+  }
+}
+
+function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) {
+  var folder = getOrCreateAudioFolder(folderId || "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA");
+  var cleanBase64 = String(base64Data || "");
+  if (cleanBase64.indexOf("base64,") !== -1) {
+    cleanBase64 = cleanBase64.split("base64,")[1];
+  }
+  var resolvedMime = String(mimeType || "application/octet-stream");
+  var ext = ".bin";
+  if (resolvedMime.indexOf("png") !== -1) ext = ".png";
+  else if (resolvedMime.indexOf("jpeg") !== -1 || resolvedMime.indexOf("jpg") !== -1) ext = ".jpg";
+  else if (resolvedMime.indexOf("image/") === 0) ext = ".jpg";
+  else if (resolvedMime.indexOf("webm") !== -1) ext = ".webm";
+  else if (resolvedMime.indexOf("wav") !== -1) ext = ".wav";
+  else if (resolvedMime.indexOf("audio/") === 0) ext = ".mp3";
+  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy-MM-dd_HH-mm-ss");
+  var safePrefix = String(filePrefix || "video_media").replace(/[/\\?%*:|"<>]/g, "_");
+  var blob = Utilities.newBlob(Utilities.base64Decode(cleanBase64), resolvedMime, safePrefix + "_" + stamp + ext);
+  var file;
+  try {
+    file = folder.createFile(blob);
+  } catch (e) {
+    file = DriveApp.getRootFolder().createFile(blob);
+  }
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (sErr) {}
+  var fid = file.getId();
+  if (resolvedMime.indexOf("image/") === 0) {
+    return "https://drive.google.com/uc?export=view&id=" + fid;
+  }
+  return "https://drive.google.com/uc?export=download&id=" + fid;
+}
+
+function readVideoLessonsListGS(ss) {
+  var sheet = getVideoQuestionsSheet(ss);
+  var lastR = sheet.getLastRow();
+  var lessons = [];
+  if (lastR <= 1) return lessons;
+  var rows = sheet.getRange(2, 1, lastR - 1, Math.max(18, sheet.getLastColumn())).getValues();
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var lid = String(row[0] || "").trim();
+    var title = String(row[2] || "").trim();
+    var vUrl = String(row[4] || "").trim();
+    if (!lid && !title && !vUrl) continue;
+    var qs = [];
+    var aqs = [];
+    try { if (row[16]) qs = JSON.parse(String(row[16])); } catch (e) {}
+    try { if (row[17]) aqs = JSON.parse(String(row[17])); } catch (e) {}
+    lessons.push({
+      id: lid || ("video-row-" + (r + 2)),
+      rowIndex: r + 2,
+      topic: String(row[1] || "دروس الفيديو التفاعلي").trim(),
+      title: title || ("درس فيديو " + (r + 1)),
+      instruction: String(row[3] || "").trim(),
+      videoUrl: vUrl,
+      explainSound: String(row[5] || "").trim(),
+      image: String(row[6] || "").trim(),
+      showResult: String(row[7] || "نعم").trim() === "لا" ? "لا" : "نعم",
+      allowRecording: String(row[8] || "نعم").trim() === "لا" ? "لا" : "نعم",
+      maxRecordingTime: Number(row[9]) || 60,
+      allowUpload: String(row[10] || "نعم").trim() === "لا" ? "لا" : "نعم",
+      uploadTitle: String(row[11] || "").trim(),
+      retryCount: row[12] !== "" && row[12] !== null && row[12] !== undefined ? Number(row[12]) : 1,
+      startDate: String(row[13] || "").trim(),
+      endDate: String(row[14] || "").trim(),
+      expireAfterDays: row[15] !== "" && row[15] !== null && row[15] !== undefined ? Number(row[15]) : "",
+      questions: Array.isArray(qs) ? qs : [],
+      audioQuestions: Array.isArray(aqs) ? aqs : []
+    });
+  }
+  return lessons;
+}
+
+function readVideoCorrectionsListGS(ss, filterId, filterName) {
+  var sheet = getVideoCorrectionsSheet(ss);
+  var lastR = sheet.getLastRow();
+  var list = [];
+  if (lastR <= 1) return list;
+  var rows = sheet.getRange(2, 1, lastR - 1, Math.max(15, sheet.getLastColumn())).getValues();
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var cTitle = String(row[0] || "").trim();
+    var cId = String(row[1] || "").trim();
+    var cName = String(row[2] || "").trim();
+    if (!cTitle && !cId && !cName) continue;
+    if (filterId || filterName) {
+      var matchId = filterId && cId === filterId;
+      var matchName = (!filterId || !cId) && filterName && cName === filterName;
+      if (!matchId && !matchName) continue;
+    }
+    var addImgs = [];
+    var tAudios = [];
+    var tVideos = [];
+    try { if (row[6]) addImgs = JSON.parse(String(row[6])); } catch (e) {}
+    try { if (row[11]) tAudios = JSON.parse(String(row[11])); } catch (e) {}
+    try { if (row[12]) tVideos = JSON.parse(String(row[12])); } catch (e) {}
+    list.push({
+      lessonTitle: cTitle,
+      studentId: cId,
+      studentName: cName,
+      imageStatus: String(row[3] || "").trim(),
+      imageScore: String(row[4] || "").trim(),
+      correctedImage: String(row[5] || "").trim(),
+      additionalImages: Array.isArray(addImgs) ? addImgs : [],
+      imageDate: String(row[7] || "").trim(),
+      imageNotes: String(row[8] || "").trim(),
+      audioStatus: String(row[9] || "").trim(),
+      audioScore: String(row[10] || "").trim(),
+      teacherAudios: Array.isArray(tAudios) ? tAudios : [],
+      teacherVideos: Array.isArray(tVideos) ? tVideos : [],
+      audioDate: String(row[13] || "").trim(),
+      audioNotes: String(row[14] || "").trim()
+    });
+  }
+  return list;
+}
+
 function saveWritingRewardBase64ToDrive(imageBase64, filePrefix) {
   var folder = getOrCreateAudioFolder(AR_REWARDS_DRIVE_FOLDER_ID);
   var markerIdx = imageBase64.indexOf("base64,");
@@ -4198,6 +4450,28 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (ج-11) نقاط نهاية قسم الفيديو التفاعلي وبوت تيليغرام (GET)
+    if (e && e.parameter && e.parameter.action === "get_video_lessons") {
+      var vLessons = readVideoLessonsListGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, lessons: vLessons }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (e && e.parameter && e.parameter.action === "get_video_corrections") {
+      var vCorr = readVideoCorrectionsListGS(
+        ss,
+        String(e.parameter.studentId || "").trim(),
+        String(e.parameter.studentName || "").trim()
+      );
+      return ContentService.createTextOutput(JSON.stringify({ success: true, corrections: vCorr }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (e && e.parameter && e.parameter.action === "get_telegram_config") {
+      return ContentService.createTextOutput(JSON.stringify({ success: true, config: readTelegramConfigGS(ss) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
@@ -4296,6 +4570,517 @@ function doPost(e) {
     var raw = e.postData.contents;
     var data = JSON.parse(raw);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // (-2) معالجة تحديثات بوت تيليغرام الواردة (Telegram Bot Webhook) لربط الطالب تلقائياً
+    if (data && data.message && data.message.chat && !data.action) {
+      var chat = data.message.chat;
+      var chatId = String(chat.id);
+      var tgUser = chat.username ? ("@" + chat.username) : String(chat.first_name || "");
+      var textMsg = String(data.message.text || "").trim();
+      var candidateId = "";
+      var startMatch = textMsg.match(/\\/start\\s+([^\\s]+)/i);
+      if (startMatch) {
+        candidateId = startMatch[1].trim();
+      } else if (/^[a-zA-Z0-9_-]{2,}$/.test(textMsg)) {
+        candidateId = textMsg;
+      }
+
+      if (candidateId) {
+        var regSheetTg = getIDRegistrantsSheet(ss);
+        var regRowsTg = regSheetTg.getDataRange().getValues();
+        var matchedStudent = null;
+        for (var rIdx = 1; rIdx < regRowsTg.length; rIdx++) {
+          var rowId = String(regRowsTg[rIdx][0] || "").trim();
+          var rowName = String(regRowsTg[rIdx][1] || "").trim();
+          if (rowId === candidateId) {
+            matchedStudent = { id: rowId, name: rowName };
+            break;
+          }
+        }
+        if (matchedStudent) {
+          var uSheet = getTelegramUsersSheet(ss);
+          var uRows = uSheet.getDataRange().getValues();
+          var foundRow = -1;
+          for (var u = 1; u < uRows.length; u++) {
+            if (String(uRows[u][0] || "").trim() === matchedStudent.id) {
+              foundRow = u + 1;
+              break;
+            }
+          }
+          var nowTg = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy/MM/dd HH:mm");
+          var rowVals = [matchedStudent.id, matchedStudent.name, chatId, tgUser, nowTg, "true"];
+          if (foundRow !== -1) {
+            uSheet.getRange(foundRow, 1, 1, 6).setValues([rowVals]);
+          } else {
+            uSheet.appendRow(rowVals);
+          }
+          var tgCfg = readTelegramConfigGS(ss);
+          sendTelegramBotMessageGS(ss, chatId, (tgCfg.welcomeMessage || "مرحباً بك!") + "\\nالطالب: " + matchedStudent.name + " (ID: " + matchedStudent.id + ")", "");
+        } else {
+          sendTelegramBotMessageGS(ss, chatId, "لم يتم العثور على رقم المشترك (" + candidateId + "). أرسل رقم الـ ID الصحيح للربط.", "");
+        }
+      } else {
+        sendTelegramBotMessageGS(ss, chatId, "أهلاً بك! أرسل رقم المشترك (ID) الخاص بك لربط حسابك وتلقي الإشعارات وتصحيح المعلم.", "");
+      }
+      return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // =========================================================================
+    // (V) نقاط نهاية قسم الفيديو التفاعلي وبوت تيليغرام (POST)
+    // =========================================================================
+    if (data.action === "get_video_lessons") {
+      return ContentService.createTextOutput(JSON.stringify({ success: true, lessons: readVideoLessonsListGS(ss) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_video_lesson" && data.lesson) {
+      var vqSheet = getVideoQuestionsSheet(ss);
+      var l = data.lesson;
+      var lId = String(l.id || ("vid_" + new Date().getTime())).trim();
+      var rowArr = [
+        lId,
+        l.topic || "دروس الفيديو التفاعلي",
+        l.title || "",
+        l.instruction || "",
+        l.videoUrl || "",
+        l.explainSound || "",
+        l.image || "",
+        l.showResult === "لا" ? "لا" : "نعم",
+        l.allowRecording === "لا" ? "لا" : "نعم",
+        Number(l.maxRecordingTime) || 60,
+        l.allowUpload === "لا" ? "لا" : "نعم",
+        l.uploadTitle || "",
+        l.retryCount !== undefined && l.retryCount !== null ? Number(l.retryCount) : 1,
+        l.startDate || "",
+        l.endDate || "",
+        l.expireAfterDays !== undefined ? l.expireAfterDays : "",
+        JSON.stringify(Array.isArray(l.questions) ? l.questions : []),
+        JSON.stringify(Array.isArray(l.audioQuestions) ? l.audioQuestions : [])
+      ];
+      var lastR = vqSheet.getLastRow();
+      var targetR = -1;
+      if (lastR > 1) {
+        var idsCol = vqSheet.getRange(2, 1, lastR - 1, 1).getValues();
+        for (var i = 0; i < idsCol.length; i++) {
+          if (String(idsCol[i][0] || "").trim() === lId) {
+            targetR = i + 2;
+            break;
+          }
+        }
+      }
+      if (targetR !== -1) {
+        vqSheet.getRange(targetR, 1, 1, rowArr.length).setValues([rowArr]);
+      } else {
+        vqSheet.appendRow(rowArr);
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم حفظ درس الفيديو بنجاح!" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_video_lesson") {
+      var vqSheet = getVideoQuestionsSheet(ss);
+      var targetId = String(data.lessonId || "").trim();
+      var lastR = vqSheet.getLastRow();
+      if (lastR > 1 && targetId) {
+        var idsCol = vqSheet.getRange(2, 1, lastR - 1, 1).getValues();
+        for (var i = idsCol.length - 1; i >= 0; i--) {
+          if (String(idsCol[i][0] || "").trim() === targetId) {
+            vqSheet.deleteRow(i + 2);
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "sync_video_lessons" && Array.isArray(data.lessons)) {
+      var vqSheet = getVideoQuestionsSheet(ss);
+      var lastR = vqSheet.getLastRow();
+      if (lastR > 1) {
+        vqSheet.getRange(2, 1, lastR - 1, Math.max(18, vqSheet.getLastColumn())).clearContent();
+      }
+      var rowsToWrite = [];
+      for (var i = 0; i < data.lessons.length; i++) {
+        var l = data.lessons[i];
+        rowsToWrite.push([
+          String(l.id || ("vid_" + (i + 1))),
+          l.topic || "دروس الفيديو التفاعلي",
+          l.title || "",
+          l.instruction || "",
+          l.videoUrl || "",
+          l.explainSound || "",
+          l.image || "",
+          l.showResult === "لا" ? "لا" : "نعم",
+          l.allowRecording === "لا" ? "لا" : "نعم",
+          Number(l.maxRecordingTime) || 60,
+          l.allowUpload === "لا" ? "لا" : "نعم",
+          l.uploadTitle || "",
+          l.retryCount !== undefined && l.retryCount !== null ? Number(l.retryCount) : 1,
+          l.startDate || "",
+          l.endDate || "",
+          l.expireAfterDays !== undefined ? l.expireAfterDays : "",
+          JSON.stringify(Array.isArray(l.questions) ? l.questions : []),
+          JSON.stringify(Array.isArray(l.audioQuestions) ? l.audioQuestions : [])
+        ]);
+      }
+      if (rowsToWrite.length > 0) {
+        vqSheet.getRange(2, 1, rowsToWrite.length, 18).setValues(rowsToWrite);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        count: rowsToWrite.length,
+        message: "تمت مزامنة " + rowsToWrite.length + " دروس في ورقة فيديو_الأسئلة!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_video_answers") {
+      var vaSheet = getVideoAnswersSheet(ss);
+      var sId = String(data.studentId || "").trim();
+      var sName = String(data.studentName || "").trim();
+      var lastR = vaSheet.getLastRow();
+      var answersList = [];
+      if (lastR > 1) {
+        var rows = vaSheet.getRange(2, 1, lastR - 1, Math.max(13, vaSheet.getLastColumn())).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          var rId = String(row[1] || "").trim();
+          var rName = String(row[2] || "").trim();
+          var matched = (sId && rId === sId) || ((!sId || !rId) && sName && rName === sName);
+          if (!matched) continue;
+          var parsedAns = {};
+          try { if (row[9]) parsedAns = JSON.parse(String(row[9])); } catch (e) {}
+          answersList.push({
+            updatedAt: String(row[0] || "").trim(),
+            studentId: rId,
+            studentName: rName,
+            lessonId: String(row[3] || "").trim(),
+            topic: String(row[4] || "").trim(),
+            title: String(row[5] || "").trim(),
+            completed: String(row[6] || "").trim(),
+            videoScore: Number(row[7] || 0),
+            explainAudioScore: Number(row[8] || 0),
+            answeredQuestions: parsedAns,
+            retryResetCount: row[10] !== "" && row[10] !== null && row[10] !== undefined ? Number(row[10]) : 0,
+            imageLink: String(row[11] || "").trim(),
+            recordingLink: String(row[12] || "").trim()
+          });
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, answers: answersList }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (
+      data.action === "save_video_answer" ||
+      data.action === "upload_video_media" ||
+      data.action === "complete_video_lesson" ||
+      data.action === "retry_video_lesson"
+    ) {
+      var vaSheet = getVideoAnswersSheet(ss);
+      var sId = String(data.studentId || "").trim();
+      var sName = String(data.studentName || "طالب").trim();
+      var lId = String(data.lessonId || "").trim();
+      var topic = String(data.topic || "").trim();
+      var title = String(data.title || "").trim();
+      var nowFormatted = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy/MM/dd HH:mm");
+
+      var lastR = vaSheet.getLastRow();
+      var targetR = -1;
+      var existingRow = [nowFormatted, sId, sName, lId, topic, title, "", 0, 0, "{}", 0, "", ""];
+      if (lastR > 1) {
+        var rows = vaSheet.getRange(2, 1, lastR - 1, Math.max(13, vaSheet.getLastColumn())).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var rId = String(rows[r][1] || "").trim();
+          var rName = String(rows[r][2] || "").trim();
+          var rLid = String(rows[r][3] || "").trim();
+          var idMatch = (sId && rId === sId) || ((!sId || !rId) && sName && rName === sName);
+          if (idMatch && rLid === lId) {
+            targetR = r + 2;
+            existingRow = rows[r];
+            break;
+          }
+        }
+      }
+
+      var ansObj = {};
+      try { if (existingRow[9]) ansObj = JSON.parse(String(existingRow[9])); } catch (e) {}
+
+      var uploadedUrl = "";
+      if (data.action === "save_video_answer" && data.questionKey) {
+        ansObj[String(data.questionKey)] = {
+          questionKey: String(data.questionKey),
+          question: String(data.question || ""),
+          selectedAnswer: String(data.selectedAnswer || ""),
+          isCorrect: data.isCorrect !== undefined ? data.isCorrect : null,
+          type: String(data.questionType || "video"),
+          answeredAt: String(data.answeredAt || nowFormatted)
+        };
+        if (data.videoScore !== undefined) existingRow[7] = Number(data.videoScore) || 0;
+      } else if (data.action === "upload_video_media" && data.base64Data) {
+        uploadedUrl = uploadVideoBase64ToDriveGS(
+          data.base64Data,
+          (sId ? sId + "_" : "") + sName + "_" + (data.mediaType || "media"),
+          data.mimeType || (data.mediaType === "image" ? "image/jpeg" : "audio/mp3"),
+          "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA"
+        );
+        if (data.mediaType === "image") existingRow[11] = uploadedUrl;
+        else existingRow[12] = uploadedUrl;
+      } else if (data.action === "complete_video_lesson") {
+        existingRow[6] = "تم";
+        if (data.videoScore !== undefined) existingRow[7] = Number(data.videoScore) || 0;
+        if (data.explainAudioScore !== undefined) existingRow[8] = Number(data.explainAudioScore) || 0;
+        if (data.imageLink) existingRow[11] = String(data.imageLink);
+        if (data.recordingLink) existingRow[12] = String(data.recordingLink);
+      } else if (data.action === "retry_video_lesson") {
+        existingRow[6] = "إعادة";
+        existingRow[7] = 0;
+        ansObj = {};
+        if (data.retryResetCount !== undefined) existingRow[10] = Number(data.retryResetCount) || 0;
+      }
+
+      existingRow[0] = nowFormatted;
+      existingRow[1] = sId;
+      existingRow[2] = sName;
+      existingRow[3] = lId;
+      existingRow[4] = topic || existingRow[4];
+      existingRow[5] = title || existingRow[5];
+      existingRow[9] = JSON.stringify(ansObj);
+
+      if (targetR !== -1) {
+        vaSheet.getRange(targetR, 1, 1, 13).setValues([existingRow.slice(0, 13)]);
+      } else {
+        vaSheet.appendRow(existingRow.slice(0, 13));
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        url: uploadedUrl || undefined
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_all_video_submissions") {
+      var vaSheet = getVideoAnswersSheet(ss);
+      var allCorr = readVideoCorrectionsListGS(ss, "", "");
+      var corrMap = {};
+      for (var cIdx = 0; cIdx < allCorr.length; cIdx++) {
+        var cItem = allCorr[cIdx];
+        corrMap[(cItem.studentId || cItem.studentName) + "::" + cItem.lessonTitle] = cItem;
+      }
+      var lastR = vaSheet.getLastRow();
+      var subs = [];
+      if (lastR > 1) {
+        var rows = vaSheet.getRange(2, 1, lastR - 1, Math.max(13, vaSheet.getLastColumn())).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          var rId = String(row[1] || "").trim();
+          var rName = String(row[2] || "").trim();
+          var rTitle = String(row[5] || "").trim();
+          if (!rId && !rName && !rTitle) continue;
+          var parsedAns = {};
+          try { if (row[9]) parsedAns = JSON.parse(String(row[9])); } catch (e) {}
+          var key = (rId || rName) + "::" + rTitle;
+          subs.push({
+            rowIndex: r + 2,
+            updatedAt: String(row[0] || "").trim(),
+            studentId: rId,
+            studentName: rName,
+            lessonId: String(row[3] || "").trim(),
+            topic: String(row[4] || "").trim(),
+            title: rTitle,
+            completed: String(row[6] || "").trim(),
+            videoScore: Number(row[7] || 0),
+            explainAudioScore: Number(row[8] || 0),
+            answeredQuestions: parsedAns,
+            retryResetCount: Number(row[10] || 0),
+            imageLink: String(row[11] || "").trim(),
+            recordingLink: String(row[12] || "").trim(),
+            correction: corrMap[key] || null
+          });
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, submissions: subs }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_video_corrections") {
+      var vCorr = readVideoCorrectionsListGS(
+        ss,
+        String(data.studentId || "").trim(),
+        String(data.studentName || "").trim()
+      );
+      return ContentService.createTextOutput(JSON.stringify({ success: true, corrections: vCorr }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_video_correction") {
+      var vcSheet = getVideoCorrectionsSheet(ss);
+      var lTitle = String(data.lessonTitle || "").trim();
+      var sId = String(data.studentId || "").trim();
+      var sName = String(data.studentName || "").trim();
+      var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy/MM/dd HH:mm");
+
+      var correctedImage = String(data.correctedImage || "").trim();
+      if (data.correctedImageBase64) {
+        correctedImage = uploadVideoBase64ToDriveGS(
+          data.correctedImageBase64,
+          "corr_img_" + (sId || sName),
+          "image/jpeg",
+          "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+        );
+      }
+
+      var teacherAudios = Array.isArray(data.teacherAudios) ? data.teacherAudios.slice() : [];
+      if (data.teacherAudioBase64) {
+        var uploadedAud = uploadVideoBase64ToDriveGS(
+          data.teacherAudioBase64,
+          "corr_aud_" + (sId || sName),
+          "audio/mp3",
+          "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+        );
+        if (uploadedAud) teacherAudios.push(uploadedAud);
+      }
+
+      var addImages = Array.isArray(data.additionalImages) ? data.additionalImages : [];
+      var teacherVideos = Array.isArray(data.teacherVideos) ? data.teacherVideos : [];
+
+      var lastR = vcSheet.getLastRow();
+      var targetR = -1;
+      if (lastR > 1) {
+        var rows = vcSheet.getRange(2, 1, lastR - 1, 3).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          var rTitle = String(rows[r][0] || "").trim();
+          var rId = String(rows[r][1] || "").trim();
+          var rName = String(rows[r][2] || "").trim();
+          var stMatch = (sId && rId === sId) || ((!sId || !rId) && sName && rName === sName);
+          if (stMatch && rTitle === lTitle) {
+            targetR = r + 2;
+            break;
+          }
+        }
+      }
+
+      var rowData = [
+        lTitle,
+        sId,
+        sName,
+        String(data.imageStatus || "").trim(),
+        String(data.imageScore || "").trim(),
+        correctedImage,
+        JSON.stringify(addImages),
+        data.imageStatus || data.imageScore || correctedImage || data.imageNotes ? nowStr : "",
+        String(data.imageNotes || "").trim(),
+        String(data.audioStatus || "").trim(),
+        String(data.audioScore || "").trim(),
+        JSON.stringify(teacherAudios),
+        JSON.stringify(teacherVideos),
+        data.audioStatus || data.audioScore || teacherAudios.length > 0 || data.audioNotes ? nowStr : "",
+        String(data.audioNotes || "").trim()
+      ];
+
+      if (targetR !== -1) {
+        vcSheet.getRange(targetR, 1, 1, 15).setValues([rowData]);
+      } else {
+        vcSheet.appendRow(rowData);
+      }
+
+      var telegramSent = false;
+      if (data.sendTelegram) {
+        var tgUsers = getTelegramUsersSheet(ss).getDataRange().getValues();
+        for (var u = 1; u < tgUsers.length; u++) {
+          var uId = String(tgUsers[u][0] || "").trim();
+          var uName = String(tgUsers[u][1] || "").trim();
+          var uChatId = String(tgUsers[u][2] || "").trim();
+          var uEnabled = String(tgUsers[u][5] || "true") !== "false";
+          if (uEnabled && uChatId && ((sId && uId === sId) || (sName && uName === sName))) {
+            var summaryMsg = "<b>تم تصحيح واجبك في درس: " + lTitle + "</b>";
+            if (data.imageScore) summaryMsg += "\\nدرجة الصورة: " + data.imageScore;
+            if (data.imageNotes) summaryMsg += "\\nملاحظة المعلم: " + data.imageNotes;
+            if (data.audioScore) summaryMsg += "\\nدرجة الصوت: " + data.audioScore;
+            if (data.audioNotes) summaryMsg += "\\nتوجيه صوتي: " + data.audioNotes;
+            telegramSent = sendTelegramBotMessageGS(ss, uChatId, summaryMsg, correctedImage || "");
+            break;
+          }
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        telegramSent: telegramSent,
+        message: "تم حفظ تصحيح المعلم بنجاح!",
+        correction: {
+          lessonTitle: lTitle,
+          studentId: sId,
+          studentName: sName,
+          imageStatus: rowData[3],
+          imageScore: rowData[4],
+          correctedImage: correctedImage,
+          additionalImages: addImages,
+          imageDate: rowData[7],
+          imageNotes: rowData[8],
+          audioStatus: rowData[9],
+          audioScore: rowData[10],
+          teacherAudios: teacherAudios,
+          teacherVideos: teacherVideos,
+          audioDate: rowData[13],
+          audioNotes: rowData[14]
+        }
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_telegram_config") {
+      return ContentService.createTextOutput(JSON.stringify({ success: true, config: readTelegramConfigGS(ss) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_telegram_config" && data.config) {
+      writeTelegramConfigGS(ss, data.config);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم حفظ إعدادات تيليغرام في الشيت بنجاح!" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_telegram_users") {
+      var uSheet = getTelegramUsersSheet(ss);
+      var rows = uSheet.getDataRange().getValues();
+      var usersList = [];
+      for (var u = 1; u < rows.length; u++) {
+        if (!rows[u][0] && !rows[u][2]) continue;
+        usersList.push({
+          studentId: String(rows[u][0] || "").trim(),
+          studentName: String(rows[u][1] || "").trim(),
+          chatId: String(rows[u][2] || "").trim(),
+          telegramUsername: String(rows[u][3] || "").trim(),
+          linkedAt: String(rows[u][4] || "").trim(),
+          notificationsEnabled: String(rows[u][5] || "true") !== "false"
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify({ success: true, users: usersList }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "send_telegram_notification") {
+      var msg = String(data.message || "").trim();
+      var photo = String(data.photoUrl || "").trim();
+      var sentCount = 0;
+      if (data.chatId) {
+        if (sendTelegramBotMessageGS(ss, String(data.chatId), msg, photo)) sentCount++;
+      } else {
+        var uRows = getTelegramUsersSheet(ss).getDataRange().getValues();
+        for (var u = 1; u < uRows.length; u++) {
+          var uId = String(uRows[u][0] || "").trim();
+          var uName = String(uRows[u][1] || "").trim();
+          var uChatId = String(uRows[u][2] || "").trim();
+          var uEnabled = String(uRows[u][5] || "true") !== "false";
+          if (!uEnabled || !uChatId) continue;
+          if (data.broadcastAll || (data.studentId && uId === data.studentId) || (data.studentName && uName === data.studentName)) {
+            if (sendTelegramBotMessageGS(ss, uChatId, msg, photo)) sentCount++;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: sentCount > 0,
+        sentCount: sentCount,
+        message: sentCount > 0 ? ("تم إرسال الإشعار بنجاح (" + sentCount + ")") : "لم يتم العثور على طلاب مربوطين بالبوت أو فشل الإرسال"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
     
     // (-1) تهيئة ورقة "الرئيسية"
     if (data.action === "init_home_sheet") {

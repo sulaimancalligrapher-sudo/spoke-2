@@ -68,14 +68,19 @@ import {
   Languages,
   Pencil,
   Target,
+  Film,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
 import { MatchingTranslationManager } from './MatchingTranslationManager';
 import { WritingTranslationManager } from './WritingTranslationManager';
+import { CatchTranslationManager } from './CatchTranslationManager';
 import { MatchingAdminManager } from './MatchingAdminManager';
 import { DictationAdminManager } from './DictationAdminManager';
 import { CatchAdminManager } from './CatchAdminManager';
+import { VideoAdminManager } from '../video/components/VideoAdminManager';
+import { VideoTranslationManager } from '../video/components/VideoTranslationManager';
+import { VideoLesson } from '../video/types';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
@@ -160,7 +165,9 @@ interface AdminPanelProps {
   catchArIntroReward?: ARRewardTier;
   onUpdateCatchArIntroReward?: (intro: ARRewardTier) => boolean | void;
   onPreviewCatchArReward?: (tier: ARRewardTier) => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3';
+  videoLessons?: VideoLesson[];
+  onUpdateVideoLessons?: (lessons: VideoLesson[]) => void;
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -231,9 +238,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   catchArIntroReward,
   onUpdateCatchArIntroReward,
   onPreviewCatchArReward,
+  videoLessons = [],
+  onUpdateVideoLessons,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1185,6 +1194,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
+            onClick={() => setActiveTab('video')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'video'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Film className={`w-4 h-4 ${activeTab === 'video' ? 'text-white' : 'text-indigo-600'}`} />
+            <span>فيديو تفاعلي</span>
+          </button>
+
+          <button
             onClick={() => {
               setActiveTab('submissions');
               if (answers1Submissions.length === 0 && !loadingAnswers1) {
@@ -1250,6 +1271,30 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Languages className={`w-4 h-4 ${activeTab === 'translations3' ? 'text-slate-950' : 'text-amber-500'}`} />
             <span>إدارة وتخصيص الترجمة 3 (الكتابة)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('translations4')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'translations4'
+                ? 'bg-sky-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Languages className={`w-4 h-4 ${activeTab === 'translations4' ? 'text-white' : 'text-sky-500'}`} />
+            <span>إدارة وتخصيص الترجمة 4 (صيد)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('translations5')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'translations5'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Languages className={`w-4 h-4 ${activeTab === 'translations5' ? 'text-white' : 'text-indigo-500'}`} />
+            <span>إدارة وتخصيص الترجمة 5 (الفيديو)</span>
           </button>
         </div>
 
@@ -2760,6 +2805,30 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           />
         )}
 
+        {/* TAB 4D: CATCH TRANSLATION MANAGEMENT (الترجمة 4 - تحدي الصيد AR) */}
+        {activeTab === 'translations4' && (
+          <CatchTranslationManager
+            translations={translations || []}
+            onSaveTranslations={onUpdateTranslations || (() => {})}
+            catchSubjects={catchSubjects || []}
+            geminiApiKey={geminiApiKey}
+            webhookUrl={sheetsConfig.webhookUrl}
+            onRefreshFromSheets={onRefreshFromSheets}
+          />
+        )}
+
+        {/* TAB 4E: VIDEO TRANSLATION MANAGEMENT (الترجمة 5 - الفيديو التفاعلي) */}
+        {activeTab === 'translations5' && (
+          <VideoTranslationManager
+            translations={translations || []}
+            onSaveTranslations={onUpdateTranslations || (() => {})}
+            videoLessons={videoLessons || []}
+            geminiApiKey={geminiApiKey}
+            webhookUrl={sheetsConfig.webhookUrl}
+            onRefreshFromSheets={onRefreshFromSheets}
+          />
+        )}
+
         {/* TAB 5: MATCHING EXERCISES MANAGEMENT (وصل) */}
         {activeTab === 'matching' && (
           <MatchingAdminManager
@@ -2822,6 +2891,15 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             arIntroReward={catchArIntroReward}
             onUpdateArIntroReward={onUpdateCatchArIntroReward}
             onPreviewArReward={onPreviewCatchArReward}
+          />
+        )}
+
+        {/* TAB 9: INTERACTIVE VIDEO & TELEGRAM MANAGEMENT (فيديو تفاعلي) */}
+        {activeTab === 'video' && (
+          <VideoAdminManager
+            lessons={videoLessons || []}
+            onUpdateLessons={onUpdateVideoLessons || (() => {})}
+            webhookUrl={sheetsConfig.webhookUrl}
           />
         )}
 

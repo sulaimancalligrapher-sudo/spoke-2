@@ -43,6 +43,17 @@ import { CatchLessonsModal } from './components/CatchLessonsModal';
 import { StudentLoginModal } from './components/StudentLoginModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
+import { InteractiveVideoArena } from './video/components/InteractiveVideoArena';
+import { VideoLessonsModal } from './video/components/VideoLessonsModal';
+import { VideoCorrectionModal } from './video/components/VideoCorrectionModal';
+import { VideoLesson, VideoStudentProgress } from './video/types';
+import {
+  fetchVideoLessonsFromSheets,
+  fetchStudentVideoProgress,
+  getLocalVideoLessons,
+  getLocalVideoProgressMap,
+  saveLocalVideoLessons,
+} from './video/videoSheets';
 import { sheetService as writingSheetService } from './arWriting/services/sheetService';
 import { DrawingTemplate, BoardStyle, GuideColor } from './arWriting/types/drawing';
 import {
@@ -73,6 +84,8 @@ import {
   fetchDictationExercisesFromSheets,
   fetchCatchExercisesFromSheets,
   fetchCatchARRewardsFromSheet,
+  verifyStudentLogin,
+  fetchIDRegistrants,
   STORAGE_KEY_MATCHING_CURRICULUM,
   STORAGE_KEY_DICTATION_CURRICULUM,
   STORAGE_KEY_CATCH_CURRICULUM,
@@ -122,6 +135,7 @@ import {
   List,
   Pencil,
   Target,
+  Film,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -171,10 +185,10 @@ export default function App() {
   // Main UI Mode: 'landing' (الرئيسية التعريفية) or 'practice' (صفحة التدريب والتسجيل)
   const [currentView, setCurrentView] = useState<'landing' | 'practice'>('landing');
 
-  // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', or 'catch'
-  const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch'>('pronunciation');
+  // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
+  const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -257,6 +271,16 @@ export default function App() {
   const [activeDictationExerciseIdx, setActiveDictationExerciseIdx] = useState<number>(0);
   const [activeCatchSubjectId, setActiveCatchSubjectId] = useState<string>('');
   const [activeCatchExerciseIdx, setActiveCatchExerciseIdx] = useState<number>(0);
+
+  // Standalone Interactive Video Module State (فيديو_الأسئلة / فيديو_الإجابات / فيديو_التصحيح)
+  const [videoLessons, setVideoLessons] = useState<VideoLesson[]>(() => getLocalVideoLessons());
+  const [activeVideoLessonId, setActiveVideoLessonId] = useState<string>(() => getLocalVideoLessons()[0]?.id || '');
+  const [videoProgressMap, setVideoProgressMap] = useState<Record<string, VideoStudentProgress>>(() =>
+    getLocalVideoProgressMap('')
+  );
+  const [isVideoResetMode, setIsVideoResetMode] = useState(false);
+  const [isVideoLessonsModalOpen, setIsVideoLessonsModalOpen] = useState(false);
+  const [isVideoCorrectionModalOpen, setIsVideoCorrectionModalOpen] = useState(false);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent | TouchEvent) => {
@@ -452,7 +476,7 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards] =
+    const [currRes, homeCfg, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
@@ -463,6 +487,7 @@ export default function App() {
         fetchCatchARRewardsFromSheet(url),
         writingSheetService.fetchLessonsFromSheet().catch(() => null),
         writingSheetService.fetchARRewardsFromSheet().catch(() => null),
+        fetchVideoLessonsFromSheets(url).catch(() => null),
       ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -566,6 +591,13 @@ export default function App() {
         setWritingArIntroReward(writingRewards.introReward);
         saveStoredARIntroReward(writingRewards.introReward);
       }
+    }
+
+    // 8. Update interactive video lessons from sheet "فيديو_الأسئلة"
+    if (videoLessonsRes && videoLessonsRes.length > 0) {
+      setVideoLessons(videoLessonsRes);
+      saveLocalVideoLessons(videoLessonsRes);
+      setActiveVideoLessonId((prev) => prev || videoLessonsRes[0].id);
     }
   };
 
@@ -748,7 +780,9 @@ export default function App() {
             parsedSheets.teacherDriveFolderId || parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
           const studentId = parsedSheets.studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID;
           const sanitizedWebhook =
-            !parsedSheets.webhookUrl || parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq')
+            !parsedSheets.webhookUrl ||
+            parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq') ||
+            parsedSheets.webhookUrl.includes('AKfycbxlYR9nhzBvTc63xCSsU')
               ? DEFAULT_WEBHOOK_URL
               : parsedSheets.webhookUrl;
 
@@ -995,6 +1029,16 @@ export default function App() {
           .catch((err) => {
             console.warn('Auto-fetch AR rewards notice:', err);
           });
+
+        // Auto-fetch Interactive Video lessons ("فيديو_الأسئلة")
+        fetchVideoLessonsFromSheets(activeConfig.webhookUrl)
+          .then((vLessons) => {
+            if (vLessons && vLessons.length > 0) {
+              setVideoLessons(vLessons);
+              setActiveVideoLessonId((prev) => prev || vLessons[0].id);
+            }
+          })
+          .catch(() => {});
       }
 
       const savedSubmissions = localStorage.getItem(STORAGE_KEY_SUBMISSIONS);
@@ -1034,6 +1078,11 @@ export default function App() {
                 if (wh && wh.length > 0) setWritingHistory(wh);
               })
               .catch(() => {});
+            fetchStudentVideoProgress(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((vp) => {
+                if (vp) setVideoProgressMap(vp);
+              })
+              .catch(() => {});
             syncStudentRetriesFromSheets(activeConfig.webhookUrl, parsed).catch(() => {});
           }
         } catch (e) {}
@@ -1058,7 +1107,63 @@ export default function App() {
             if (wh && wh.length > 0) setWritingHistory(wh);
           })
           .catch(() => {});
+        setVideoProgressMap(getLocalVideoProgressMap(''));
       }
+
+      // URL Auto-Login (?username=...&sheet_number=... OR ?name=...&id=...) & Optional ?mode=video
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        const urlName = (
+          searchParams.get('username') ||
+          searchParams.get('name') ||
+          searchParams.get('student') ||
+          ''
+        ).trim();
+        const urlId = (
+          searchParams.get('sheet_number') ||
+          searchParams.get('sheetNumber') ||
+          searchParams.get('id') ||
+          ''
+        ).trim();
+        const urlMode = (searchParams.get('mode') || '').trim().toLowerCase();
+
+        if (urlMode === 'video') {
+          setAppMode('video');
+          setCurrentView('practice');
+        }
+
+        if (urlId || urlName) {
+          (async () => {
+            let finalName = urlName;
+            if (urlId && !finalName) {
+              const registrants = await fetchIDRegistrants(activeConfig.webhookUrl);
+              const found = registrants.find((r) => String(r.id).trim() === urlId);
+              if (found) finalName = found.name;
+            }
+            if (finalName && urlId) {
+              const check = await verifyStudentLogin(activeConfig.webhookUrl, finalName, urlId);
+              if (check.success && check.student) {
+                setCurrentStudent(check.student);
+                try {
+                  localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(check.student));
+                } catch {}
+                setSettings((prev) => ({ ...prev, studentName: check.student!.name }));
+                if (activeConfig.webhookUrl) {
+                  fetchStudentVideoProgress(
+                    activeConfig.webhookUrl,
+                    check.student.id,
+                    check.student.name
+                  )
+                    .then((vp) => {
+                      if (vp) setVideoProgressMap(vp);
+                    })
+                    .catch(() => {});
+                }
+              }
+            }
+          })();
+        }
+      } catch {}
     } catch (e) {
       console.warn('LocalStorage load error:', e);
     }
@@ -1138,6 +1243,12 @@ export default function App() {
         })
         .catch(() => {});
 
+      fetchStudentVideoProgress(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((vp) => {
+          if (vp) setVideoProgressMap(vp);
+        })
+        .catch(() => {});
+
       syncStudentRetriesFromSheets(sheetsConfig.webhookUrl, student).catch(() => {});
     }
   };
@@ -1149,6 +1260,7 @@ export default function App() {
     setDictationHistory([]);
     setCatchHistory([]);
     setWritingHistory([]);
+    setVideoProgressMap(getLocalVideoProgressMap(''));
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
@@ -1469,6 +1581,8 @@ export default function App() {
     setIsMatchingLessonsModalOpen(false);
     setIsDictationLessonsModalOpen(false);
     setIsCatchLessonsModalOpen(false);
+    setIsVideoLessonsModalOpen(false);
+    setIsVideoCorrectionModalOpen(false);
     setLandingLessonsMenuOpen(false);
   };
 
@@ -1551,6 +1665,27 @@ export default function App() {
     setCurrentView('practice');
   };
 
+  const refreshVideoLessons = async () => {
+    const list = await fetchVideoLessonsFromSheets(sheetsConfig.webhookUrl);
+    if (list && list.length > 0) {
+      setVideoLessons(list);
+      setActiveVideoLessonId((prev) => prev || list[0].id);
+    }
+  };
+
+  const openVideoLessonsModal = () => {
+    closeAllLessonModals();
+    refreshVideoLessons().catch(() => {});
+    if (currentStudent && sheetsConfig.webhookUrl) {
+      fetchStudentVideoProgress(sheetsConfig.webhookUrl, currentStudent.id, currentStudent.name)
+        .then((vp) => {
+          if (vp) setVideoProgressMap(vp);
+        })
+        .catch(() => {});
+    }
+    setIsVideoLessonsModalOpen(true);
+  };
+
   const handleNextWord = () => {
     const nextIdx = (currentIndex + 1) % activeSubjectWords.length;
     setSelectedItem(activeSubjectWords[nextIdx]);
@@ -1600,7 +1735,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -1751,6 +1886,14 @@ export default function App() {
             setCurrentView('practice');
             handleBackToStudent();
           }}
+          videoLessons={videoLessons}
+          onUpdateVideoLessons={(updated) => {
+            setVideoLessons(updated);
+            saveLocalVideoLessons(updated);
+            if (updated.length > 0 && !updated.some((l) => l.id === activeVideoLessonId)) {
+              setActiveVideoLessonId(updated[0].id);
+            }
+          }}
         />
 
         <SettingsModal
@@ -1863,6 +2006,7 @@ export default function App() {
         onOpenDictationLessons={openDictationLessonsModal}
         onOpenWriting={openWritingExercise}
         onOpenCatchLessons={openCatchLessonsModal}
+        onOpenVideoLessons={openVideoLessonsModal}
         currentMode={appMode}
         onSelectMode={(mode) => {
           closeAllLessonModals();
@@ -1880,7 +2024,7 @@ export default function App() {
       {/* Main Content Area */}
       <main
         className={
-          currentView === 'practice' && appMode === 'writing'
+          currentView === 'practice' && (appMode === 'writing' || appMode === 'catch')
             ? 'flex-1 w-full p-0 m-0 flex flex-col'
             : 'flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col'
         }
@@ -1974,23 +2118,24 @@ export default function App() {
                   );
                 })()}
 
-                {/* 5. Unified Lessons Dropdown Button (دروس) */}
-                <div ref={landingLessonsMenuRef} className="relative flex justify-center pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setLandingLessonsMenuOpen((prev) => !prev)}
-                    className="flex items-center justify-center gap-2.5 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-emerald-500/30 cursor-pointer hover:scale-105 active:scale-95"
-                    aria-expanded={landingLessonsMenuOpen}
-                    aria-haspopup="menu"
-                  >
-                    <BookOpen className="w-5 h-5" />
-                    <span>{t('nav_lessons_menu', 'دروس')}</span>
-                    <ChevronDown
-                      className={`w-4 h-4 transition-transform duration-200 ${
-                        landingLessonsMenuOpen ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
+                {/* 5. Unified Lessons Dropdown Button (دروس) + Standalone Interactive Video Button (فيديو) */}
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  <div ref={landingLessonsMenuRef} className="relative flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setLandingLessonsMenuOpen((prev) => !prev)}
+                      className="flex items-center justify-center gap-2.5 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-emerald-500/30 cursor-pointer hover:scale-105 active:scale-95"
+                      aria-expanded={landingLessonsMenuOpen}
+                      aria-haspopup="menu"
+                    >
+                      <BookOpen className="w-5 h-5" />
+                      <span>{t('nav_lessons_menu', 'دروس')}</span>
+                      <ChevronDown
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          landingLessonsMenuOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
 
                   {landingLessonsMenuOpen && (
                     <div
@@ -2058,6 +2203,16 @@ export default function App() {
                       </button>
                     </div>
                   )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={openVideoLessonsModal}
+                    className="flex items-center justify-center gap-2.5 px-7 py-4 bg-slate-900/90 hover:bg-slate-800 text-white border border-white/25 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl cursor-pointer hover:scale-105 active:scale-95"
+                  >
+                    <Film className="w-5 h-5 text-emerald-400" />
+                    <span>{t('nav_video_btn', 'فيديو')}</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2510,103 +2665,7 @@ export default function App() {
           /* ========================================================
              6. AR CATCH & CONNECT ARENA (تحدي اصطياد وتوصيل الحروف - صيد)
              ======================================================== */
-          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-            {(() => {
-              const resolvedSubject =
-                catchSubjects.find((s) => s.id === activeCatchSubjectId) ||
-                catchSubjects[0] ||
-                null;
-              const resolvedSubjectId = resolvedSubject?.id || '';
-              const totalExercises = resolvedSubject?.exercises.length || 0;
-              const safeExIdx =
-                totalExercises > 0
-                  ? Math.min(Math.max(0, activeCatchExerciseIdx), totalExercises - 1)
-                  : 0;
-              const activeExNumber =
-                resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
-
-              return (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => setCurrentView('landing')}
-                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
-                      title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
-                    >
-                      <Home className="w-4 h-4 text-slate-700" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={openCatchLessonsModal}
-                      className="p-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
-                      title={t('catch_lessons_list_btn', 'قائمة دروس الصيد')}
-                      aria-label={t('catch_lessons_list_btn', 'قائمة دروس الصيد')}
-                    >
-                      <List className="w-4 h-4 text-sky-700" />
-                    </button>
-                  </div>
-
-                  {resolvedSubject && (
-                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
-                      <div className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-900 font-bold border border-sky-200/80 flex items-center">
-                        <select
-                          value={resolvedSubjectId}
-                          onChange={(e) => {
-                            setActiveCatchSubjectId(e.target.value);
-                            setActiveCatchExerciseIdx(0);
-                          }}
-                          className="bg-transparent font-bold text-sky-950 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
-                        >
-                          {catchSubjects.map((subj) => (
-                            <option key={subj.id} value={subj.id}>
-                              {getTranslatedCatchSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl px-1.5 py-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (safeExIdx > 0) {
-                              setActiveCatchSubjectId(resolvedSubjectId);
-                              setActiveCatchExerciseIdx(safeExIdx - 1);
-                            }
-                          }}
-                          disabled={safeExIdx === 0}
-                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
-                          title={currentLang === 'ar' ? 'التمرين السابق' : 'Previous'}
-                        >
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-
-                        <span className="px-1.5 text-slate-800 font-bold whitespace-nowrap">
-                          {t('matching_exercise_label', 'التمرين')} {activeExNumber} {t('matching_of_label', 'من')} {totalExercises}
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (safeExIdx < totalExercises - 1) {
-                              setActiveCatchSubjectId(resolvedSubjectId);
-                              setActiveCatchExerciseIdx(safeExIdx + 1);
-                            }
-                          }}
-                          disabled={safeExIdx >= totalExercises - 1}
-                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
-                          title={currentLang === 'ar' ? 'التمرين التالي' : 'Next'}
-                        >
-                          <ChevronLeft className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-
+          <div className="w-full animate-in fade-in duration-300">
             <CatchArena
               subjects={catchSubjects}
               currentStudent={currentStudent}
@@ -2621,6 +2680,10 @@ export default function App() {
                 setActiveCatchExerciseIdx(exIdx);
               }}
               onBackToPronunciation={() => setAppMode('pronunciation')}
+              onOpenLessons={openCatchLessonsModal}
+              onGoHome={() => setCurrentView('landing')}
+              isAdminAuthenticated={isAdminAuthenticated}
+              onOpenAdminCatch={() => handleOpenAdmin('catch')}
               onRequestLogin={() => setIsLoginModalOpen(true)}
               catchHistory={catchHistory}
               retryNonce={catchRetryNonce}
@@ -2668,6 +2731,33 @@ export default function App() {
                     ...prev,
                   ];
                 });
+              }}
+            />
+          </div>
+        ) : appMode === 'video' ? (
+          /* ========================================================
+             7. STANDALONE INTERACTIVE VIDEO MODULE (فيديو_الأسئلة)
+             ======================================================== */
+          <div className="w-full animate-in fade-in duration-300">
+            <InteractiveVideoArena
+              lessons={videoLessons}
+              activeLessonId={activeVideoLessonId || videoLessons[0]?.id || ''}
+              progressMap={videoProgressMap}
+              isResetMode={isVideoResetMode}
+              currentStudent={currentStudent}
+              webhookUrl={sheetsConfig.webhookUrl}
+              currentLang={currentLang}
+              t={t}
+              onSelectLessonId={(id) => {
+                setActiveVideoLessonId(id);
+                setIsVideoResetMode(false);
+              }}
+              onOpenLessonsModal={openVideoLessonsModal}
+              onOpenCorrectionsModal={() => setIsVideoCorrectionModalOpen(true)}
+              onRequestLogin={() => setIsLoginModalOpen(true)}
+              onGoHome={() => setCurrentView('landing')}
+              onUpdateProgress={(lessonId, nextProg) => {
+                setVideoProgressMap((prev) => ({ ...prev, [lessonId]: nextProg }));
               }}
             />
           </div>
@@ -2852,7 +2942,7 @@ export default function App() {
       {/* Footer: Dynamic Social Media Channels from sheet "الرئيسية" with NO text */}
       <footer
         className={`border-t border-slate-200/80 bg-white py-6 ${
-          currentView === 'practice' && appMode === 'writing' ? 'mt-0' : 'mt-12'
+          currentView === 'practice' && (appMode === 'writing' || appMode === 'catch') ? 'mt-0' : 'mt-12'
         }`}
       >
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-3">
@@ -3105,6 +3195,50 @@ export default function App() {
         currentStudent={currentStudent}
         currentLang={currentLang}
         translations={translations}
+        t={t}
+      />
+
+      {/* Interactive Video Lessons & Corrections Modals */}
+      <VideoLessonsModal
+        isOpen={isVideoLessonsModalOpen}
+        onClose={() => setIsVideoLessonsModalOpen(false)}
+        lessons={videoLessons}
+        activeLessonId={activeVideoLessonId || videoLessons[0]?.id || ''}
+        progressMap={videoProgressMap}
+        currentStudent={currentStudent}
+        webhookUrl={sheetsConfig.webhookUrl}
+        onSelectLesson={(lessonId, isRetry) => {
+          setActiveVideoLessonId(lessonId);
+          setIsVideoResetMode(Boolean(isRetry));
+          closeAllLessonModals();
+          setAppMode('video');
+          setCurrentView('practice');
+        }}
+        onOpenCorrections={() => {
+          setIsVideoLessonsModalOpen(false);
+          setIsVideoCorrectionModalOpen(true);
+        }}
+        onRefreshLessons={refreshVideoLessons}
+        onUpdateProgress={(lessonId, nextProg) => {
+          setVideoProgressMap((prev) => ({ ...prev, [lessonId]: nextProg }));
+        }}
+        t={t}
+        currentLang={currentLang}
+      />
+
+      <VideoCorrectionModal
+        isOpen={isVideoCorrectionModalOpen}
+        onClose={() => setIsVideoCorrectionModalOpen(false)}
+        webhookUrl={sheetsConfig.webhookUrl}
+        studentId={currentStudent?.id || ''}
+        studentName={currentStudent?.name || ''}
+        lessons={videoLessons}
+        progressMap={videoProgressMap}
+        selectedLessonTitle={
+          appMode === 'video'
+            ? videoLessons.find((l) => l.id === activeVideoLessonId)?.title
+            : undefined
+        }
         t={t}
       />
 
