@@ -174,7 +174,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', or 'catch'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -748,7 +748,9 @@ export default function App() {
             parsedSheets.teacherDriveFolderId || parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
           const studentId = parsedSheets.studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID;
           const sanitizedWebhook =
-            !parsedSheets.webhookUrl || parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq')
+            !parsedSheets.webhookUrl ||
+            parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq') ||
+            parsedSheets.webhookUrl.includes('AKfycbxlYR9nhzBvTc63xCSsU')
               ? DEFAULT_WEBHOOK_URL
               : parsedSheets.webhookUrl;
 
@@ -1600,7 +1602,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {

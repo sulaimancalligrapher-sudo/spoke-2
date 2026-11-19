@@ -106,7 +106,7 @@ interface CatchArenaProps {
   }) => void;
 }
 
-type CatchTouchMode = 'touch_and_pinch' | 'pinch_only';
+type CatchTouchMode = 'pinch_drag' | 'pinch_tap' | 'hover_touch';
 
 interface BubblePhysics {
   x: number;
@@ -289,7 +289,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
   const [trackingMode, setTrackingMode] = useState<HandTrackingDisplayMode>(() =>
     isMobileOrTabletDevice() ? 'finger_only' : 'one_hand'
   );
-  const [touchCatchMode, setTouchCatchMode] = useState<CatchTouchMode>('touch_and_pinch');
+  const [touchCatchMode, setTouchCatchMode] = useState<CatchTouchMode>('pinch_drag');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isMirrored, setIsMirrored] = useState<boolean>(true);
   const [showCrownPref, setShowCrownPref] = useState<boolean>(true);
@@ -404,6 +404,17 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
   touchCatchModeRef.current = touchCatchMode;
   const isMotionPausedRef = useRef<boolean>(isMotionPaused);
   isMotionPausedRef.current = isMotionPaused;
+
+  useEffect(() => {
+    dwellTargetIdRef.current = null;
+    dwellStartTimeRef.current = 0;
+    if (dwellRingDomRef.current) {
+      dwellRingDomRef.current.style.background = 'transparent';
+    }
+    grabbedTileRef.current = null;
+    setGrabbedTile(null);
+    setIsOverDropZone(false);
+  }, [touchCatchMode]);
 
   const stopMediaAudio = useCallback(() => {
     if (mediaAudioRef.current) {
@@ -799,16 +810,16 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
         setCursorPinchingVisual(isPinching);
       }
 
-      // 1. Hit-test Bottom Answer Drop Zone with generous 28px padding
+      // 1. Hit-test Bottom Answer Drop Zone (extra +48px top margin for effortless drop)
       let overDrop = false;
       let hoveredBlank: number | undefined = undefined;
       if (dropZoneRef.current) {
         const dzRect = dropZoneRef.current.getBoundingClientRect();
         if (
-          clientX >= dzRect.left - 28 &&
-          clientX <= dzRect.right + 28 &&
-          clientY >= dzRect.top - 28 &&
-          clientY <= dzRect.bottom + 28
+          clientX >= dzRect.left - 32 &&
+          clientX <= dzRect.right + 32 &&
+          clientY >= dzRect.top - 48 &&
+          clientY <= dzRect.bottom + 32
         ) {
           overDrop = true;
           if (parsedBlanksRef.current.hasBlanks) {
@@ -816,10 +827,10 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
               if (!slotEl) continue;
               const sRect = slotEl.getBoundingClientRect();
               if (
-                clientX >= sRect.left - 16 &&
-                clientX <= sRect.right + 16 &&
-                clientY >= sRect.top - 16 &&
-                clientY <= sRect.bottom + 16
+                clientX >= sRect.left - 18 &&
+                clientX <= sRect.right + 18 &&
+                clientY >= sRect.top - 18 &&
+                clientY <= sRect.bottom + 18
               ) {
                 hoveredBlank = Number(idxStr);
                 break;
@@ -864,10 +875,11 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
       }
 
       const now = performance.now();
+      const mode = touchCatchModeRef.current;
 
-      // 3. Direct Air-Touch Dwell (~420ms hover over bubble catches it automatically!)
+      // 3. Index-Finger Dwell Auto-Catch: ONLY active when explicitly set to 'hover_touch'!
       if (
-        touchCatchModeRef.current === 'touch_and_pinch' &&
+        mode === 'hover_touch' &&
         !isCompletedRef.current &&
         !grabbedTileRef.current &&
         !isPinching &&
@@ -879,7 +891,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
           dwellStartTimeRef.current = now;
         }
         const elapsed = now - dwellStartTimeRef.current;
-        const DWELL_MS = 420;
+        const DWELL_MS = 450;
         const progress = Math.min(1, elapsed / DWELL_MS);
         if (dwellRingDom) {
           const deg = Math.round(progress * 360);
@@ -905,9 +917,9 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
         if (dwellRingDom) dwellRingDom.style.background = 'transparent';
       }
 
-      // 4. Transition: Open -> Pinch (Grab!)
+      // 4. Transition: Open -> Pinch (Thumb + Index meet over a bubble => Grab!)
       if (!wasPinching && isPinching && !isCompletedRef.current && !grabbedTileRef.current) {
-        if (foundBubbleId) {
+        if (foundBubbleId && now >= catchCooldownUntilRef.current) {
           const targetTile =
             shuffledTilesRef.current.find((t) => t.id === foundBubbleId) || null;
           if (targetTile) {
@@ -920,23 +932,29 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
         }
       }
 
-      // 5. Transition: Pinch -> Open (Drop into Bottom Box OR Quick Pinch-Tap Catch!)
+      // 5. Transition: Pinch -> Open (Thumb & Index separate => Drop or Tap-Catch)
       if (wasPinching && !isPinching && grabbedTileRef.current) {
         const released = grabbedTileRef.current;
-        const grabDuration = now - grabStartTimeRef.current;
-        const dragDist = grabStartPosRef.current
-          ? Math.hypot(clientX - grabStartPosRef.current.x, clientY - grabStartPosRef.current.y)
-          : 0;
-
         grabbedTileRef.current = null;
         grabStartPosRef.current = null;
         setGrabbedTile(null);
         setIsOverDropZone(false);
 
-        const isQuickPinchTap = grabDuration < 580 || dragDist < 65;
-        if ((overDrop || isQuickPinchTap) && !isCompletedRef.current) {
-          catchCooldownUntilRef.current = now + 420;
-          placeTileRef.current(released, overDrop ? hoveredBlank : undefined);
+        if (!isCompletedRef.current) {
+          if (mode === 'pinch_drag') {
+            // Strict Drag-and-Drop: ONLY place if dropped inside the lower Answer Box!
+            if (overDrop) {
+              catchCooldownUntilRef.current = now + 400;
+              placeTileRef.current(released, hoveredBlank);
+            }
+          } else if (mode === 'pinch_tap') {
+            // Intentional Pinch-Tap: pinching thumb+index over bubble catches it immediately on release!
+            catchCooldownUntilRef.current = now + 400;
+            placeTileRef.current(released, overDrop ? hoveredBlank : undefined);
+          } else if (mode === 'hover_touch' && overDrop) {
+            catchCooldownUntilRef.current = now + 400;
+            placeTileRef.current(released, hoveredBlank);
+          }
         }
       }
     },
@@ -1283,7 +1301,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                 type="button"
                 onClick={onGoHome}
                 className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all active:scale-95 cursor-pointer"
-                title={currentLang === 'ar' ? 'الصفحة الرئيسية' : 'Home'}
+                title={tr('catch_home_btn', 'الصفحة الرئيسية')}
               >
                 <Home className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
@@ -1335,7 +1353,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                 }}
                 disabled={safeExIdx === 0}
                 className="p-1 rounded-lg hover:bg-slate-700 disabled:opacity-35 text-slate-200 cursor-pointer disabled:cursor-not-allowed"
-                title={currentLang === 'ar' ? 'التمرين السابق' : 'Previous'}
+                title={tr('catch_prev_exercise', 'التمرين السابق')}
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -1352,7 +1370,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                 }}
                 disabled={safeExIdx >= totalExercises - 1}
                 className="p-1 rounded-lg hover:bg-slate-700 disabled:opacity-35 text-slate-200 cursor-pointer disabled:cursor-not-allowed"
-                title={currentLang === 'ar' ? 'التمرين التالي' : 'Next'}
+                title={tr('catch_next_exercise', 'التمرين التالي')}
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
@@ -1378,19 +1396,26 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
               </span>
             </button>
 
-            {/* AR Settings Popover Trigger */}
+            {/* AR Settings Popover Trigger (shows active catch mode pill on larger screens) */}
             {isCameraEnabled && (
               <button
                 type="button"
                 onClick={() => setIsArSettingsOpen((prev) => !prev)}
-                className={`p-2 rounded-xl border transition-all cursor-pointer ${
+                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-xl border transition-all cursor-pointer text-[11px] font-bold ${
                   isArSettingsOpen
                     ? 'bg-amber-500 text-slate-950 border-amber-400'
                     : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
                 }`}
                 title={tr('catch_ar_settings', 'إعدادات اليد والكاميرا')}
               >
-                <SlidersHorizontal className="w-4 h-4" />
+                <SlidersHorizontal className="w-4 h-4 shrink-0" />
+                <span className="hidden lg:inline">
+                  {touchCatchMode === 'pinch_drag'
+                    ? tr('catch_mode_badge_pinch_drag', 'السبابة + الإبهام (سحب)')
+                    : touchCatchMode === 'pinch_tap'
+                    ? tr('catch_mode_badge_pinch_tap', 'السبابة + الإبهام (نقر)')
+                    : tr('catch_mode_badge_hover', 'لمس بالسبابة')}
+                </span>
               </button>
             )}
 
@@ -1481,49 +1506,79 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
               </button>
             </div>
 
-            {/* Catch Method: Direct Touch + Pinch vs Pinch Only */}
+            {/* Catch Method: Pinch+Drag vs Pinch-Tap vs Index Hover Auto */}
             <div className="space-y-1.5">
               <div className="text-[11px] font-bold text-slate-300">
                 {tr('catch_ar_method_label', 'طريقة اصطياد الحرف باليد:')}
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="flex flex-col gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setTouchCatchMode('touch_and_pinch')}
-                  className={`px-2.5 py-2 rounded-xl font-bold border text-[11px] cursor-pointer transition-all ${
-                    touchCatchMode === 'touch_and_pinch'
-                      ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                  }`}
-                >
-                  {tr('catch_method_touch_pinch', 'لمس مباشر + قبض')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTouchCatchMode('pinch_only')}
-                  className={`px-2.5 py-2 rounded-xl font-bold border text-[11px] cursor-pointer transition-all ${
-                    touchCatchMode === 'pinch_only'
+                  onClick={() => setTouchCatchMode('pinch_drag')}
+                  className={`w-full px-2.5 py-2 rounded-xl font-bold border text-[11px] cursor-pointer transition-all text-right flex items-center justify-between gap-2 ${
+                    touchCatchMode === 'pinch_drag'
                       ? 'bg-sky-500 text-slate-950 border-sky-400'
                       : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
                   }`}
                 >
-                  {tr('catch_method_pinch_only', 'قبض وسحب فقط')}
+                  <span>{tr('catch_method_pinch_drag', 'قبض وسحب (السبابة + الإبهام)')}</span>
+                  <span>🤌</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTouchCatchMode('pinch_tap')}
+                  className={`w-full px-2.5 py-2 rounded-xl font-bold border text-[11px] cursor-pointer transition-all text-right flex items-center justify-between gap-2 ${
+                    touchCatchMode === 'pinch_tap'
+                      ? 'bg-amber-500 text-slate-950 border-amber-400'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>{tr('catch_method_pinch_tap', 'نقرة (السبابة + الإبهام)')}</span>
+                  <span>👌</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTouchCatchMode('hover_touch')}
+                  className={`w-full px-2.5 py-2 rounded-xl font-bold border text-[11px] cursor-pointer transition-all text-right flex items-center justify-between gap-2 ${
+                    touchCatchMode === 'hover_touch'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                      : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>{tr('catch_method_hover_touch', 'لمس بالسبابة فقط (تلقائي)')}</span>
+                  <span>☝️</span>
                 </button>
               </div>
+              <p className="text-[10px] text-slate-400 leading-relaxed bg-slate-950/60 border border-slate-800 rounded-xl px-2.5 py-1.5">
+                {touchCatchMode === 'pinch_drag'
+                  ? tr(
+                      'catch_method_pinch_drag_hint',
+                      'قرّب الإبهام والسبابة على الحرف لالتقاطه ثم اسحبه لصندوق الإجابة بالأسفل وأفلته.'
+                    )
+                  : touchCatchMode === 'pinch_tap'
+                  ? tr(
+                      'catch_method_pinch_tap_hint',
+                      'وجّه المؤشر على الحرف ثم طبّق السبابة والإبهام معاً لوضعه مباشرة في الصندوق.'
+                    )
+                  : tr(
+                      'catch_method_hover_touch_hint',
+                      'ثبّت إصبع السبابة فوق الحرف نصف ثانية ليتم التقاطه تلقائياً دون قبض.'
+                    )}
+              </p>
             </div>
 
-            {/* Hand Tracking Mode */}
+            {/* Hand Tracking Visual Display Mode */}
             <div className="space-y-1.5">
               <div className="text-[11px] font-bold text-slate-300">
-                {tr('catch_tracking_display', 'عرض تتبع اليد:')}
+                {tr('catch_tracking_display', 'عرض شكل اليد على الشاشة (مرئي فقط):')}
               </div>
               <div className="grid grid-cols-4 gap-1">
                 {(
                   [
-                    { id: 'finger_only', label: 'السبابة' },
-                    { id: 'one_hand', label: 'يد واحدة' },
-                    { id: 'two_hands', label: 'يدان' },
-                    { id: 'off', label: 'إيقاف' },
+                    { id: 'finger_only', label: tr('catch_track_finger_only', 'السبابة') },
+                    { id: 'one_hand', label: tr('catch_track_one_hand', 'يد واحدة') },
+                    { id: 'two_hands', label: tr('catch_track_two_hands', 'يدان') },
+                    { id: 'off', label: tr('catch_track_off', 'إيقاف') },
                   ] as { id: HandTrackingDisplayMode; label: string }[]
                 ).map((opt) => (
                   <button
@@ -1728,7 +1783,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                   </span>
                 )}
                 <span className="px-2.5 py-0.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-[11px] font-bold">
-                  {getDictationTypeLabel(detectedType)}
+                  {tr(`catch_type_${detectedType}`, getDictationTypeLabel(detectedType))}
                 </span>
               </div>
             </div>
