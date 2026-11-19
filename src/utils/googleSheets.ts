@@ -47,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwnfbpR4kKIIR49ioYnEsAs3UHhNTKc5UAsNFCBglM2qdjppk0zfRB12zO9PB0izK1rsQ/exec';
+  'https://script.google.com/macros/s/AKfycbwvK5wVCCedutPubAC0V3-uLS8ZEI_ftwi_Y43-UZL3qWhKpK6-hhaQYpNVkRLF3cCH9w/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail

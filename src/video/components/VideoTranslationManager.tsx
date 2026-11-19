@@ -20,7 +20,7 @@ import {
   ensureTranslationsSheet,
   saveTranslationsToSheets,
 } from '../../utils/googleSheets';
-import { VideoLesson } from '../types';
+import { VideoLesson } from '../videoSheets';
 
 interface VideoTranslationManagerProps {
   translations: TranslationItem[];

@@ -16,8 +16,12 @@ import {
 } from 'lucide-react';
 import { StudentRegistrant } from '../../types';
 import { SupportedLang } from '../../utils/translations';
-import { VideoLesson, VideoStudentProgress } from '../types';
-import { consumeVideoRetryAttempt, getVideoLessonScheduleStatus } from '../videoSheets';
+import {
+  VideoLesson,
+  VideoStudentProgress,
+  consumeVideoRetryAttempt,
+  getVideoLessonScheduleStatus,
+} from '../videoSheets';
 
 interface VideoLessonsModalProps {
   isOpen: boolean;

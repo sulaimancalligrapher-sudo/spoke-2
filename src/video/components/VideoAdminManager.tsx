@@ -32,8 +32,6 @@ import {
   VideoLesson,
   VideoStudentSubmissionRow,
   VideoTimestampQuestion,
-} from '../types';
-import {
   deleteVideoLessonFromSheets,
   fetchAllVideoSubmissionsForAdmin,
   fetchTelegramConfig,

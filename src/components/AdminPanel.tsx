@@ -80,7 +80,7 @@ import { DictationAdminManager } from './DictationAdminManager';
 import { CatchAdminManager } from './CatchAdminManager';
 import { VideoAdminManager } from '../video/components/VideoAdminManager';
 import { VideoTranslationManager } from '../video/components/VideoTranslationManager';
-import { VideoLesson } from '../video/types';
+import { VideoLesson } from '../video/videoSheets';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';

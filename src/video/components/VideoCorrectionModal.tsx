@@ -13,8 +13,10 @@ import {
   MessageSquare,
   RefreshCw,
 } from 'lucide-react';
-import { VideoCorrectionEntry, VideoLesson, VideoStudentProgress } from '../types';
 import {
+  VideoCorrectionEntry,
+  VideoLesson,
+  VideoStudentProgress,
   fetchVideoCorrections,
   getPlayableVideoInfo,
   resolveVideoAudioAlternatives,

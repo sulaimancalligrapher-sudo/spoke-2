@@ -46,8 +46,9 @@ import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
 import { InteractiveVideoArena } from './video/components/InteractiveVideoArena';
 import { VideoLessonsModal } from './video/components/VideoLessonsModal';
 import { VideoCorrectionModal } from './video/components/VideoCorrectionModal';
-import { VideoLesson, VideoStudentProgress } from './video/types';
 import {
+  VideoLesson,
+  VideoStudentProgress,
   fetchVideoLessonsFromSheets,
   fetchStudentVideoProgress,
   getLocalVideoLessons,

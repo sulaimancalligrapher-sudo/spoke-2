@@ -20,7 +20,6 @@ import {
   SwitchCamera,
   Send,
   Loader2,
-  HelpCircle,
   BookOpen,
   ZoomIn,
   X,
@@ -35,8 +34,6 @@ import {
   VideoLesson,
   VideoStudentProgress,
   VideoTimestampQuestion,
-} from '../types';
-import {
   completeVideoLesson,
   getPlayableVideoInfo,
   resolveVideoAudioAlternatives,
@@ -537,7 +534,31 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     if (!activeModalQuestion) return;
     const keyToReset = activeModalQuestion.key;
     const type = activeModalQuestion.type;
-    const target = Math.max(0, activeModalQuestion.question.time - 10);
+    const currentQ = activeModalQuestion.question;
+
+    // Find the closest previous question's timestamp on the same track; if none (first question), go back to 0
+    const list = type === 'video' ? lesson?.questions || [] : lesson?.audioQuestions || [];
+    const keyPrefix = type === 'video' ? 'vq_' : 'aq_';
+    let prevTime = 0;
+    let prevIsAnswered = true;
+
+    list.forEach((item, idx) => {
+      const k = `${keyPrefix}${idx}`;
+      if (k === keyToReset) return;
+      if (item.time < currentQ.time && item.time >= prevTime) {
+        prevTime = item.time;
+        prevIsAnswered = Boolean(progress.answeredQuestions[k]);
+      }
+    });
+
+    // If previous question exists and wasn't marked answered yet, start 1s after it so it won't immediately re-trigger
+    const target =
+      prevTime > 0
+        ? prevIsAnswered
+          ? prevTime
+          : Math.min(Math.max(0, currentQ.time - 1), prevTime + 1)
+        : 0;
+
     triggeredKeysSessionRef.current.delete(keyToReset);
     setActiveModalQuestion(null);
     if (type === 'video') {
@@ -950,19 +971,17 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                 />
               </div>
 
-              {/* Timed Question Pins */}
+              {/* Show pins ONLY for already-answered questions so future question times stay hidden */}
               {duration > 0 &&
                 lesson.questions.map((q, idx) => {
-                  const pct = Math.min(99, Math.max(1, (q.time / duration) * 100));
                   const answered = Boolean(progress.answeredQuestions[`vq_${idx}`]);
+                  if (!answered) return null;
+                  const pct = Math.min(99, Math.max(1, (q.time / duration) * 100));
                   return (
                     <span
                       key={q.id || idx}
-                      title={`${q.question} (${formatTime(q.time)})`}
                       style={{ left: `${pct}%` }}
-                      className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-slate-900 pointer-events-none ${
-                        answered ? 'bg-emerald-400' : 'bg-amber-400'
-                      }`}
+                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-slate-900 pointer-events-none bg-emerald-400"
                     />
                   );
                 })}
@@ -1161,47 +1180,9 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                 </div>
               )}
 
-              {/* Timed Questions Summary List */}
-              {lesson.questions.length > 0 && (
-                <div className="space-y-2.5">
-                  <h4 className="text-xs font-extrabold text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
-                    <HelpCircle className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>الأسئلة التفاعلية داخل الفيديو ({lesson.questions.length})</span>
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {lesson.questions.map((q, idx) => {
-                      const key = `vq_${idx}`;
-                      const ans = progress.answeredQuestions[key];
-                      const canJump = Boolean(ans) || !isSeekLocked;
-                      return (
-                        <button
-                          key={q.id || idx}
-                          type="button"
-                          disabled={!canJump}
-                          onClick={() => {
-                            if (canJump) seekVideoTo(Math.max(0, q.time - 2));
-                          }}
-                          className={`p-3 rounded-2xl border text-right flex items-center justify-between gap-2 transition-all ${
-                            ans
-                              ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
-                              : 'bg-white border-slate-200 text-slate-700'
-                          } ${canJump ? 'cursor-pointer hover:border-indigo-300' : 'cursor-default opacity-80'}`}
-                        >
-                          <div className="min-w-0">
-                            <div className="text-[11px] font-mono font-bold text-indigo-600">
-                              {formatTime(q.time)}
-                            </div>
-                            <div className="text-xs font-bold truncate">{q.question}</div>
-                          </div>
-                          {ans ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                          ) : (
-                            <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+              {!lesson.instruction && !helperImgUrl && explainAudioCandidates.length === 0 && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-600 font-semibold text-center">
+                  شاهد الفيديو بتركيز؛ ستظهر الأسئلة التفاعلية تلقائياً أثناء العرض.
                 </div>
               )}
             </div>

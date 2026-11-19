@@ -11,8 +11,11 @@ import {
   HelpCircle,
   Clock,
 } from 'lucide-react';
-import { VideoTimestampQuestion } from '../types';
-import { resolveVideoAudioAlternatives, resolveVideoQuestionImage } from '../videoSheets';
+import {
+  VideoTimestampQuestion,
+  resolveVideoAudioAlternatives,
+  resolveVideoQuestionImage,
+} from '../videoSheets';
 import { SupportedLang } from '../../utils/translations';
 
 interface VideoQuestionModalProps {
@@ -301,10 +304,11 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
                 <button
                   type="button"
                   onClick={onRewatch}
+                  title="رجوع إلى النقطة السابقة لإعادة الاستماع"
                   className="px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-colors cursor-pointer min-h-[42px]"
                 >
                   <RotateCcw className="w-4 h-4" />
-                  <span>{tr('video_rewatch_clip', 'إعادة مشاهدة المقطع')}</span>
+                  <span>{tr('video_back_to_prev_point', 'رجوع')}</span>
                 </button>
               ) : (
                 <div />
