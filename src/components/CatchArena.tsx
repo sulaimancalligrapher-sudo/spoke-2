@@ -38,7 +38,7 @@ import { ARCameraOverlay } from '../arWriting/components/ARCameraOverlay';
 import { ARRewardTier, findARRewardForScore } from '../arWriting/services/arRewardsService';
 import { arTrackingService } from '../arWriting/services/arTrackingService';
 import { HandTrackingDisplayMode } from '../arWriting/types/drawing';
-import { isMobileOrTabletDevice } from '../arWriting/utils/devicePerformance';
+import { isMobileOrTabletDevice, isTouchLandscapeViewport } from '../arWriting/utils/devicePerformance';
 import {
   Target,
   Camera,
@@ -296,6 +296,9 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
   const [isMotionPaused, setIsMotionPaused] = useState<boolean>(false);
   const [isArSettingsOpen, setIsArSettingsOpen] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isMobileLandscape, setIsMobileLandscape] = useState<boolean>(() => isTouchLandscapeViewport());
+  const [showToolbarInLandscape, setShowToolbarInLandscape] = useState<boolean>(false);
+  const prevMobileLandscapeRef = useRef<boolean>(isMobileLandscape);
 
   const [arStatus, setArStatus] = useState<{
     handsCount: number;
@@ -315,13 +318,34 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
     }
   }, [previewRewardRequest]);
 
-  // Fullscreen & clean unmount stop of AR tracking
+  // Mobile/Tablet landscape auto-fullscreen + collapsible toolbar & clean unmount stop of AR tracking
   useEffect(() => {
+    const checkLandscape = () => {
+      const landscape = isTouchLandscapeViewport();
+      setIsMobileLandscape(landscape);
+      if (landscape && !prevMobileLandscapeRef.current) {
+        setShowToolbarInLandscape(false);
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+        window.scrollTo?.(0, 1);
+      } else if (!landscape && prevMobileLandscapeRef.current) {
+        setShowToolbarInLandscape(false);
+      }
+      prevMobileLandscapeRef.current = landscape;
+    };
+
     const handleFullscreenChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement));
     };
+
+    checkLandscape();
+    window.addEventListener('resize', checkLandscape);
+    window.addEventListener('orientationchange', checkLandscape);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => {
+      window.removeEventListener('resize', checkLandscape);
+      window.removeEventListener('orientationchange', checkLandscape);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       try {
         arTrackingService.stop();
@@ -1229,6 +1253,11 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
     }
   };
 
+  const handleCloseAfterSave = () => {
+    initExercise();
+    onOpenLessons?.();
+  };
+
   // Resolve Active AR Crown Tier
   const earnedRewardTier = useMemo(() => {
     if (activePreviewReward) return activePreviewReward;
@@ -1284,16 +1313,21 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
     <div
       dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
       className={
-        isFullscreen
+        isMobileLandscape || isFullscreen
           ? 'fixed inset-0 z-[80] flex flex-col h-[100dvh] w-screen overflow-hidden bg-slate-950 text-slate-100 font-cairo'
-          : 'flex flex-col w-full h-[calc(100dvh-96px)] sm:h-[calc(100dvh-65px)] min-h-[560px] shrink-0 overflow-hidden bg-slate-950 text-slate-100 font-cairo'
+          : 'flex flex-col w-full h-[calc(100dvh-96px)] sm:h-[calc(100dvh-65px)] min-h-[540px] shrink-0 overflow-hidden bg-slate-950 text-slate-100 font-cairo'
       }
     >
       {/* ================================================================ */}
       {/* BAR 1: TOP TOOLS HEADER (شريط الأدوات العلوي على غرار تمرين الكتابة) */}
       {/* ================================================================ */}
+      {(!isMobileLandscape || showToolbarInLandscape) && (
       <header className="relative w-full bg-slate-900/95 backdrop-blur-md border-b border-slate-800 text-slate-100 z-50 select-none shadow-md">
-        <div className="max-w-7xl mx-auto px-2 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2.5 overflow-x-auto scrollbar-none">
+        <div
+          className={`max-w-7xl mx-auto px-2 sm:px-4 ${
+            isMobileLandscape ? 'py-1' : 'py-1.5 sm:py-2'
+          } flex items-center justify-between gap-1.5 sm:gap-2.5 overflow-x-auto scrollbar-none`}
+        >
           {/* Start Section: Home + Lessons Folder + Subject & Exercise Navigator */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {onGoHome && (
@@ -1482,7 +1516,11 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
               type="button"
               onClick={toggleFullscreen}
               className="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer"
-              title={isFullscreen ? tr('writing_exit_fullscreen', 'إلغاء ملء الشاشة') : tr('writing_fullscreen', 'ملء الشاشة')}
+              title={
+                isFullscreen
+                  ? tr('catch_btn_exit_fullscreen', 'إلغاء ملء الشاشة')
+                  : tr('catch_btn_fullscreen', 'ملء الشاشة')
+              }
             >
               {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
@@ -1639,14 +1677,23 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
           </div>
         )}
       </header>
+      )}
 
       {/* ================================================================ */}
       {/* MAIN AR STAGE WORKSPACE                                           */}
       {/* ================================================================ */}
-      <div className="relative flex-1 min-h-0 w-full overflow-hidden flex flex-col items-center justify-center p-1.5 sm:p-3">
+      <div
+        className={`relative flex-1 min-h-0 w-full overflow-hidden flex flex-col items-center justify-center ${
+          isMobileLandscape ? 'p-0' : 'p-1.5 sm:p-3'
+        }`}
+      >
         <div
           ref={stageRef}
-          className="relative flex-1 w-full h-full max-w-6xl min-h-0 overflow-hidden rounded-2xl shadow-2xl border border-slate-800 bg-slate-950 select-none"
+          className={`relative flex-1 w-full h-full min-h-0 overflow-hidden shadow-2xl bg-slate-950 select-none ${
+            isMobileLandscape
+              ? 'max-w-none rounded-none border-0'
+              : 'max-w-6xl rounded-2xl border border-slate-800'
+          }`}
         >
           {/* Ambient Non-Camera Backdrop (when AR Camera is toggled OFF) */}
           {!isCameraEnabled && (
@@ -1672,365 +1719,500 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
           />
 
           {/* ============================================================ */}
-          {/* BAR 2: INNER SECOND TOP BAR (Question + Action + Type)       */}
+          {/* STAGE FOREGROUND LAYOUT: BAR 2 + PLAYFIELD + BOTTOM ANSWER BOX */}
           {/* ============================================================ */}
-          <div className="absolute top-2 sm:top-3 inset-x-2 sm:inset-x-4 z-20 pointer-events-none">
-            <div className="pointer-events-auto max-w-5xl mx-auto bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl px-2.5 sm:px-3.5 py-1.5 sm:py-2 flex items-center justify-between gap-2 shadow-xl">
-              {/* Start Side: AR Badge + Question Text / Image / Audio */}
-              <div className="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto scrollbar-none">
-                <span className="px-2 py-0.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[10px] sm:text-xs font-black shrink-0">
-                  AR
-                </span>
-
-                {questionBlocks.map((blk, i) => {
-                  if (blk.type === 'text') {
-                    const displayQ = getTranslatedCatchQuestionText(
-                      activeSubject.subjectName,
-                      activeExercise.exerciseNumber,
-                      blk.value,
-                      currentLang,
-                      translations
-                    );
-                    return (
-                      <span
-                        key={`qblk-txt-${i}`}
-                        className="text-xs sm:text-base font-extrabold text-white font-amiri truncate max-w-[200px] sm:max-w-[360px]"
-                        title={displayQ}
-                      >
-                        {displayQ}
-                      </span>
-                    );
-                  }
-                  if (blk.type === 'image') {
-                    const imgUrl = getDirectImageUrl(blk.value);
-                    return (
-                      <button
-                        key={`qblk-img-${i}`}
-                        type="button"
-                        onClick={() => setLightboxImageUrl(imgUrl)}
-                        className="relative group rounded-xl overflow-hidden border border-slate-600 bg-white w-9 h-9 sm:w-11 sm:h-11 shrink-0 cursor-zoom-in shadow-xs"
-                        title={tr('catch_zoom_img', 'تكبير الصورة')}
-                      >
-                        <img
-                          src={imgUrl}
-                          alt="صورة السؤال"
-                          className="w-full h-full object-contain p-0.5"
-                        />
-                        <span className="absolute bottom-0 right-0 bg-slate-900/80 text-white p-0.5 rounded-tl-md">
-                          <ZoomIn className="w-2.5 h-2.5" />
-                        </span>
-                      </button>
-                    );
-                  }
-                  const audKey = `catch-q-aud-${activeExercise.id}-${i}`;
-                  const isAudPlaying = playingMediaKey === audKey;
-                  return (
-                    <button
-                      key={`qblk-aud-${i}`}
-                      type="button"
-                      onClick={() => handlePlayMediaAudio(audKey, blk.value)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer shrink-0 ${
-                        isAudPlaying
-                          ? 'bg-amber-400 text-slate-950 border-amber-300 animate-pulse'
-                          : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-400/40'
-                      }`}
-                    >
-                      {isAudPlaying ? <Pause className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                      <span className="hidden sm:inline">{tr('catch_listen_question', 'استماع')}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Center: Verify / Close Action Button */}
-              <div className="flex items-center gap-1.5 shrink-0">
-                {!isRetryLockedSubmitted && (
-                  !isCompleted ? (
-                    <button
-                      type="button"
-                      onClick={handleVerifyAnswer}
-                      className={`flex items-center gap-1.5 px-3.5 sm:px-5 py-1 sm:py-1.5 rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer whitespace-nowrap ${
-                        hasAnyInput
-                          ? 'bg-linear-to-r from-emerald-400 to-teal-400 hover:brightness-110 text-slate-950 active:scale-95'
-                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600'
-                      }`}
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>{tr('matching_btn_check_short', 'تحقق')}</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setResultSidebarOpen((prev) => !prev)}
-                      className="flex items-center gap-1.5 px-3.5 sm:px-5 py-1 sm:py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap"
-                    >
-                      <Award className="w-4 h-4" />
-                      <span>
-                        {resultSidebarOpen
-                          ? tr('catch_hide_result', 'إخفاء النتيجة')
-                          : `${tr('catch_show_result', 'النتيجة')} (${finalScore}%)`}
-                      </span>
-                    </button>
-                  )
-                )}
-              </div>
-
-              {/* End Side: Lock Badge + Question Type */}
-              <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                {activeExercise.lockOnMistake && (
-                  <span className="px-2 py-0.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">
-                    🔒 {tr('catch_locked_badge', 'بدون تراجع')}
+          <div className="relative z-10 w-full h-full flex flex-col justify-between pointer-events-none">
+            {/* BAR 2: INNER TOP BAR (Compact Controls + Action + Mobile Tools Toggle) */}
+            <div
+              className={`shrink-0 pointer-events-none ${
+                isMobileLandscape ? 'px-0 pt-0' : 'px-2 sm:px-4 pt-2 sm:pt-3'
+              }`}
+            >
+              <div
+                className={`pointer-events-auto mx-auto bg-slate-900/90 backdrop-blur-md border border-slate-700/80 flex items-center justify-between shadow-xl ${
+                  isMobileLandscape
+                    ? 'w-full px-2.5 py-1 rounded-b-xl border-t-0 gap-1.5'
+                    : 'max-w-5xl rounded-2xl px-2.5 sm:px-3.5 py-1.5 sm:py-2 gap-2'
+                }`}
+              >
+                {/* Start Side: AR Badge + Exercise Type / Lock */}
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
+                  <span className="px-2 py-0.5 rounded-lg bg-sky-500/20 text-sky-300 border border-sky-400/40 text-[10px] sm:text-xs font-black shrink-0">
+                    AR
                   </span>
-                )}
-                <span className="px-2.5 py-0.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-[11px] font-bold">
-                  {tr(`catch_type_${detectedType}`, getDictationTypeLabel(detectedType))}
-                </span>
-              </div>
-            </div>
-
-            {/* Optional Compact Retry / Preview Reward Notices below Bar 2 */}
-            {(retryBannerMessage || activePreviewReward) && (
-              <div className="max-w-3xl mx-auto mt-1.5 flex flex-wrap items-center justify-center gap-2 pointer-events-auto">
-                {retryBannerMessage && (
-                  <div className="px-3 py-1 rounded-xl bg-sky-900/90 border border-sky-400/50 text-[11px] font-bold text-sky-100 flex items-center gap-1.5 shadow-md">
-                    <RotateCcw className="w-3.5 h-3.5 text-sky-300 shrink-0" />
-                    <span>{retryBannerMessage}</span>
-                  </div>
-                )}
-                {activePreviewReward && (
-                  <div className="px-3 py-1 rounded-xl bg-amber-900/90 border border-amber-400/60 text-[11px] font-bold text-amber-100 flex items-center gap-2 shadow-md">
-                    <Crown className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                    <span>{activePreviewReward.title}</span>
-                    <button
-                      type="button"
-                      onClick={() => setActivePreviewReward(null)}
-                      className="p-0.5 rounded-md bg-amber-950/60 hover:bg-amber-950 text-amber-200 cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ============================================================ */}
-          {/* RETRY LOCKED STATE OR ANIMATED FLOATING PLAYFIELD            */}
-          {/* ============================================================ */}
-          {isRetryLockedSubmitted ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
-              <div className="bg-slate-900/92 border border-amber-400/50 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-3 shadow-2xl">
-                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-400/40 flex items-center justify-center mx-auto">
-                  <Lock className="w-6 h-6" />
+                  <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 text-slate-200 border border-slate-700 text-[10px] sm:text-xs font-bold tabular-nums shrink-0">
+                    {activeExercise.exerciseNumber}/{totalExercises}
+                  </span>
+                  {activeExercise.lockOnMistake && (
+                    <span className="hidden sm:inline-flex px-2 py-0.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">
+                      🔒 {tr('catch_locked_badge', 'بدون تراجع')}
+                    </span>
+                  )}
+                  <span className="hidden md:inline-flex px-2.5 py-0.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 text-[11px] font-bold">
+                    {tr(`catch_type_${detectedType}`, getDictationTypeLabel(detectedType))}
+                  </span>
                 </div>
-                <h3 className="text-base sm:text-lg font-extrabold text-white">
-                  {tr('catch_already_submitted_title', 'تم إرسال وتوثيق إجابتك في هذا التمرين')}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-300">
-                  {tr('catch_your_score', 'درجتك المسجلة:')}{' '}
-                  <strong className="text-emerald-400">{recordedExerciseEntry?.percentage ?? 100}%</strong>
-                </p>
-                <p className="text-xs text-rose-300 font-bold">
-                  {catchRetryStatus.maxRetries > 0
-                    ? tr(
-                        'retry_limit_reached_notice',
-                        '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها.'
-                      )
-                    : tr('lessons_retry_locked', 'الإعادة مغلقة من قبل المعلم')}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* MIDDLE FLOATING PLAYFIELD (60fps Animated Bubbles + Extra Distractors) */}
-              {!isCompleted && (
-                <div
-                  ref={playfieldRef}
-                  className="absolute inset-x-2 sm:inset-x-4 top-16 sm:top-20 bottom-32 sm:bottom-36 z-10 pointer-events-none overflow-hidden"
-                >
-                  {shuffledTiles.map((tile) => {
-                    const isUsed = usedTileIds.has(tile.id);
-                    if (isUsed) return null;
-                    const isHovered = hoveredBubbleId === tile.id;
 
-                    return (
+                {/* Center: Check / Result / Post-Save Close Action */}
+                <div className="flex items-center justify-center gap-1.5 shrink-0">
+                  {!isRetryLockedSubmitted && (
+                    !isCompleted ? (
                       <button
-                        key={tile.id}
-                        ref={(el) => {
-                          bubbleRefs.current[tile.id] = el;
-                        }}
                         type="button"
-                        onClick={() => placeTileIntoTarget(tile)}
-                        className={`pointer-events-auto absolute top-0 left-0 min-w-[58px] min-h-[58px] sm:min-w-[74px] sm:min-h-[74px] px-3.5 py-2 rounded-full border-2 cursor-pointer flex flex-col items-center justify-center transition-colors duration-100 will-change-transform ${
-                          isHovered
-                            ? 'bg-linear-to-b from-amber-300 to-amber-500 text-slate-950 border-white ring-4 ring-emerald-400/75 shadow-[0_0_28px_rgba(251,191,36,0.85)] z-20'
-                            : 'bg-slate-900/82 hover:bg-sky-500 text-white border-sky-300/85 hover:border-white backdrop-blur-sm shadow-[0_8px_22px_rgba(14,165,233,0.35)]'
+                        onClick={handleVerifyAnswer}
+                        className={`flex items-center gap-1.5 px-3.5 sm:px-5 py-1 sm:py-1.5 rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer whitespace-nowrap ${
+                          hasAnyInput
+                            ? 'bg-linear-to-r from-emerald-400 to-teal-400 hover:brightness-110 text-slate-950 active:scale-95'
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600'
                         }`}
                       >
-                        <span className="font-amiri text-xl sm:text-3xl font-black leading-none select-none">
-                          {tile.text}
-                        </span>
-                        {tile.label && (
-                          <span
-                            className={`mt-1 text-[9px] sm:text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full ${
-                              isHovered
-                                ? 'bg-slate-950/20 text-slate-950'
-                                : 'bg-sky-400/20 text-sky-200'
-                            }`}
-                          >
-                            {translatePosLabel(tile.label)}
-                          </span>
-                        )}
+                        <Check className="w-4 h-4 shrink-0" />
+                        <span>{tr('catch_btn_check', 'تحقق')}</span>
                       </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* ======================================================== */}
-              {/* BOTTOM: ANSWER COLLECTION BOX (صندوق تجميع الإجابة بالأسفل) */}
-              {/* ======================================================== */}
-              <div className="absolute bottom-2 sm:bottom-3 inset-x-2 sm:inset-x-4 z-20 pointer-events-none">
-                <div
-                  ref={dropZoneRef}
-                  className={`pointer-events-auto max-w-4xl mx-auto rounded-2xl p-2 sm:p-3 transition-all backdrop-blur-md border-2 ${
-                    isOverDropZone && grabbedTile
-                      ? 'bg-emerald-950/85 border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.6)] scale-[1.01]'
-                      : 'bg-slate-900/85 border-sky-400/50 shadow-2xl'
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                    <span className="text-[11px] sm:text-xs font-extrabold text-sky-200 flex items-center gap-1.5">
-                      <Target className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                      <span>
-                        {isOverDropZone && grabbedTile
-                          ? tr('catch_drop_now', 'أفلت الفقاعة الآن لوضعها هنا!')
-                          : parsedBlanks.hasBlanks
-                          ? tr('catch_target_fill', 'صندوق الإجابة — المس الفقاعة أو اسحبها للفراغ:')
-                          : tr('catch_target_order', 'صندوق تجميع الإجابة — المس الفقاعات بالترتيب:')}
-                      </span>
-                    </span>
-
-                    {!isCompleted && !activeExercise.lockOnMistake && (
-                      <div className="flex items-center gap-1.5">
+                    ) : (
+                      <>
                         <button
                           type="button"
-                          onClick={handleUndo}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600 text-[11px] font-bold cursor-pointer min-h-[30px]"
+                          onClick={() => setResultSidebarOpen((prev) => !prev)}
+                          className="flex items-center gap-1.5 px-3 sm:px-4 py-1 sm:py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap"
                         >
-                          <Delete className="w-3 h-3" />
-                          <span>{tr('dictation_btn_undo', 'تراجع')}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleClear}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-rose-600 text-slate-200 border border-slate-600 text-[11px] font-bold cursor-pointer min-h-[30px]"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                          <span>{tr('dictation_btn_clear', 'مسح')}</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Blanks Fill View OR Ordered Composition View */}
-                  {parsedBlanks.hasBlanks ? (
-                    <div
-                      className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 p-2 rounded-xl bg-slate-950/65 border border-slate-700/80 min-h-[54px]"
-                      dir="rtl"
-                    >
-                      {parsedBlanks.segments.map((seg, idx) => {
-                        if (seg.kind === 'fixed') {
-                          return (
-                            <span
-                              key={`seg-txt-${idx}`}
-                              className="font-amiri text-xl sm:text-3xl font-bold text-white leading-relaxed"
-                            >
-                              {seg.text}
-                            </span>
-                          );
-                        }
-                        const bIdx = seg.blankIndex ?? 0;
-                        const assigned = blankAssignments[bIdx];
-                        const isActiveSlot = activeBlankIdx === bIdx;
-
-                        return (
-                          <button
-                            key={`seg-blk-${bIdx}`}
-                            ref={(el) => {
-                              blankSlotRefs.current[bIdx] = el;
-                            }}
-                            type="button"
-                            onClick={() => {
-                              if (assigned && !isCompleted && !activeExercise.lockOnMistake) {
-                                handleRemovePlacedTile(assigned.id);
-                              } else {
-                                setActiveBlankIdx(bIdx);
-                              }
-                            }}
-                            className={`min-w-[56px] min-h-[42px] px-3 py-1 rounded-xl border-2 font-amiri text-xl sm:text-2xl font-bold transition-all cursor-pointer flex items-center justify-center ${
-                              assigned
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
-                                : isActiveSlot
-                                ? 'bg-sky-500/25 text-sky-200 border-sky-400 animate-pulse'
-                                : 'bg-slate-800/80 text-slate-400 border-slate-600 border-dashed'
-                            }`}
-                          >
-                            {assigned ? assigned.text : '؟'}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {assembledPreview && (
-                        <div
-                          className="text-center font-amiri text-xl sm:text-2xl font-extrabold text-amber-300 drop-shadow tracking-wide"
-                          dir="rtl"
-                        >
-                          {assembledPreview}
-                        </div>
-                      )}
-
-                      <div
-                        className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 min-h-[52px] p-2 rounded-xl bg-slate-950/65 border border-slate-700/80"
-                        dir="rtl"
-                      >
-                        {selectedTiles.length === 0 ? (
-                          <span className="text-[11px] sm:text-xs text-slate-400 font-bold flex items-center gap-1.5">
-                            <MousePointerClick className="w-4 h-4 text-sky-400 shrink-0" />
-                            <span>
-                              {tr(
-                                'catch_dropzone_empty',
-                                'المس أي حرف بيدك في الهواء أو اضغط عليه لإضافته هنا'
-                              )}
-                            </span>
+                          <Award className="w-4 h-4 shrink-0" />
+                          <span>
+                            {resultSidebarOpen
+                              ? tr('catch_hide_result', 'إخفاء النتيجة')
+                              : `${tr('catch_show_result', 'النتيجة')} (${finalScore}%)`}
                           </span>
-                        ) : (
-                          selectedTiles.map((tile, tIdx) => (
-                            <button
-                              key={`placed-${tile.id}-${tIdx}`}
-                              type="button"
-                              onClick={() => handleRemovePlacedTile(tile.id)}
-                              disabled={isCompleted || Boolean(activeExercise.lockOnMistake)}
-                              className="min-w-[42px] min-h-[42px] px-3 py-1 rounded-xl bg-linear-to-b from-sky-400 to-cyan-500 text-slate-950 font-amiri text-lg sm:text-2xl font-black border-2 border-white shadow-md flex flex-col items-center justify-center hover:scale-105 transition-transform cursor-pointer disabled:cursor-default"
-                            >
-                              <span className="leading-none">{tile.text}</span>
-                              {tile.label && (
-                                <span className="text-[9px] font-cairo font-bold text-slate-900 mt-0.5 leading-none">
-                                  {translatePosLabel(tile.label)}
-                                </span>
-                              )}
-                            </button>
-                          ))
+                        </button>
+                        {sheetSyncSuccess && onOpenLessons && (
+                          <button
+                            type="button"
+                            onClick={handleCloseAfterSave}
+                            className="flex items-center gap-1 px-3 sm:px-4 py-1 sm:py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs sm:text-sm shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                            title={tr('catch_btn_close', 'إغلاق')}
+                          >
+                            <X className="w-3.5 h-3.5 shrink-0" />
+                            <span>{tr('catch_btn_close', 'إغلاق')}</span>
+                          </button>
                         )}
-                      </div>
+                      </>
+                    )
+                  )}
+                </div>
+
+                {/* End Side: Mobile Landscape Tools Toggle + Quick Lessons + Fullscreen */}
+                <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                  {isMobileLandscape && (
+                    <button
+                      type="button"
+                      onClick={() => setShowToolbarInLandscape((prev) => !prev)}
+                      title={tr('catch_btn_tools_short', 'الأدوات')}
+                      className={`p-1 px-2 rounded-lg border text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all cursor-pointer shrink-0 ${
+                        showToolbarInLandscape
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
+                          : 'bg-slate-800/85 hover:bg-slate-700 text-amber-300 border-slate-700/60'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                      <span>{tr('catch_btn_tools_short', 'الأدوات')}</span>
+                    </button>
+                  )}
+
+                  {isMobileLandscape && onOpenLessons && !showToolbarInLandscape && (
+                    <button
+                      type="button"
+                      onClick={onOpenLessons}
+                      title={tr('catch_lessons_list_btn', 'قائمة دروس الصيد')}
+                      aria-label={tr('catch_lessons_list_btn', 'قائمة دروس الصيد')}
+                      className="p-1 rounded-lg bg-slate-800/85 hover:bg-slate-700 text-sky-300 border border-slate-700/60 active:scale-95 transition-all cursor-pointer shrink-0"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    title={
+                      isFullscreen
+                        ? tr('catch_btn_exit_fullscreen', 'إلغاء ملء الشاشة')
+                        : tr('catch_btn_fullscreen', 'ملء الشاشة')
+                    }
+                    className={`${
+                      isMobileLandscape
+                        ? 'p-1 rounded-lg'
+                        : 'p-1.5 sm:p-2 rounded-xl'
+                    } bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 active:scale-95 transition-all cursor-pointer shrink-0`}
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    ) : (
+                      <Maximize2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Optional Compact Retry / Preview Reward Notices below Bar 2 */}
+              {(retryBannerMessage || activePreviewReward) && (
+                <div className="max-w-3xl mx-auto mt-1.5 flex flex-wrap items-center justify-center gap-2 pointer-events-auto">
+                  {retryBannerMessage && (
+                    <div className="px-3 py-1 rounded-xl bg-sky-900/90 border border-sky-400/50 text-[11px] font-bold text-sky-100 flex items-center gap-1.5 shadow-md">
+                      <RotateCcw className="w-3.5 h-3.5 text-sky-300 shrink-0" />
+                      <span>{retryBannerMessage}</span>
+                    </div>
+                  )}
+                  {activePreviewReward && (
+                    <div className="px-3 py-1 rounded-xl bg-amber-900/90 border border-amber-400/60 text-[11px] font-bold text-amber-100 flex items-center gap-2 shadow-md">
+                      <Crown className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                      <span>{activePreviewReward.title}</span>
+                      <button
+                        type="button"
+                        onClick={() => setActivePreviewReward(null)}
+                        className="p-0.5 rounded-md bg-amber-950/60 hover:bg-amber-950 text-amber-200 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
                     </div>
                   )}
                 </div>
+              )}
+            </div>
+
+            {/* ============================================================ */}
+            {/* RETRY LOCKED STATE OR FLEXIBLE MIDDLE FLOATING PLAYFIELD     */}
+            {/* ============================================================ */}
+            {isRetryLockedSubmitted ? (
+              <div className="flex-1 min-h-0 flex items-center justify-center p-4 pointer-events-auto">
+                <div className="bg-slate-900/92 border border-amber-400/50 rounded-3xl p-6 sm:p-8 max-w-md w-full text-center space-y-3 shadow-2xl">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-400/40 flex items-center justify-center mx-auto">
+                    <Lock className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-white">
+                    {tr('catch_already_submitted_title', 'تم إرسال وتوثيق إجابتك في هذا التمرين')}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-300">
+                    {tr('catch_your_score', 'درجتك المسجلة:')}{' '}
+                    <strong className="text-emerald-400">{recordedExerciseEntry?.percentage ?? 100}%</strong>
+                  </p>
+                  <p className="text-xs text-rose-300 font-bold">
+                    {catchRetryStatus.maxRetries > 0
+                      ? tr(
+                          'retry_limit_reached_notice',
+                          '🔒 وصلت للحد الأقصى لمحاولات الإعادة المسموح بها.'
+                        )
+                      : tr('lessons_retry_locked', 'الإعادة مغلقة من قبل المعلم')}
+                  </p>
+                </div>
               </div>
-            </>
-          )}
+            ) : (
+              <>
+                {/* MIDDLE FLOATING PLAYFIELD (Dynamically fills space between Bar 2 & Bottom Box) */}
+                {!isCompleted ? (
+                  <div
+                    ref={playfieldRef}
+                    className="relative flex-1 min-h-[120px] mx-2 sm:mx-4 my-1 pointer-events-none overflow-hidden"
+                  >
+                    {shuffledTiles.map((tile) => {
+                      const isUsed = usedTileIds.has(tile.id);
+                      if (isUsed) return null;
+                      const isHovered = hoveredBubbleId === tile.id;
+
+                      return (
+                        <button
+                          key={tile.id}
+                          ref={(el) => {
+                            bubbleRefs.current[tile.id] = el;
+                          }}
+                          type="button"
+                          onClick={() => placeTileIntoTarget(tile)}
+                          className={`pointer-events-auto absolute top-0 left-0 min-w-[54px] min-h-[54px] sm:min-w-[72px] sm:min-h-[72px] px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-full border-2 cursor-pointer flex flex-col items-center justify-center transition-colors duration-100 will-change-transform ${
+                            isHovered
+                              ? 'bg-linear-to-b from-amber-300 to-amber-500 text-slate-950 border-white ring-4 ring-emerald-400/75 shadow-[0_0_28px_rgba(251,191,36,0.85)] z-20'
+                              : 'bg-slate-900/82 hover:bg-sky-500 text-white border-sky-300/85 hover:border-white backdrop-blur-sm shadow-[0_8px_22px_rgba(14,165,233,0.35)]'
+                          }`}
+                        >
+                          <span className="font-amiri text-xl sm:text-3xl font-black leading-none select-none">
+                            {tile.text}
+                          </span>
+                          {tile.label && (
+                            <span
+                              className={`mt-1 text-[9px] sm:text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full ${
+                                isHovered
+                                  ? 'bg-slate-950/20 text-slate-950'
+                                  : 'bg-sky-400/20 text-sky-200'
+                              }`}
+                            >
+                              {translatePosLabel(tile.label)}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 pointer-events-none" />
+                )}
+
+                {/* ======================================================== */}
+                {/* BOTTOM: ANSWER COLLECTION BOX (يضم السؤال + الصورة + الصوت + حقل الإجابة) */}
+                {/* ======================================================== */}
+                <div
+                  className={`shrink-0 pointer-events-none ${
+                    isMobileLandscape ? 'px-1.5 pb-1' : 'px-2 sm:px-4 pb-2 sm:pb-3'
+                  }`}
+                >
+                  <div
+                    ref={dropZoneRef}
+                    className={`pointer-events-auto max-w-4xl mx-auto rounded-2xl ${
+                      isMobileLandscape ? 'p-1.5 sm:p-2' : 'p-2 sm:p-3'
+                    } transition-all backdrop-blur-md border-2 ${
+                      isOverDropZone && grabbedTile
+                        ? 'bg-emerald-950/85 border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.6)] scale-[1.01]'
+                        : 'bg-slate-900/85 border-sky-400/50 shadow-2xl'
+                    }`}
+                  >
+                    {/* Header Row of Bottom Box: Question Text + Image + Audio (Replaces static banner) + Undo/Clear */}
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="flex-1 min-w-0 flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        {questionBlocks.length > 0 ? (
+                          questionBlocks.map((blk, i) => {
+                            if (blk.type === 'text') {
+                              const displayQ = getTranslatedCatchQuestionText(
+                                activeSubject.subjectName,
+                                activeExercise.exerciseNumber,
+                                blk.value,
+                                currentLang,
+                                translations
+                              );
+                              return (
+                                <span
+                                  key={`qblk-txt-${i}`}
+                                  className="text-xs sm:text-base font-extrabold text-white font-amiri leading-relaxed break-words"
+                                >
+                                  {displayQ}
+                                </span>
+                              );
+                            }
+                            if (blk.type === 'image') {
+                              const imgUrl = getDirectImageUrl(blk.value);
+                              return (
+                                <button
+                                  key={`qblk-img-${i}`}
+                                  type="button"
+                                  onClick={() => setLightboxImageUrl(imgUrl)}
+                                  className="relative group rounded-xl overflow-hidden border border-slate-600 bg-white w-9 h-9 sm:w-11 sm:h-11 shrink-0 cursor-zoom-in shadow-xs"
+                                  title={tr('catch_zoom_img', 'تكبير الصورة')}
+                                >
+                                  <img
+                                    src={imgUrl}
+                                    alt={tr('catch_question_img_alt', 'صورة السؤال')}
+                                    className="w-full h-full object-contain p-0.5"
+                                  />
+                                  <span className="absolute bottom-0 right-0 bg-slate-900/80 text-white p-0.5 rounded-tl-md">
+                                    <ZoomIn className="w-2.5 h-2.5" />
+                                  </span>
+                                </button>
+                              );
+                            }
+                            const audKey = `catch-q-aud-${activeExercise.id}-${i}`;
+                            const isAudPlaying = playingMediaKey === audKey;
+                            return (
+                              <button
+                                key={`qblk-aud-${i}`}
+                                type="button"
+                                onClick={() => handlePlayMediaAudio(audKey, blk.value)}
+                                className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer shrink-0 ${
+                                  isAudPlaying
+                                    ? 'bg-amber-400 text-slate-950 border-amber-300 animate-pulse'
+                                    : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border-amber-400/40'
+                                }`}
+                                title={tr('catch_listen_question', 'استماع')}
+                              >
+                                {isAudPlaying ? (
+                                  <Pause className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Volume2 className="w-3.5 h-3.5" />
+                                )}
+                                <span className="hidden sm:inline">
+                                  {tr('catch_listen_question', 'استماع')}
+                                </span>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <span className="text-xs sm:text-sm font-bold text-sky-200">
+                            {getTranslatedCatchSubject(activeSubject.subjectName, currentLang, translations)} ({activeExercise.exerciseNumber})
+                          </span>
+                        )}
+                      </div>
+
+                      {!isCompleted && !activeExercise.lockOnMistake && (
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleUndo}
+                            title={tr('catch_btn_undo', 'تراجع')}
+                            aria-label={tr('catch_btn_undo', 'تراجع')}
+                            className="flex items-center justify-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600 text-[11px] font-bold cursor-pointer min-h-[30px] min-w-[32px]"
+                          >
+                            <Delete className="w-3.5 h-3.5 shrink-0" />
+                            <span className="hidden sm:inline">{tr('catch_btn_undo', 'تراجع')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleClear}
+                            title={tr('catch_btn_clear', 'مسح')}
+                            aria-label={tr('catch_btn_clear', 'مسح')}
+                            className="flex items-center justify-center gap-1 px-2 sm:px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-rose-600 text-slate-200 border border-slate-600 text-[11px] font-bold cursor-pointer min-h-[30px] min-w-[32px]"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                            <span className="hidden sm:inline">{tr('catch_btn_clear', 'مسح')}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Blanks Fill View OR Ordered Composition View (With Guidance Text Inside the Field) */}
+                    {parsedBlanks.hasBlanks ? (
+                      <div className="p-1.5 sm:p-2 rounded-xl bg-slate-950/65 border border-slate-700/80 space-y-1">
+                        <div
+                          className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 min-h-[44px] sm:min-h-[50px]"
+                          dir="rtl"
+                        >
+                          {parsedBlanks.segments.map((seg, idx) => {
+                            if (seg.kind === 'fixed') {
+                              return (
+                                <span
+                                  key={`seg-txt-${idx}`}
+                                  className="font-amiri text-xl sm:text-3xl font-bold text-white leading-relaxed"
+                                >
+                                  {seg.text}
+                                </span>
+                              );
+                            }
+                            const bIdx = seg.blankIndex ?? 0;
+                            const assigned = blankAssignments[bIdx];
+                            const isActiveSlot = activeBlankIdx === bIdx;
+
+                            return (
+                              <button
+                                key={`seg-blk-${bIdx}`}
+                                ref={(el) => {
+                                  blankSlotRefs.current[bIdx] = el;
+                                }}
+                                type="button"
+                                onClick={() => {
+                                  if (assigned && !isCompleted && !activeExercise.lockOnMistake) {
+                                    handleRemovePlacedTile(assigned.id);
+                                  } else {
+                                    setActiveBlankIdx(bIdx);
+                                  }
+                                }}
+                                className={`min-w-[52px] min-h-[40px] sm:min-h-[42px] px-2.5 sm:px-3 py-1 rounded-xl border-2 font-amiri text-xl sm:text-2xl font-bold transition-all cursor-pointer flex items-center justify-center ${
+                                  assigned
+                                    ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-md'
+                                    : isActiveSlot
+                                    ? 'bg-sky-500/25 text-sky-200 border-sky-400 animate-pulse'
+                                    : 'bg-slate-800/80 text-slate-400 border-slate-600 border-dashed'
+                                }`}
+                              >
+                                {assigned ? assigned.text : '؟'}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {!isCompleted && (
+                          <div className="text-[10px] sm:text-xs font-bold text-center flex items-center justify-center gap-1 text-slate-400">
+                            {isOverDropZone && grabbedTile ? (
+                              <span className="text-emerald-300 flex items-center gap-1">
+                                <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <span>{tr('catch_drop_now', 'أفلت الفقاعة الآن لوضعها هنا!')}</span>
+                              </span>
+                            ) : (
+                              <span>
+                                {tr(
+                                  'catch_dropzone_fill_empty',
+                                  'التقط الفقاعة باليد أو المسها لوضعها في الفراغ المحدد'
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {assembledPreview && (
+                          <div
+                            className="text-center font-amiri text-lg sm:text-2xl font-extrabold text-amber-300 drop-shadow tracking-wide leading-tight"
+                            dir="rtl"
+                          >
+                            {assembledPreview}
+                          </div>
+                        )}
+
+                        <div
+                          className="flex flex-col items-center justify-center gap-1 min-h-[48px] sm:min-h-[54px] p-1.5 sm:p-2 rounded-xl bg-slate-950/65 border border-slate-700/80"
+                          dir="rtl"
+                        >
+                          {selectedTiles.length === 0 ? (
+                            <span
+                              className={`text-[10px] sm:text-xs font-bold flex items-center justify-center gap-1.5 text-center ${
+                                isOverDropZone && grabbedTile ? 'text-emerald-300' : 'text-slate-400'
+                              }`}
+                            >
+                              {isOverDropZone && grabbedTile ? (
+                                <>
+                                  <Target className="w-4 h-4 text-emerald-400 shrink-0" />
+                                  <span>{tr('catch_drop_now', 'أفلت الفقاعة الآن لوضعها هنا!')}</span>
+                                </>
+                              ) : (
+                                <>
+                                  <MousePointerClick className="w-4 h-4 text-sky-400 shrink-0" />
+                                  <span>
+                                    {tr(
+                                      'catch_dropzone_empty',
+                                      'المس أي حرف بيدك في الهواء أو اضغط عليه لإضافته هنا'
+                                    )}
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                          ) : (
+                            <>
+                              <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
+                                {selectedTiles.map((tile, tIdx) => (
+                                  <button
+                                    key={`placed-${tile.id}-${tIdx}`}
+                                    type="button"
+                                    onClick={() => handleRemovePlacedTile(tile.id)}
+                                    disabled={isCompleted || Boolean(activeExercise.lockOnMistake)}
+                                    className="min-w-[40px] min-h-[40px] px-2.5 sm:px-3 py-1 rounded-xl bg-linear-to-b from-sky-400 to-cyan-500 text-slate-950 font-amiri text-lg sm:text-2xl font-black border-2 border-white shadow-md flex flex-col items-center justify-center hover:scale-105 transition-transform cursor-pointer disabled:cursor-default"
+                                  >
+                                    <span className="leading-none">{tile.text}</span>
+                                    {tile.label && (
+                                      <span className="text-[9px] font-cairo font-bold text-slate-900 mt-0.5 leading-none">
+                                        {translatePosLabel(tile.label)}
+                                      </span>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                              {isOverDropZone && grabbedTile && !isCompleted && (
+                                <span className="text-[10px] sm:text-xs font-bold text-emerald-300 flex items-center gap-1">
+                                  <Target className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                  <span>{tr('catch_drop_now', 'أفلت الفقاعة الآن لوضعها هنا!')}</span>
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* ============================================================ */}
           {/* LAYER 4: SLIM FLOATING VERTICAL SIDE RESULT PANEL (يمين/يسار) */}
@@ -2038,7 +2220,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
           {resultSidebarOpen && (isCompleted || attemptFeedback) && (
             <div
               dir={currentLang === 'ar' ? 'rtl' : 'ltr'}
-              className={`absolute inset-y-0 z-[25] pointer-events-none flex items-center p-1.5 sm:p-2.5 lg:p-3 animate-in fade-in duration-200 ${
+              className={`absolute inset-y-0 z-[25] pointer-events-none flex items-center p-1 sm:p-2 lg:p-3 animate-in fade-in duration-200 ${
                 resultSidebarSide === 'left' ? 'left-0 justify-end' : 'right-0 justify-start'
               }`}
             >
@@ -2046,16 +2228,16 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsResultSidebarCollapsed(false)}
-                  className="pointer-events-auto px-2.5 py-2 rounded-2xl bg-slate-900/95 border border-sky-400/50 text-sky-300 shadow-2xl flex items-center gap-1.5 text-xs font-bold cursor-pointer hover:bg-slate-800"
+                  className="pointer-events-auto px-2 py-1.5 rounded-2xl bg-slate-900/95 border border-sky-400/50 text-sky-300 shadow-2xl flex items-center gap-1 text-[11px] sm:text-xs font-bold cursor-pointer hover:bg-slate-800"
                 >
                   {isCompleted ? (
                     <>
-                      <Award className="w-4 h-4 text-amber-400" />
+                      <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
                       <span className="font-mono">{finalScore}%</span>
                     </>
                   ) : (
                     <>
-                      <AlertCircle className="w-4 h-4 text-rose-400" />
+                      <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-400" />
                       <span>{tr('catch_try_again_short', 'محاولة')}</span>
                     </>
                   )}
@@ -2066,13 +2248,14 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                   )}
                 </button>
               ) : (
-                <aside className="pointer-events-auto w-[122px] sm:w-[148px] lg:w-[230px] max-h-[80%] bg-slate-900/92 border border-sky-400/45 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-white text-center overflow-y-auto p-2 lg:p-3 flex flex-col gap-1.5 lg:gap-2">
+                <aside className="pointer-events-auto w-[96px] sm:w-[144px] lg:w-[220px] max-h-[82%] bg-slate-900/92 border border-sky-400/45 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.45)] text-white text-center overflow-y-auto p-1.5 sm:p-2 lg:p-3 flex flex-col gap-1 sm:gap-1.5 lg:gap-2">
                   {/* Compact Window Controls: Close / Swap Side / Collapse */}
                   <div className="flex items-center justify-between gap-0.5 lg:gap-1">
                     <button
                       type="button"
                       onClick={() => setResultSidebarOpen(false)}
-                      title={tr('btn_close', 'إغلاق')}
+                      title={tr('catch_btn_close', 'إغلاق')}
+                      aria-label={tr('catch_btn_close', 'إغلاق')}
                       className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer"
                     >
                       <X className="w-3 h-3 lg:w-3.5 lg:h-3.5" />
@@ -2106,31 +2289,31 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                   {isCompleted ? (
                     <>
                       {/* Result Header Icon + Score */}
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex flex-col items-center gap-0.5 sm:gap-1">
                         <div
-                          className={`w-8 h-8 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center shadow-md ${
+                          className={`w-7 h-7 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-xl flex items-center justify-center shadow-md ${
                             finalScore >= 70
                               ? 'bg-linear-to-tr from-emerald-400 to-teal-300 text-slate-950'
                               : 'bg-linear-to-tr from-rose-500 to-amber-500 text-white'
                           }`}
                         >
-                          <Award className="w-4 h-4 lg:w-5 lg:h-5" />
+                          <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-5 lg:h-5" />
                         </div>
-                        <h4 className="font-bold text-[11px] lg:text-sm text-sky-300 leading-tight">
+                        <h4 className="font-bold text-[10px] sm:text-[11px] lg:text-sm text-sky-300 leading-tight">
                           {finalScore >= 70
                             ? tr('catch_result_win', 'أحسنت! ممتاز')
                             : tr('catch_result_done', 'نتيجة التمرين')}
                         </h4>
                       </div>
 
-                      <div className="font-extrabold font-mono text-xl sm:text-2xl lg:text-3xl text-white tabular-nums leading-none">
+                      <div className="font-extrabold font-mono text-lg sm:text-2xl lg:text-3xl text-white tabular-nums leading-none">
                         {finalScore}%
                       </div>
 
                       {/* Answers Summary */}
-                      <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-1.5 lg:p-2 space-y-1 text-[10px] lg:text-xs">
+                      <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-1 sm:p-1.5 lg:p-2 space-y-0.5 sm:space-y-1 text-[9px] sm:text-[10px] lg:text-xs">
                         <div className="text-slate-400">{tr('catch_your_answer', 'إجابتك:')}</div>
-                        <div className="font-amiri text-base lg:text-lg font-extrabold text-amber-300 leading-tight break-words">
+                        <div className="font-amiri text-sm sm:text-base lg:text-lg font-extrabold text-amber-300 leading-tight break-words">
                           {lastSubmittedAnswer || '—'}
                         </div>
                         {finalScore === 0 && (
@@ -2138,7 +2321,7 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                             <div className="border-t border-slate-800 pt-1 text-slate-400">
                               {tr('catch_correct_answer_label', 'الصحيحة:')}
                             </div>
-                            <div className="font-amiri text-sm lg:text-base font-bold text-emerald-300 leading-tight break-words">
+                            <div className="font-amiri text-xs sm:text-sm lg:text-base font-bold text-emerald-300 leading-tight break-words">
                               {activeExercise.correctAnswer.replace(/\|/g, '')}
                             </div>
                           </>
@@ -2152,33 +2335,43 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
 
                       {/* Earned AR Crown Reward */}
                       {earnedRewardTier && (
-                        <div className="flex items-center justify-center gap-1 px-2 py-1 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[10px] lg:text-[11px] font-bold">
-                          <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <div className="flex items-center justify-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-xl bg-amber-500/15 border border-amber-400/40 text-amber-200 text-[9px] sm:text-[10px] lg:text-[11px] font-bold">
+                          <Crown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
                           <span className="truncate">{earnedRewardTier.title}</span>
                         </div>
                       )}
 
                       {sheetSyncSuccess && (
-                        <div className="p-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-[9px] lg:text-[10px] font-bold text-emerald-300 leading-tight">
+                        <div className="p-1 sm:p-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-[8px] sm:text-[9px] lg:text-[10px] font-bold text-emerald-300 leading-tight">
                           {sheetSyncSuccess}
                         </div>
                       )}
 
-                      {/* Bottom Action Buttons */}
-                      <div className="flex flex-col gap-1.5 pt-0.5">
+                      {/* Bottom Action Buttons (Mobile optimized: Save=Icon, Retry=Text, Next=Icon) */}
+                      <div className="flex flex-col gap-1 sm:gap-1.5 pt-0.5">
                         {!sheetSyncSuccess && (
                           <button
                             type="button"
                             onClick={handleSubmitToSheet}
                             disabled={isSubmitting}
-                            className="w-full py-2 px-2 rounded-xl bg-linear-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-[10px] lg:text-xs font-extrabold shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1"
+                            title={
+                              currentStudent
+                                ? tr('catch_save_score_short', 'حفظ النتيجة')
+                                : tr('catch_login_short', 'دخول للحفظ')
+                            }
+                            aria-label={
+                              currentStudent
+                                ? tr('catch_save_score_short', 'حفظ النتيجة')
+                                : tr('catch_login_short', 'دخول للحفظ')
+                            }
+                            className="w-full py-1.5 sm:py-2 px-1.5 sm:px-2 rounded-xl bg-linear-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-[10px] lg:text-xs font-extrabold shadow-md cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1"
                           >
                             {isSubmitting ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                              <Loader2 className="w-4 h-4 sm:w-3.5 sm:h-3.5 animate-spin shrink-0" />
                             ) : (
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <CheckCircle2 className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
                             )}
-                            <span>
+                            <span className="hidden sm:inline">
                               {currentStudent
                                 ? tr('catch_save_score_short', 'حفظ النتيجة')
                                 : tr('catch_login_short', 'دخول للحفظ')}
@@ -2186,45 +2379,63 @@ export const CatchArena: React.FC<CatchArenaProps> = ({
                           </button>
                         )}
 
+                        {sheetSyncSuccess && onOpenLessons && (
+                          <button
+                            type="button"
+                            onClick={handleCloseAfterSave}
+                            title={tr('catch_btn_close', 'إغلاق')}
+                            className="w-full py-1.5 sm:py-2 px-1.5 sm:px-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white text-[10px] lg:text-xs font-extrabold shadow-md cursor-pointer flex items-center justify-center gap-1"
+                          >
+                            <X className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+                            <span>{tr('catch_btn_close', 'إغلاق')}</span>
+                          </button>
+                        )}
+
                         {(!sheetSyncSuccess || catchRetryStatus.canRetry) && (
                           <button
                             type="button"
                             onClick={sheetSyncSuccess ? handleTriggerRetryInArena : initExercise}
-                            className="w-full py-1.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] lg:text-xs font-bold cursor-pointer flex items-center justify-center gap-1"
+                            className="w-full py-1 sm:py-1.5 px-1.5 sm:px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] lg:text-xs font-bold cursor-pointer flex items-center justify-center gap-1"
                           >
-                            <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                            <span>{tr('matching_btn_retry', 'إعادة')}</span>
+                            <RotateCcw className="w-3.5 h-3.5 shrink-0 hidden sm:inline" />
+                            <span>{tr('catch_btn_retry', 'إعادة')}</span>
                           </button>
                         )}
 
                         <button
                           type="button"
                           onClick={handleGoNextExercise}
-                          className="w-full py-2 px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] lg:text-xs font-black shadow-md cursor-pointer flex items-center justify-center gap-1"
+                          title={tr('catch_btn_next', 'التالي')}
+                          aria-label={tr('catch_btn_next', 'التالي')}
+                          className="w-full py-1.5 sm:py-2 px-1.5 sm:px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] lg:text-xs font-black shadow-md cursor-pointer flex items-center justify-center gap-1"
                         >
-                          <span>{tr('btn_next', 'التالي')}</span>
-                          <ArrowRight className="w-3.5 h-3.5 rotate-180 shrink-0" />
+                          <span className="hidden sm:inline">{tr('catch_btn_next', 'التالي')}</span>
+                          <ArrowRight
+                            className={`w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0 ${
+                              currentLang === 'ar' ? 'rotate-180' : ''
+                            }`}
+                          />
                         </button>
                       </div>
                     </>
                   ) : attemptFeedback ? (
                     /* Slim Retry / Wrong Feedback while still playing */
-                    <div className="space-y-2 py-1">
-                      <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center mx-auto">
-                        <AlertCircle className="w-4 h-4 lg:w-5 lg:h-5" />
+                    <div className="space-y-1.5 sm:space-y-2 py-1">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center mx-auto">
+                        <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-5 lg:h-5" />
                       </div>
-                      <div className="text-[11px] lg:text-xs font-extrabold text-rose-300 leading-snug">
+                      <div className="text-[10px] sm:text-[11px] lg:text-xs font-extrabold text-rose-300 leading-snug">
                         {attemptFeedback.message}
                       </div>
                       {wrongAttempts > 0 && (
-                        <div className="text-[10px] font-bold text-slate-300 bg-slate-950/60 border border-slate-800 rounded-xl py-1 px-2">
-                          {tr('catch_wrong_count', 'عدد الأخطاء:')} {wrongAttempts}
+                        <div className="text-[9px] sm:text-[10px] font-bold text-slate-300 bg-slate-950/60 border border-slate-800 rounded-xl py-1 px-1.5 sm:px-2">
+                          {tr('catch_wrong_count', 'الأخطاء:')} {wrongAttempts}
                         </div>
                       )}
                       <button
                         type="button"
                         onClick={() => setResultSidebarOpen(false)}
-                        className="w-full py-1.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold cursor-pointer"
+                        className="w-full py-1 sm:py-1.5 px-1.5 sm:px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] lg:text-xs font-bold cursor-pointer"
                       >
                         {tr('catch_continue_playing', 'متابعة اللعب')}
                       </button>
