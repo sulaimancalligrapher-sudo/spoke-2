@@ -73,7 +73,6 @@ import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
 import { MatchingTranslationManager } from './MatchingTranslationManager';
 import { WritingTranslationManager } from './WritingTranslationManager';
-import { CatchTranslationManager } from './CatchTranslationManager';
 import { MatchingAdminManager } from './MatchingAdminManager';
 import { DictationAdminManager } from './DictationAdminManager';
 import { CatchAdminManager } from './CatchAdminManager';
@@ -161,7 +160,7 @@ interface AdminPanelProps {
   catchArIntroReward?: ARRewardTier;
   onUpdateCatchArIntroReward?: (intro: ARRewardTier) => boolean | void;
   onPreviewCatchArReward?: (tier: ARRewardTier) => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4';
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -234,7 +233,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onPreviewCatchArReward,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1251,18 +1250,6 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Languages className={`w-4 h-4 ${activeTab === 'translations3' ? 'text-slate-950' : 'text-amber-500'}`} />
             <span>إدارة وتخصيص الترجمة 3 (الكتابة)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('translations4')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'translations4'
-                ? 'bg-sky-600 text-white shadow-xs'
-                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-            }`}
-          >
-            <Languages className={`w-4 h-4 ${activeTab === 'translations4' ? 'text-white' : 'text-sky-500'}`} />
-            <span>إدارة وتخصيص الترجمة 4 (صيد)</span>
           </button>
         </div>
 
@@ -2767,18 +2754,6 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             translations={translations || []}
             onSaveTranslations={onUpdateTranslations || (() => {})}
             writingTemplates={writingTemplates || []}
-            geminiApiKey={geminiApiKey}
-            webhookUrl={sheetsConfig.webhookUrl}
-            onRefreshFromSheets={onRefreshFromSheets}
-          />
-        )}
-
-        {/* TAB 4D: CATCH TRANSLATION MANAGEMENT (الترجمة 4 - تحدي الصيد AR) */}
-        {activeTab === 'translations4' && (
-          <CatchTranslationManager
-            translations={translations || []}
-            onSaveTranslations={onUpdateTranslations || (() => {})}
-            catchSubjects={catchSubjects || []}
             geminiApiKey={geminiApiKey}
             webhookUrl={sheetsConfig.webhookUrl}
             onRefreshFromSheets={onRefreshFromSheets}

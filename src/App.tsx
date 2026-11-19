@@ -174,7 +174,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', or 'catch'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -748,9 +748,7 @@ export default function App() {
             parsedSheets.teacherDriveFolderId || parsedSheets.driveFolderId || DEFAULT_DRIVE_AUDIO_FOLDER_ID;
           const studentId = parsedSheets.studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID;
           const sanitizedWebhook =
-            !parsedSheets.webhookUrl ||
-            parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq') ||
-            parsedSheets.webhookUrl.includes('AKfycbxlYR9nhzBvTc63xCSsU')
+            !parsedSheets.webhookUrl || parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq')
               ? DEFAULT_WEBHOOK_URL
               : parsedSheets.webhookUrl;
 
@@ -1602,7 +1600,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -1882,7 +1880,7 @@ export default function App() {
       {/* Main Content Area */}
       <main
         className={
-          currentView === 'practice' && (appMode === 'writing' || appMode === 'catch')
+          currentView === 'practice' && appMode === 'writing'
             ? 'flex-1 w-full p-0 m-0 flex flex-col'
             : 'flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col'
         }
@@ -2512,7 +2510,103 @@ export default function App() {
           /* ========================================================
              6. AR CATCH & CONNECT ARENA (تحدي اصطياد وتوصيل الحروف - صيد)
              ======================================================== */
-          <div className="w-full animate-in fade-in duration-300">
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            {(() => {
+              const resolvedSubject =
+                catchSubjects.find((s) => s.id === activeCatchSubjectId) ||
+                catchSubjects[0] ||
+                null;
+              const resolvedSubjectId = resolvedSubject?.id || '';
+              const totalExercises = resolvedSubject?.exercises.length || 0;
+              const safeExIdx =
+                totalExercises > 0
+                  ? Math.min(Math.max(0, activeCatchExerciseIdx), totalExercises - 1)
+                  : 0;
+              const activeExNumber =
+                resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
+
+              return (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setCurrentView('landing')}
+                      className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
+                    >
+                      <Home className="w-4 h-4 text-slate-700" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={openCatchLessonsModal}
+                      className="p-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200/80 rounded-xl transition-all cursor-pointer shadow-2xs"
+                      title={t('catch_lessons_list_btn', 'قائمة دروس الصيد')}
+                      aria-label={t('catch_lessons_list_btn', 'قائمة دروس الصيد')}
+                    >
+                      <List className="w-4 h-4 text-sky-700" />
+                    </button>
+                  </div>
+
+                  {resolvedSubject && (
+                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs">
+                      <div className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-900 font-bold border border-sky-200/80 flex items-center">
+                        <select
+                          value={resolvedSubjectId}
+                          onChange={(e) => {
+                            setActiveCatchSubjectId(e.target.value);
+                            setActiveCatchExerciseIdx(0);
+                          }}
+                          className="bg-transparent font-bold text-sky-950 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
+                        >
+                          {catchSubjects.map((subj) => (
+                            <option key={subj.id} value={subj.id}>
+                              {getTranslatedCatchSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl px-1.5 py-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx > 0) {
+                              setActiveCatchSubjectId(resolvedSubjectId);
+                              setActiveCatchExerciseIdx(safeExIdx - 1);
+                            }
+                          }}
+                          disabled={safeExIdx === 0}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين السابق' : 'Previous'}
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+
+                        <span className="px-1.5 text-slate-800 font-bold whitespace-nowrap">
+                          {t('matching_exercise_label', 'التمرين')} {activeExNumber} {t('matching_of_label', 'من')} {totalExercises}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (safeExIdx < totalExercises - 1) {
+                              setActiveCatchSubjectId(resolvedSubjectId);
+                              setActiveCatchExerciseIdx(safeExIdx + 1);
+                            }
+                          }}
+                          disabled={safeExIdx >= totalExercises - 1}
+                          className="p-0.5 rounded-lg hover:bg-white disabled:opacity-35 text-slate-700 cursor-pointer disabled:cursor-not-allowed transition-all"
+                          title={currentLang === 'ar' ? 'التمرين التالي' : 'Next'}
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <CatchArena
               subjects={catchSubjects}
               currentStudent={currentStudent}
@@ -2527,10 +2621,6 @@ export default function App() {
                 setActiveCatchExerciseIdx(exIdx);
               }}
               onBackToPronunciation={() => setAppMode('pronunciation')}
-              onOpenLessons={openCatchLessonsModal}
-              onGoHome={() => setCurrentView('landing')}
-              isAdminAuthenticated={isAdminAuthenticated}
-              onOpenAdminCatch={() => handleOpenAdmin('catch')}
               onRequestLogin={() => setIsLoginModalOpen(true)}
               catchHistory={catchHistory}
               retryNonce={catchRetryNonce}
@@ -2762,7 +2852,7 @@ export default function App() {
       {/* Footer: Dynamic Social Media Channels from sheet "الرئيسية" with NO text */}
       <footer
         className={`border-t border-slate-200/80 bg-white py-6 ${
-          currentView === 'practice' && (appMode === 'writing' || appMode === 'catch') ? 'mt-0' : 'mt-12'
+          currentView === 'practice' && appMode === 'writing' ? 'mt-0' : 'mt-12'
         }`}
       >
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-center gap-3">
