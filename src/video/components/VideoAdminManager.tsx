@@ -83,6 +83,9 @@ function createEmptyLesson(): VideoLesson {
     showResult: 'نعم',
     allowRecording: 'نعم',
     maxRecordingTime: 60,
+    audioHomeworkMode: 'free',
+    audioHomeworkPrompt: '',
+    audioHomeworkTarget: '',
     allowUpload: 'نعم',
     uploadTitle: 'تصوير واجب الدرس',
     retryCount: 2,
@@ -1038,6 +1041,78 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Audio Homework Mode (Free vs Pronunciation Verification) */}
+              {editingLesson.allowRecording !== 'لا' && (
+                <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-xs sm:text-sm font-extrabold text-amber-950 flex items-center gap-1.5">
+                      <Mic className="w-4 h-4 text-amber-600" />
+                      <span>إعدادات نوع الواجب الصوتي</span>
+                    </h4>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-[11px] font-bold text-slate-700">نوع الواجب الصوتي</label>
+                      <select
+                        value={editingLesson.audioHomeworkMode || 'free'}
+                        onChange={(e) =>
+                          setEditingLesson({
+                            ...editingLesson,
+                            audioHomeworkMode: e.target.value === 'verify' ? 'verify' : 'free',
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold text-slate-900"
+                      >
+                        <option value="free">تسجيل حر يرسله الطالب للمعلم (الوضع الافتراضي)</option>
+                        <option value="verify">تحقق من نطق نص محدد ثم إرساله للمعلم</option>
+                      </select>
+                    </div>
+
+                    {editingLesson.audioHomeworkMode === 'verify' && (
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700">
+                            نص السؤال / التوجيه للطالب
+                          </label>
+                          <input
+                            type="text"
+                            value={editingLesson.audioHomeworkPrompt || ''}
+                            onChange={(e) =>
+                              setEditingLesson({
+                                ...editingLesson,
+                                audioHomeworkPrompt: e.target.value,
+                              })
+                            }
+                            placeholder="مثال: انطق الكلمة أو الجملة التالية بصوت واضح"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700">
+                            الكلمة أو الجملة المطلوبة للتحقق من النطق (بالعربية)
+                          </label>
+                          <input
+                            type="text"
+                            required={editingLesson.audioHomeworkMode === 'verify'}
+                            value={editingLesson.audioHomeworkTarget || ''}
+                            onChange={(e) =>
+                              setEditingLesson({
+                                ...editingLesson,
+                                audioHomeworkTarget: e.target.value,
+                              })
+                            }
+                            placeholder="مثال: بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-sm font-extrabold text-slate-900"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Timed Video Questions Builder */}
               <div className="pt-4 border-t border-slate-200 space-y-3">

@@ -1,6 +1,7 @@
 import { callGoogleSheetsPost } from '../utils/googleSheets';
 import { extractDriveFileId, getAlternativeAudioUrls, getDirectImageUrl } from '../utils/mediaUrl';
 import { DEFAULT_TRANSLATIONS, TranslationItem } from '../utils/translations';
+import { evaluateArabicLocal, removeTashkeel } from '../utils/arabicMatcher';
 import { StudentRegistrant } from '../types';
 
 export interface VideoTimestampQuestion {
@@ -26,6 +27,9 @@ export interface VideoLesson {
   showResult: 'نعم' | 'لا';
   allowRecording: 'نعم' | 'لا';
   maxRecordingTime: number; // Seconds (0 = unlimited / default 60s)
+  audioHomeworkMode?: 'free' | 'verify';
+  audioHomeworkPrompt?: string;
+  audioHomeworkTarget?: string;
   allowUpload: 'نعم' | 'لا';
   uploadTitle?: string;
   retryCount: number; // Allowed retries (0 = locked after completion)
@@ -299,6 +303,8 @@ function normalizeQuestionItem(raw: any, idx: number): VideoTimestampQuestion | 
   };
 }
 
+const AUDIO_HW_CFG_MARKER_ID = '__audio_hw_cfg__';
+
 function normalizeVideoLessonRow(raw: any, idx: number): VideoLesson | null {
   const title = String(raw.title || raw.word || raw.lessonTitle || '').trim();
   const videoUrl = String(raw.videoUrl || raw.youtubeUrl || '').trim();
@@ -307,15 +313,24 @@ function normalizeVideoLessonRow(raw: any, idx: number): VideoLesson | null {
   const rawQs = Array.isArray(raw.questions) ? raw.questions : [];
   const rawAudioQs = Array.isArray(raw.audioQuestions) ? raw.audioQuestions : [];
 
+  const audioHwCfg = rawAudioQs.find((q: any) => q && q.id === AUDIO_HW_CFG_MARKER_ID);
+  const filteredRawAudioQs = rawAudioQs.filter((q: any) => !q || q.id !== AUDIO_HW_CFG_MARKER_ID);
+
   const questions = rawQs
     .map((q: any, i: number) => normalizeQuestionItem(q, i))
     .filter((q: VideoTimestampQuestion | null): q is VideoTimestampQuestion => Boolean(q));
 
-  const audioQuestions = rawAudioQs
+  const audioQuestions = filteredRawAudioQs
     .map((q: any, i: number) => normalizeQuestionItem(q, i))
     .filter((q: VideoTimestampQuestion | null): q is VideoTimestampQuestion => Boolean(q));
 
   const retryNum = Number(raw.retryCount ?? raw.defaultRetryResetCount ?? 1);
+  const resolvedModeRaw = String(
+    raw.audioHomeworkMode || (Array.isArray(audioHwCfg?.options) ? audioHwCfg.options[0] : '') || 'free'
+  ).trim();
+  const audioHomeworkMode: 'free' | 'verify' = resolvedModeRaw === 'verify' ? 'verify' : 'free';
+  const audioHomeworkPrompt = String(raw.audioHomeworkPrompt ?? audioHwCfg?.question ?? '').trim();
+  const audioHomeworkTarget = String(raw.audioHomeworkTarget ?? audioHwCfg?.correctAnswer ?? '').trim();
 
   return {
     id: String(raw.id || raw.comment || `video-row-${idx + 1}`),
@@ -329,6 +344,9 @@ function normalizeVideoLessonRow(raw: any, idx: number): VideoLesson | null {
     showResult: String(raw.showResult || 'نعم').trim() === 'لا' ? 'لا' : 'نعم',
     allowRecording: String(raw.allowRecording || 'نعم').trim() === 'لا' ? 'لا' : 'نعم',
     maxRecordingTime: Math.max(0, Number(raw.maxRecordingTime ?? 60) || 60),
+    audioHomeworkMode,
+    audioHomeworkPrompt: audioHomeworkPrompt || undefined,
+    audioHomeworkTarget: audioHomeworkTarget || undefined,
     allowUpload: String(raw.allowUpload || 'نعم').trim() === 'لا' ? 'لا' : 'نعم',
     uploadTitle: String(raw.uploadTitle || '').trim() || undefined,
     retryCount: isNaN(retryNum) ? 1 : Math.max(0, retryNum),
@@ -337,6 +355,44 @@ function normalizeVideoLessonRow(raw: any, idx: number): VideoLesson | null {
     expireAfterDays: raw.expireAfterDays !== undefined ? raw.expireAfterDays : undefined,
     questions,
     audioQuestions,
+  };
+}
+
+export function serializeVideoLessonForSheet(lesson: VideoLesson): VideoLesson {
+  const cleanAudioQs = (lesson.audioQuestions || []).filter((q) => q.id !== AUDIO_HW_CFG_MARKER_ID);
+  if (lesson.audioHomeworkMode === 'verify' || lesson.audioHomeworkPrompt || lesson.audioHomeworkTarget) {
+    cleanAudioQs.push({
+      id: AUDIO_HW_CFG_MARKER_ID,
+      slotIndex: -1,
+      time: 0,
+      question: (lesson.audioHomeworkPrompt || '').trim(),
+      options: [lesson.audioHomeworkMode === 'verify' ? 'verify' : 'free'],
+      correctAnswer: (lesson.audioHomeworkTarget || '').trim(),
+    });
+  }
+  return {
+    ...lesson,
+    audioQuestions: cleanAudioQs,
+  };
+}
+
+export function verifyVideoAudioPronunciation(
+  targetText: string,
+  spokenText: string
+): { matched: boolean; score: number; cleanSpoken: string } {
+  const cleanTarget = removeTashkeel(targetText || '').replace(/\s+/g, ' ').trim();
+  const cleanSpoken = removeTashkeel(spokenText || '').replace(/\s+/g, ' ').trim();
+  if (!cleanTarget || !cleanSpoken) {
+    return { matched: false, score: 0, cleanSpoken: spokenText.trim() };
+  }
+  if (cleanTarget === cleanSpoken || cleanSpoken.includes(cleanTarget)) {
+    return { matched: true, score: 100, cleanSpoken: spokenText.trim() };
+  }
+  const evalRes = evaluateArabicLocal(targetText, spokenText, 1, 'medium');
+  return {
+    matched: Boolean(evalRes.isMatch),
+    score: evalRes.score,
+    cleanSpoken: spokenText.trim(),
   };
 }
 
@@ -1002,7 +1058,7 @@ export async function saveVideoLessonToSheets(
       const res = await callGoogleSheetsPost(webhookUrl, {
         action: 'save_video_lesson',
         sheetName: VIDEO_SHEETS.QUESTIONS,
-        lesson,
+        lesson: serializeVideoLessonForSheet(lesson),
       });
       return {
         success: true,
@@ -1053,7 +1109,7 @@ export async function syncAllVideoLessonsToSheets(
   const res = await callGoogleSheetsPost(webhookUrl, {
     action: 'sync_video_lessons',
     sheetName: VIDEO_SHEETS.QUESTIONS,
-    lessons,
+    lessons: lessons.map((l) => serializeVideoLessonForSheet(l)),
   });
 
   return {
@@ -1355,6 +1411,14 @@ export function buildVideoVariableTranslationItems(
         lesson.uploadTitle,
         'عناوين واجبات الصور (فيديو_الأسئلة)',
         `واجب الصورة: ${title || lesson.id}`
+      );
+    }
+    if (lesson.audioHomeworkPrompt && lesson.audioHomeworkPrompt.trim()) {
+      addDynamic(
+        `video_audio_hw_prompt_${lesson.id}`,
+        lesson.audioHomeworkPrompt,
+        'توجيهات الواجب الصوتي (فيديو_الأسئلة)',
+        `سؤال الواجب الصوتي: ${title || lesson.id}`
       );
     }
 
