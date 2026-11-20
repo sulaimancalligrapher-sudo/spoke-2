@@ -25,13 +25,26 @@ import {
   Users,
   Link2,
   Volume2,
+  Languages,
+  Sparkles,
+  Check,
 } from 'lucide-react';
+import {
+  TranslationItem,
+  translateBatchWithAI,
+  translateSingleWithAI,
+} from '../../utils/translations';
+import {
+  ensureTranslationsSheet,
+  saveTranslationsToSheets,
+} from '../../utils/googleSheets';
 import {
   TelegramConfig,
   TelegramStudentLink,
   VideoLesson,
   VideoStudentSubmissionRow,
   VideoTimestampQuestion,
+  buildVideoVariableTranslationItems,
   deleteVideoLessonFromSheets,
   fetchAllVideoSubmissionsForAdmin,
   fetchTelegramConfig,
@@ -51,9 +64,12 @@ interface VideoAdminManagerProps {
   lessons: VideoLesson[];
   onUpdateLessons: (lessons: VideoLesson[]) => void;
   webhookUrl: string;
+  translations?: TranslationItem[];
+  onSaveTranslations?: (updated: TranslationItem[]) => void;
+  geminiApiKey?: string;
 }
 
-type AdminSubTab = 'lessons' | 'corrections' | 'telegram';
+type AdminSubTab = 'lessons' | 'corrections' | 'telegram' | 'translations';
 
 function createEmptyLesson(): VideoLesson {
   return {
@@ -95,12 +111,125 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
   lessons,
   onUpdateLessons,
   webhookUrl,
+  translations = [],
+  onSaveTranslations,
+  geminiApiKey,
 }) => {
   const [subTab, setSubTab] = useState<AdminSubTab>('lessons');
   const [statusBanner, setStatusBanner] = useState<{ success: boolean; message: string } | null>(
     null
   );
   const [syncing, setSyncing] = useState(false);
+
+  // =========================================================================
+  // VARIABLE TRANSLATIONS STATE (ترجمة المتغيرات)
+  // =========================================================================
+  const [varItems, setVarItems] = useState<TranslationItem[]>(() =>
+    buildVideoVariableTranslationItems(lessons, translations)
+  );
+  const [varSearch, setVarSearch] = useState('');
+  const [translatingVarId, setTranslatingVarId] = useState<string | null>(null);
+  const [isBatchTranslatingVars, setIsBatchTranslatingVars] = useState(false);
+  const [savingVarsToSheet, setSavingVarsToSheet] = useState(false);
+  const [savedVarsFlash, setSavedVarsFlash] = useState(false);
+
+  useEffect(() => {
+    setVarItems(buildVideoVariableTranslationItems(lessons, translations));
+  }, [lessons, translations]);
+
+  const filteredVarItems = useMemo(() => {
+    const q = varSearch.trim().toLowerCase();
+    if (!q) return varItems;
+    return varItems.filter(
+      (i) =>
+        i.id.toLowerCase().includes(q) ||
+        i.ar.toLowerCase().includes(q) ||
+        i.th.toLowerCase().includes(q) ||
+        i.en.toLowerCase().includes(q) ||
+        (i.sheetSourceNote || '').toLowerCase().includes(q)
+    );
+  }, [varItems, varSearch]);
+
+  const handleUpdateVarItem = (id: string, patch: Partial<TranslationItem>) => {
+    setVarItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  };
+
+  const handleTranslateVarSingle = async (item: TranslationItem) => {
+    if (!item.ar.trim()) return;
+    setTranslatingVarId(item.id);
+    try {
+      const res = await translateSingleWithAI(item.ar, geminiApiKey);
+      handleUpdateVarItem(item.id, {
+        th: res.th || item.th,
+        en: res.en || item.en,
+      });
+    } finally {
+      setTranslatingVarId(null);
+    }
+  };
+
+  const handleTranslateAllVars = async () => {
+    const targets = filteredVarItems.filter((i) => i.ar.trim());
+    if (targets.length === 0) return;
+    setIsBatchTranslatingVars(true);
+    setStatusBanner({
+      success: true,
+      message: `جاري ترجمة ${targets.length} متغيراً بالذكاء الاصطناعي...`,
+    });
+    try {
+      const results = await translateBatchWithAI(
+        targets.map((i) => ({ id: i.id, text: i.ar })),
+        geminiApiKey
+      );
+      setVarItems((prev) =>
+        prev.map((item) => {
+          const r = results[item.id];
+          if (!r) return item;
+          return {
+            ...item,
+            th: r.th || item.th,
+            en: r.en || item.en,
+          };
+        })
+      );
+      setStatusBanner({
+        success: true,
+        message: 'تمت ترجمة جميع متغيرات الفيديو. اضغط «حفظ ومزامنة ورقة الترجمة» لتثبيتها.',
+      });
+    } finally {
+      setIsBatchTranslatingVars(false);
+    }
+  };
+
+  const handleSaveVarsAndSync = async () => {
+    const map = new Map<string, TranslationItem>();
+    translations.forEach((i) => map.set(i.id, i));
+    varItems.forEach((i) => map.set(i.id, i));
+    const merged = Array.from(map.values());
+
+    if (onSaveTranslations) onSaveTranslations(merged);
+    setSavedVarsFlash(true);
+    window.setTimeout(() => setSavedVarsFlash(false), 2000);
+
+    if (webhookUrl && webhookUrl.trim().startsWith('http')) {
+      setSavingVarsToSheet(true);
+      try {
+        await ensureTranslationsSheet(webhookUrl, merged);
+        const res = await saveTranslationsToSheets(webhookUrl, merged);
+        setStatusBanner({
+          success: res.success,
+          message: res.message,
+        });
+      } finally {
+        setSavingVarsToSheet(false);
+      }
+    } else {
+      setStatusBanner({
+        success: true,
+        message: 'تم حفظ ترجمة متغيرات الفيديو محلياً.',
+      });
+    }
+  };
 
   // =========================================================================
   // 1. LESSONS BUILDER & LIST STATE
@@ -517,7 +646,7 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
         </div>
 
         {/* Sub-Tabs Navigation */}
-        <div className="grid grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-2xl">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-100 p-1 rounded-2xl">
           <button
             type="button"
             onClick={() => setSubTab('lessons')}
@@ -542,6 +671,19 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
           >
             <Award className="w-4 h-4 shrink-0" />
             <span className="truncate">تصحيح واجبات الطلاب</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('translations')}
+            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              subTab === 'translations'
+                ? 'bg-white text-indigo-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Languages className="w-4 h-4 shrink-0" />
+            <span className="truncate">ترجمة المتغيرات ({varItems.length})</span>
           </button>
 
           <button
@@ -1589,6 +1731,137 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          SUB-TAB 4: VARIABLE TRANSLATIONS MANAGER (ترجمة المتغيرات)
+         ===================================================================== */}
+      {subTab === 'translations' && (
+        <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                <Languages className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+                  ترجمة متغيرات دروس الفيديو والأسئلة
+                </h3>
+                <p className="text-xs text-slate-500">
+                  ترجمة المواضيع، العناوين، التعليمات، الأسئلة الزمنية وخياراتها مع حفظ التقييم الأصلي بالورقة
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={isBatchTranslatingVars || filteredVarItems.length === 0}
+                onClick={handleTranslateAllVars}
+                className="px-4 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {isBatchTranslatingVars ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                <span>ترجمة الكل بالذكاء الاصطناعي</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={savingVarsToSheet}
+                onClick={handleSaveVarsAndSync}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              >
+                {savedVarsFlash ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                <span>{savingVarsToSheet ? 'جاري الحفظ...' : 'حفظ ومزامنة ورقة الترجمة'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={varSearch}
+              onChange={(e) => setVarSearch(e.target.value)}
+              placeholder="بحث في المواضيع، العناوين، الأسئلة، الخيارات..."
+              className="w-full pr-10 pl-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          {filteredVarItems.length === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200">
+              لا توجد متغيرات نصية مطابقة للبحث حالياً.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredVarItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2.5"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-bold border border-indigo-100">
+                        {item.categoryLabel || 'متغير فيديو'}
+                      </span>
+                      {item.sheetSourceNote && (
+                        <span className="font-semibold text-slate-600">{item.sheetSourceNote}</span>
+                      )}
+                      <span className="font-mono text-slate-400">{item.id}</span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={translatingVarId === item.id}
+                      onClick={() => handleTranslateVarSingle(item)}
+                      className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      {translatingVarId === item.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3" />
+                      )}
+                      <span>ترجمة آلية</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600">العربية</label>
+                      <input
+                        type="text"
+                        value={item.ar}
+                        onChange={(e) => handleUpdateVarItem(item.id, { ar: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600">التايلاندية (ไทย)</label>
+                      <input
+                        type="text"
+                        value={item.th}
+                        onChange={(e) => handleUpdateVarItem(item.id, { th: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600">الإنجليزية (English)</label>
+                      <input
+                        type="text"
+                        value={item.en}
+                        onChange={(e) => handleUpdateVarItem(item.id, { en: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+                        dir="ltr"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

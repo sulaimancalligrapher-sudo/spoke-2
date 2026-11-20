@@ -2900,6 +2900,9 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             lessons={videoLessons || []}
             onUpdateLessons={onUpdateVideoLessons || (() => {})}
             webhookUrl={sheetsConfig.webhookUrl}
+            translations={translations || []}
+            onSaveTranslations={onUpdateTranslations}
+            geminiApiKey={geminiApiKey}
           />
         )}
 

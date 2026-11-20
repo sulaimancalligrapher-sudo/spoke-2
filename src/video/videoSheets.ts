@@ -1,5 +1,7 @@
 import { callGoogleSheetsPost } from '../utils/googleSheets';
 import { extractDriveFileId, getAlternativeAudioUrls, getDirectImageUrl } from '../utils/mediaUrl';
+import { DEFAULT_TRANSLATIONS, TranslationItem } from '../utils/translations';
+import { StudentRegistrant } from '../types';
 
 export interface VideoTimestampQuestion {
   id: string;
@@ -121,6 +123,7 @@ export const VIDEO_SHEETS = {
 
 const STORAGE_KEY_VIDEO_LESSONS = 'faseeh_video_lessons_v1';
 const STORAGE_KEY_VIDEO_PROGRESS_PREFIX = 'faseeh_video_progress_v1_';
+const STORAGE_KEY_VIDEO_RETRIES_USED = 'faseeh_video_retries_used_v1';
 
 export const INITIAL_VIDEO_LESSONS: VideoLesson[] = [
   {
@@ -475,6 +478,120 @@ export function evaluateVideoLessonCompletion(
   };
 }
 
+function getVideoRetryEntryKey(
+  studentId: string | undefined,
+  studentName: string | undefined,
+  lessonId: string
+): string {
+  const sPart = (studentId || '').trim()
+    ? `id:${(studentId || '').trim()}`
+    : (studentName || '').trim()
+    ? `name:${(studentName || '').trim()}`
+    : 'guest';
+  return `${sPart}::${(lessonId || '').trim()}`;
+}
+
+function readLocalVideoRetriesUsedMap(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_VIDEO_RETRIES_USED);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch {}
+  return {};
+}
+
+function writeLocalVideoRetriesUsedMap(map: Record<string, number>): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_VIDEO_RETRIES_USED, JSON.stringify(map));
+  } catch {}
+}
+
+export function getVideoUsedRetriesCount(
+  student: Pick<StudentRegistrant, 'id' | 'name'> | null | undefined,
+  lessonId: string
+): number {
+  const map = readLocalVideoRetriesUsedMap();
+  const key = getVideoRetryEntryKey(student?.id, student?.name, lessonId);
+  const val = Number(map[key] || 0);
+  return !isNaN(val) && val > 0 ? Math.floor(val) : 0;
+}
+
+export function getVideoRemainingRetries(
+  lesson: VideoLesson,
+  student: Pick<StudentRegistrant, 'id' | 'name'> | null | undefined,
+  progress?: VideoStudentProgress
+): number {
+  const maxRetries = Math.max(0, Number(lesson.retryCount ?? 0) || 0);
+  if (maxRetries === 0) return 0;
+
+  const usedRecorded = getVideoUsedRetriesCount(student, lesson.id);
+  // If sheet explicitly recorded a positive remaining count lower than maxRetries (from another device before سجل_المحاولات), respect that too
+  const sheetHintUsed =
+    progress &&
+    typeof progress.retryResetCount === 'number' &&
+    !isNaN(progress.retryResetCount) &&
+    progress.retryResetCount > 0 &&
+    progress.retryResetCount < maxRetries
+      ? maxRetries - progress.retryResetCount
+      : 0;
+
+  const effectiveUsed = Math.max(usedRecorded, sheetHintUsed);
+  return Math.max(0, maxRetries - effectiveUsed);
+}
+
+async function syncVideoRetriesUsedFromSheets(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<void> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) return;
+  const cleanId = (studentId || '').trim();
+  const cleanName = (studentName || '').trim();
+  if (!cleanId && !cleanName) return;
+
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const targetUrl = `${cleanUrl}${sep}action=get_student_retries&studentId=${encodeURIComponent(
+      cleanId
+    )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+    let data: any = null;
+    try {
+      const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+      if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+    } catch {}
+
+    if (!data || !Array.isArray(data.retries)) {
+      try {
+        const directRes = await fetch(targetUrl, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (directRes.ok) data = await directRes.json().catch(() => null);
+      } catch {}
+    }
+
+    if (data && Array.isArray(data.retries)) {
+      const map = readLocalVideoRetriesUsedMap();
+      let changed = false;
+      for (const r of data.retries) {
+        if (String(r.mode || '').trim() === 'video' && r.exerciseKey) {
+          const cnt = parseInt(String(r.retryCount || 0), 10) || 0;
+          const entryKey = getVideoRetryEntryKey(cleanId, cleanName, String(r.exerciseKey));
+          if (cnt > 0 && (map[entryKey] || 0) < cnt) {
+            map[entryKey] = cnt;
+            changed = true;
+          }
+        }
+      }
+      if (changed) writeLocalVideoRetriesUsedMap(map);
+    }
+  } catch {}
+}
+
 export async function fetchStudentVideoProgress(
   webhookUrl: string,
   studentId: string,
@@ -486,12 +603,15 @@ export async function fetchStudentVideoProgress(
   }
 
   try {
-    const res = await callGoogleSheetsPost(webhookUrl, {
-      action: 'get_video_answers',
-      sheetName: VIDEO_SHEETS.ANSWERS,
-      studentId,
-      studentName,
-    });
+    const [res] = await Promise.all([
+      callGoogleSheetsPost(webhookUrl, {
+        action: 'get_video_answers',
+        sheetName: VIDEO_SHEETS.ANSWERS,
+        studentId,
+        studentName,
+      }),
+      syncVideoRetriesUsedFromSheets(webhookUrl, studentId, studentName),
+    ]);
     const rows = res?.data?.answers || res?.data?.items;
     if (res.success && Array.isArray(rows)) {
       const sheetMap: Record<string, VideoStudentProgress> = {};
@@ -757,16 +877,24 @@ export async function consumeVideoRetryAttempt(
   }
 ): Promise<{ success: boolean; updatedProgress: VideoStudentProgress }> {
   const { studentId, studentName, lesson, currentProgress } = params;
-  const currentRemaining =
-    typeof currentProgress.retryResetCount === 'number' && !isNaN(currentProgress.retryResetCount)
-      ? currentProgress.retryResetCount
-      : lesson.retryCount;
+  const currentRemaining = getVideoRemainingRetries(
+    lesson,
+    { id: studentId, name: studentName },
+    currentProgress
+  );
+  const nextRemaining = Math.max(0, currentRemaining - 1);
+
+  const retryMap = readLocalVideoRetriesUsedMap();
+  const rKey = getVideoRetryEntryKey(studentId, studentName, lesson.id);
+  const nextUsed = (Number(retryMap[rKey]) || 0) + 1;
+  retryMap[rKey] = nextUsed;
+  writeLocalVideoRetriesUsedMap(retryMap);
 
   const updatedProgress: VideoStudentProgress = {
     ...currentProgress,
     completed: 'إعادة',
     videoCompleted: false,
-    retryResetCount: Math.max(0, currentRemaining - 1),
+    retryResetCount: nextRemaining,
     answeredQuestions: {},
     videoScore: 0,
     // Keep imageLink and recordingLink intact!
@@ -779,18 +907,30 @@ export async function consumeVideoRetryAttempt(
   map[lesson.id] = updatedProgress;
   saveLocalVideoProgressMap(studentId, map);
 
-  if (webhookUrl && webhookUrl.trim().startsWith('http') && studentId) {
+  if (webhookUrl && webhookUrl.trim().startsWith('http') && (studentId || studentName)) {
     try {
-      await callGoogleSheetsPost(webhookUrl, {
-        action: 'retry_video_lesson',
-        sheetName: VIDEO_SHEETS.ANSWERS,
-        studentId,
-        studentName,
-        lessonId: lesson.id,
-        topic: lesson.topic,
-        title: lesson.title,
-        retryResetCount: updatedProgress.retryResetCount,
-      });
+      await Promise.all([
+        callGoogleSheetsPost(webhookUrl, {
+          action: 'retry_video_lesson',
+          sheetName: VIDEO_SHEETS.ANSWERS,
+          studentId,
+          studentName,
+          lessonId: lesson.id,
+          topic: lesson.topic,
+          title: lesson.title,
+          retryResetCount: nextRemaining,
+        }),
+        callGoogleSheetsPost(webhookUrl, {
+          action: 'record_retry',
+          sheetName: 'سجل_المحاولات',
+          studentId,
+          studentName,
+          mode: 'video',
+          exerciseKey: lesson.id,
+          retryCount: nextUsed,
+          timestamp: new Date().toLocaleString('ar-SA'),
+        }),
+      ]);
     } catch {}
   }
 
@@ -1144,5 +1284,180 @@ export async function sendTelegramNotification(
       res.message ||
       (res.success ? 'تم إرسال إشعار تيليغرام بنجاح!' : res.error || 'تعذر إرسال الإشعار'),
   };
+}
+
+// =========================================================================
+// DYNAMIC VARIABLE TRANSLATIONS BUILDER FOR VIDEO LESSONS (الترجمة)
+// =========================================================================
+
+export function buildVideoVariableTranslationItems(
+  lessons: VideoLesson[],
+  existingTranslations: TranslationItem[]
+): TranslationItem[] {
+  const savedMap = new Map<string, TranslationItem>();
+  existingTranslations.forEach((item) => {
+    savedMap.set(item.id, item);
+  });
+
+  const outMap = new Map<string, TranslationItem>();
+  const addDynamic = (
+    id: string,
+    arText: string,
+    categoryLabel: string,
+    note: string
+  ) => {
+    const clean = (arText || '').trim();
+    if (!clean) return;
+    const prev = savedMap.get(id);
+    outMap.set(id, {
+      id,
+      category: 'video',
+      categoryLabel,
+      ar: prev?.ar?.trim() ? prev.ar : clean,
+      th: prev?.th || '',
+      en: prev?.en || '',
+      isSheetLinked: true,
+      sheetSourceNote: note,
+    });
+  };
+
+  lessons.forEach((lesson) => {
+    const topic = (lesson.topic || '').trim();
+    const title = (lesson.title || '').trim();
+
+    if (topic) {
+      addDynamic(
+        `video_topic_${topic}`,
+        topic,
+        'مواضيع دروس الفيديو (فيديو_الأسئلة)',
+        'موضوع درس فيديو'
+      );
+    }
+    if (title) {
+      addDynamic(
+        `video_title_${lesson.id}`,
+        title,
+        'عناوين دروس الفيديو (فيديو_الأسئلة)',
+        `موضوع: ${topic || 'عام'}`
+      );
+    }
+    if (lesson.instruction && lesson.instruction.trim()) {
+      addDynamic(
+        `video_instr_${lesson.id}`,
+        lesson.instruction,
+        'تعليمات دروس الفيديو (فيديو_الأسئلة)',
+        `تعليمات: ${title || lesson.id}`
+      );
+    }
+    if (lesson.uploadTitle && lesson.uploadTitle.trim()) {
+      addDynamic(
+        `video_upload_title_${lesson.id}`,
+        lesson.uploadTitle,
+        'عناوين واجبات الصور (فيديو_الأسئلة)',
+        `واجب الصورة: ${title || lesson.id}`
+      );
+    }
+
+    (lesson.questions || []).forEach((q, qIdx) => {
+      if (q.question && q.question.trim()) {
+        addDynamic(
+          `video_vq_q_${lesson.id}_${qIdx}`,
+          q.question,
+          'أسئلة الفيديو التفاعلية (فيديو_الأسئلة)',
+          `${title || lesson.id} · س${qIdx + 1}`
+        );
+      }
+      (q.options || []).forEach((opt, oIdx) => {
+        if (opt && opt.trim()) {
+          addDynamic(
+            `video_vq_opt_${lesson.id}_${qIdx}_${oIdx}`,
+            opt,
+            'خيارات أسئلة الفيديو (فيديو_الأسئلة)',
+            `${title || lesson.id} · س${qIdx + 1} · خيار ${oIdx + 1}`
+          );
+        }
+      });
+      const ans = (q.correctAnswer || '').trim();
+      if (ans && !(q.options || []).some((o) => o.trim() === ans)) {
+        addDynamic(
+          `video_vq_ans_${lesson.id}_${qIdx}`,
+          ans,
+          'إجابات أسئلة الفيديو (فيديو_الأسئلة)',
+          `${title || lesson.id} · س${qIdx + 1}`
+        );
+      }
+    });
+
+    (lesson.audioQuestions || []).forEach((aq, qIdx) => {
+      if (aq.question && aq.question.trim()) {
+        addDynamic(
+          `video_aq_q_${lesson.id}_${qIdx}`,
+          aq.question,
+          'أسئلة الصوت التفاعلية (فيديو_الأسئلة)',
+          `${title || lesson.id} · صوت س${qIdx + 1}`
+        );
+      }
+      (aq.options || []).forEach((opt, oIdx) => {
+        if (opt && opt.trim()) {
+          addDynamic(
+            `video_aq_opt_${lesson.id}_${qIdx}_${oIdx}`,
+            opt,
+            'خيارات أسئلة الصوت (فيديو_الأسئلة)',
+            `${title || lesson.id} · صوت س${qIdx + 1} · خيار ${oIdx + 1}`
+          );
+        }
+      });
+      const ans = (aq.correctAnswer || '').trim();
+      if (ans && !(aq.options || []).some((o) => o.trim() === ans)) {
+        addDynamic(
+          `video_aq_ans_${lesson.id}_${qIdx}`,
+          ans,
+          'إجابات أسئلة الصوت (فيديو_الأسئلة)',
+          `${title || lesson.id} · صوت س${qIdx + 1}`
+        );
+      }
+    });
+  });
+
+  return Array.from(outMap.values());
+}
+
+export function buildAllVideoTranslationItems(
+  lessons: VideoLesson[],
+  existingTranslations: TranslationItem[]
+): TranslationItem[] {
+  const map = new Map<string, TranslationItem>();
+
+  DEFAULT_TRANSLATIONS.filter(
+    (d) => d.category === 'video' || d.id.startsWith('login_qr_')
+  ).forEach((d) => map.set(d.id, d));
+
+  existingTranslations.forEach((item) => {
+    if (
+      item.category === 'video' ||
+      item.id.startsWith('video_') ||
+      item.id === 'nav_video_btn' ||
+      item.id.startsWith('login_qr_')
+    ) {
+      const existing = map.get(item.id);
+      map.set(
+        item.id,
+        existing
+          ? {
+              ...existing,
+              ar: item.ar !== undefined ? item.ar : existing.ar,
+              th: item.th !== undefined ? item.th : existing.th,
+              en: item.en !== undefined ? item.en : existing.en,
+            }
+          : { ...item, category: 'video' }
+      );
+    }
+  });
+
+  buildVideoVariableTranslationItems(lessons, existingTranslations).forEach((dyn) => {
+    map.set(dyn.id, dyn);
+  });
+
+  return Array.from(map.values());
 }
 

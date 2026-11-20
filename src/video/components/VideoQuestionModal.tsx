@@ -20,6 +20,9 @@ import { SupportedLang } from '../../utils/translations';
 
 interface VideoQuestionModalProps {
   question: VideoTimestampQuestion;
+  lessonId?: string;
+  questionType?: 'video' | 'audio';
+  questionIndex?: number;
   showResult: 'نعم' | 'لا';
   onSubmit: (selectedAnswer: string, isCorrect: boolean | null) => void;
   onRewatch?: () => void;
@@ -37,6 +40,9 @@ function formatSec(sec: number): string {
 
 export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
   question,
+  lessonId,
+  questionType = 'video',
+  questionIndex,
   showResult,
   onSubmit,
   onRewatch,
@@ -44,6 +50,21 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
+  const qPrefix = questionType === 'audio' ? 'aq' : 'vq';
+  const qIdx = typeof questionIndex === 'number' && !isNaN(questionIndex) ? questionIndex : question.slotIndex ?? 0;
+
+  const translateAnswerOrOption = (rawVal: string) => {
+    const clean = (rawVal || '').trim();
+    if (!clean || !lessonId) return rawVal;
+    const optIdx = (question.options || []).findIndex((o) => o.trim() === clean);
+    if (optIdx >= 0) {
+      return tr(`video_${qPrefix}_opt_${lessonId}_${qIdx}_${optIdx}`, rawVal);
+    }
+    if (question.correctAnswer && question.correctAnswer.trim() === clean) {
+      return tr(`video_${qPrefix}_ans_${lessonId}_${qIdx}`, rawVal);
+    }
+    return rawVal;
+  };
 
   const [selectedOption, setSelectedOption] = useState<string>('');
   const [textAnswer, setTextAnswer] = useState<string>('');
@@ -141,7 +162,7 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
             </div>
             <div className="min-w-0">
               <h3 className="text-sm sm:text-base font-extrabold text-white truncate">
-                سؤال تفاعلي أثناء الدرس
+                {tr('video_modal_q_title', 'سؤال تفاعلي أثناء الدرس')}
               </h3>
               <div className="flex items-center gap-1.5 text-[11px] text-blue-100 mt-0.5">
                 <Clock className="w-3 h-3 shrink-0" />
@@ -155,7 +176,7 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
               type="button"
               onClick={onClose}
               className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-              title="إغلاق"
+              title={tr('video_close', 'إغلاق')}
             >
               <X className="w-5 h-5" />
             </button>
@@ -167,7 +188,9 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
           {/* Question text */}
           {question.question && (
             <div className="text-base sm:text-lg font-extrabold text-slate-900 leading-relaxed text-right">
-              {question.question}
+              {lessonId
+                ? tr(`video_${qPrefix}_q_${lessonId}_${qIdx}`, question.question)
+                : question.question}
             </div>
           )}
 
@@ -183,7 +206,11 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
               }`}
             >
               <Volume2 className="w-4 h-4 shrink-0" />
-              <span>{isPlayingAudio ? 'جاري تشغيل الصوت...' : 'استماع لصوت السؤال'}</span>
+              <span>
+                {isPlayingAudio
+                  ? tr('video_playing_q_audio', 'جاري تشغيل الصوت...')
+                  : tr('video_listen_q_audio', 'استماع لصوت السؤال')}
+              </span>
             </button>
           )}
 
@@ -214,6 +241,9 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
                 <div className="grid grid-cols-1 gap-2.5">
                   {question.options.map((opt, idx) => {
                     const isSelected = selectedOption === opt;
+                    const displayOpt = lessonId
+                      ? tr(`video_${qPrefix}_opt_${lessonId}_${qIdx}_${idx}`, opt)
+                      : opt;
                     return (
                       <button
                         key={`${idx}-${opt}`}
@@ -225,7 +255,7 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
                             : 'bg-white border-slate-200 text-slate-800 hover:border-slate-300 hover:bg-slate-50'
                         }`}
                       >
-                        <span className="flex-1 leading-snug">{opt}</span>
+                        <span className="flex-1 leading-snug">{displayOpt}</span>
                         <span
                           className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
                             isSelected ? 'border-indigo-600 bg-indigo-600' : 'border-slate-300'
@@ -239,12 +269,14 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-600 block">اكتب إجابتك هنا:</label>
+                  <label className="text-xs font-bold text-slate-600 block">
+                    {tr('video_type_answer_label', 'اكتب إجابتك هنا:')}
+                  </label>
                   <input
                     type="text"
                     value={textAnswer}
                     onChange={(e) => setTextAnswer(e.target.value)}
-                    placeholder="اكتب الإجابة..."
+                    placeholder={tr('video_type_answer_placeholder', 'اكتب الإجابة...')}
                     className="w-full px-4 py-3 rounded-2xl border-2 border-slate-200 focus:border-indigo-500 focus:outline-none text-sm sm:text-base font-bold text-slate-900"
                     autoFocus
                   />
@@ -265,30 +297,36 @@ export const VideoQuestionModal: React.FC<VideoQuestionModalProps> = ({
                 {submittedState.isCorrect === true ? (
                   <>
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                    <span>أحسنت! إجابة صحيحة</span>
+                    <span>{tr('video_q_correct', 'أحسنت! إجابة صحيحة')}</span>
                   </>
                 ) : submittedState.isCorrect === false ? (
                   <>
                     <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
-                    <span>إجابة غير مطابقة</span>
+                    <span>{tr('video_q_incorrect', 'إجابة غير مطابقة')}</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0" />
-                    <span>تم تسجيل إجابتك بنجاح</span>
+                    <span>{tr('video_q_recorded', 'تم تسجيل إجابتك بنجاح')}</span>
                   </>
                 )}
               </div>
 
               <div className="text-xs sm:text-sm space-y-1">
                 <div>
-                  <span className="text-slate-500 font-semibold">إجابتك: </span>
-                  <span className="font-bold">{submittedState.answer}</span>
+                  <span className="text-slate-500 font-semibold">
+                    {tr('video_q_your_answer', 'إجابتك:')}{' '}
+                  </span>
+                  <span className="font-bold">{translateAnswerOrOption(submittedState.answer)}</span>
                 </div>
                 {submittedState.isCorrect === false && question.correctAnswer && (
                   <div>
-                    <span className="text-slate-500 font-semibold">الإجابة الصحيحة: </span>
-                    <span className="font-extrabold text-emerald-700">{question.correctAnswer}</span>
+                    <span className="text-slate-500 font-semibold">
+                      {tr('video_q_expected_answer', 'الإجابة الصحيحة:')}{' '}
+                    </span>
+                    <span className="font-extrabold text-emerald-700">
+                      {translateAnswerOrOption(question.correctAnswer)}
+                    </span>
                   </div>
                 )}
               </div>

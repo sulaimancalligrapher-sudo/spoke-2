@@ -911,13 +911,15 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     return (
       <div className="bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-4">
         <Film className="w-12 h-12 text-slate-300 mx-auto" />
-        <h3 className="text-lg font-extrabold text-slate-800">لا توجد دروس فيديو متاحة حالياً</h3>
+        <h3 className="text-lg font-extrabold text-slate-800">
+          {tr('video_none_available', 'لا توجد دروس فيديو متاحة حالياً')}
+        </h3>
         <button
           type="button"
           onClick={onOpenLessonsModal}
           className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-bold cursor-pointer"
         >
-          تحديث الدروس
+          {tr('video_refresh_lessons', 'تحديث الدروس')}
         </button>
       </div>
     );
@@ -940,7 +942,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
             type="button"
             onClick={onGoHome}
             className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
-            title="الرئيسية"
+            title={tr('video_home_tooltip', 'الرئيسية')}
           >
             <Home className="w-4 h-4" />
           </button>
@@ -972,7 +974,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
               className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap"
             >
               <UserCheck className="w-3.5 h-3.5" />
-              <span>تسجيل لحفظ التقدم</span>
+              <span>{tr('video_login_to_save', 'تسجيل لحفظ التقدم')}</span>
             </button>
           )}
 
@@ -998,16 +1000,16 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                 }
               }}
               className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap"
-              title="مزامنة وتحديث الأسئلة والإجابات من الشيت"
+              title={tr('video_refresh_list', 'مزامنة وتحديث الأسئلة والإجابات من الشيت')}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshingSync ? 'animate-spin text-indigo-600' : ''}`} />
-              <span className="hidden md:inline">تحديث</span>
+              <span className="hidden md:inline">{tr('video_refresh_btn', 'تحديث')}</span>
             </button>
           )}
 
           {totalQsCount > 0 && (
             <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-800 whitespace-nowrap">
-              الأسئلة: {answeredCount}/{totalQsCount} • {progress.videoScore}%
+              {tr('video_questions_counter', 'الأسئلة:')} {answeredCount}/{totalQsCount} • {progress.videoScore}%
             </div>
           )}
         </div>
@@ -1100,120 +1102,217 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
 
         {/* Custom Controls Bar (for YouTube & HTML5 video) */}
         {!useDriveEmbedFallback && playable.kind !== 'none' && (
-          <div className="shrink-0 bg-slate-900/95 text-white px-3.5 sm:px-4 py-2 sm:py-3 space-y-2 border-t border-slate-800">
-            {/* Timeline + Timestamp Markers */}
-            <div dir="ltr" className="relative h-6 flex items-center">
-              <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden relative">
-                <div
-                  className="h-full bg-indigo-500 transition-all duration-150"
-                  style={{ width: `${progressPct}%` }}
+          isExpandedStage ? (
+            <div className="shrink-0 bg-slate-950/90 text-white px-2.5 py-1 flex items-center gap-1.5 border-t border-slate-800/80">
+              <button
+                type="button"
+                onClick={togglePlayPause}
+                className="w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                title={isPlaying ? 'إيقاف مؤقت' : 'تشغيل'}
+              >
+                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-white" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => seekVideoTo(currentTime - 10)}
+                className="px-1.5 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold flex items-center gap-0.5 cursor-pointer shrink-0"
+                title="ترجيع 10 ثوانٍ"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>-10ث</span>
+              </button>
+
+              <span className="text-[10px] font-mono text-slate-300 shrink-0 px-0.5">
+                {formatTime(currentTime)}/{formatTime(duration)}
+              </span>
+
+              {/* Inline Timeline Scrub */}
+              <div dir="ltr" className="relative flex-1 min-w-[60px] h-5 flex items-center">
+                <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden relative">
+                  <div
+                    className="h-full bg-indigo-500 transition-all duration-150"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                {duration > 0 &&
+                  lesson.questions.map((q, idx) => {
+                    const answered = Boolean(progress.answeredQuestions[`vq_${idx}`]);
+                    if (!answered) return null;
+                    const pct = Math.min(99, Math.max(1, (q.time / duration) * 100));
+                    return (
+                      <span
+                        key={q.id || idx}
+                        style={{ left: `${pct}%` }}
+                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full border border-slate-900 pointer-events-none bg-emerald-400"
+                      />
+                    );
+                  })}
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(1, Math.floor(duration))}
+                  value={Math.floor(currentTime)}
+                  onChange={(e) => seekVideoTo(Number(e.target.value))}
+                  aria-label="شريط تقدم الفيديو"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
               </div>
 
-              {/* Show pins ONLY for already-answered questions so future question times stay hidden */}
-              {duration > 0 &&
-                lesson.questions.map((q, idx) => {
-                  const answered = Boolean(progress.answeredQuestions[`vq_${idx}`]);
-                  if (!answered) return null;
-                  const pct = Math.min(99, Math.max(1, (q.time / duration) * 100));
-                  return (
-                    <span
-                      key={q.id || idx}
-                      style={{ left: `${pct}%` }}
-                      className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-slate-900 pointer-events-none bg-emerald-400"
-                    />
-                  );
-                })}
+              {playable.embedUrl && (
+                <button
+                  type="button"
+                  onClick={() => setUseDriveEmbedFallback(true)}
+                  className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center cursor-pointer shrink-0"
+                  title={tr('video_drive_player', 'مشغل Drive')}
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={toggleMute}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer shrink-0"
+              >
+                {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </button>
 
               <input
                 type="range"
                 min={0}
-                max={Math.max(1, Math.floor(duration))}
-                value={Math.floor(currentTime)}
-                onChange={(e) => seekVideoTo(Number(e.target.value))}
-                aria-label="شريط تقدم الفيديو"
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                max={100}
+                value={isMuted ? 0 : volume}
+                onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                aria-label="مستوى الصوت"
+                className="hidden md:block w-14 accent-indigo-500 cursor-pointer shrink-0"
               />
+
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer shrink-0"
+                title="تصغير الشاشة"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+              </button>
             </div>
+          ) : (
+            <div className="shrink-0 bg-slate-900/95 text-white px-3.5 sm:px-4 py-2 sm:py-3 space-y-2 border-t border-slate-800">
+              {/* Timeline + Timestamp Markers */}
+              <div dir="ltr" className="relative h-6 flex items-center">
+                <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden relative">
+                  <div
+                    className="h-full bg-indigo-500 transition-all duration-150"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
 
-            {/* Control Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={togglePlayPause}
-                  className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center transition-colors cursor-pointer"
-                  title={isPlaying ? 'إيقاف مؤقت' : 'تشغيل'}
-                >
-                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => seekVideoTo(currentTime - 10)}
-                  className="px-2.5 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                  title="ترجيع 10 ثوانٍ"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>-10ث</span>
-                </button>
-
-                <span className="text-xs font-mono text-slate-300 px-1">
-                  {formatTime(currentTime)} / {formatTime(duration)}
-                </span>
-
-                {isSeekLocked && (
-                  <span
-                    className="hidden sm:inline-flex items-center gap-1 text-[11px] text-amber-300 font-bold"
-                    title="التقديم مقفل حتى إتمام الأسئلة الزمنية"
-                  >
-                    <Lock className="w-3 h-3" />
-                    <span>مقفل للمشاهدة الأولى</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {playable.embedUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setUseDriveEmbedFallback(true)}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-300 flex items-center gap-1 cursor-pointer"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    <span>مشغل Drive</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={toggleMute}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
-                >
-                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </button>
+                {/* Show pins ONLY for already-answered questions so future question times stay hidden */}
+                {duration > 0 &&
+                  lesson.questions.map((q, idx) => {
+                    const answered = Boolean(progress.answeredQuestions[`vq_${idx}`]);
+                    if (!answered) return null;
+                    const pct = Math.min(99, Math.max(1, (q.time / duration) * 100));
+                    return (
+                      <span
+                        key={q.id || idx}
+                        style={{ left: `${pct}%` }}
+                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-slate-900 pointer-events-none bg-emerald-400"
+                      />
+                    );
+                  })}
 
                 <input
                   type="range"
                   min={0}
-                  max={100}
-                  value={isMuted ? 0 : volume}
-                  onChange={(e) => handleVolumeChange(Number(e.target.value))}
-                  aria-label="مستوى الصوت"
-                  className="w-16 sm:w-20 accent-indigo-500 cursor-pointer"
+                  max={Math.max(1, Math.floor(duration))}
+                  value={Math.floor(currentTime)}
+                  onChange={(e) => seekVideoTo(Number(e.target.value))}
+                  aria-label="شريط تقدم الفيديو"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
+              </div>
 
-                <button
-                  type="button"
-                  onClick={toggleFullscreen}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
-                  title={isExpandedStage ? 'تصغير الشاشة' : 'ملء الشاشة'}
-                >
-                  {isExpandedStage ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
+              {/* Control Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={togglePlayPause}
+                    className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center transition-colors cursor-pointer"
+                    title={isPlaying ? 'إيقاف مؤقت' : 'تشغيل'}
+                  >
+                    {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white" />}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => seekVideoTo(currentTime - 10)}
+                    className="px-2.5 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title="ترجيع 10 ثوانٍ"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>-10ث</span>
+                  </button>
+
+                  <span className="text-xs font-mono text-slate-300 px-1">
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                  </span>
+
+                  {isSeekLocked && (
+                    <span
+                      className="hidden sm:inline-flex items-center gap-1 text-[11px] text-amber-300 font-bold"
+                      title="التقديم مقفل حتى إتمام الأسئلة الزمنية"
+                    >
+                      <Lock className="w-3 h-3" />
+                      <span>{tr('video_locked_first_watch', 'مقفل للمشاهدة الأولى')}</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {playable.embedUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setUseDriveEmbedFallback(true)}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>{tr('video_drive_player', 'مشغل Drive')}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={toggleMute}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                  >
+                    {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                  </button>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={isMuted ? 0 : volume}
+                    onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                    aria-label="مستوى الصوت"
+                    className="w-16 sm:w-20 accent-indigo-500 cursor-pointer"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={toggleFullscreen}
+                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
+                    title="ملء الشاشة"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )
         )}
       </div>
 
@@ -1271,20 +1370,20 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
           {completionEval && completionEval.hasAnyProgress && !completionEval.isFullyCompleted && (
             <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 flex flex-wrap items-center gap-2">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>هذا الدرس غير مكتمل بعد، المتبقي:</span>
+              <span>{tr('video_incomplete_banner_prefix', 'هذا الدرس غير مكتمل بعد، المتبقي:')}</span>
               {!completionEval.videoDone && (
                 <span className="px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900">
-                  إنهاء الفيديو والأسئلة
+                  {tr('video_part_finish_video', 'إنهاء الفيديو والأسئلة')}
                 </span>
               )}
               {completionEval.imageRequired && !completionEval.imageDone && (
                 <span className="px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900">
-                  لم يرسل واجب الصورة
+                  {tr('video_missing_photo', 'لم يرسل واجب الصورة')}
                 </span>
               )}
               {completionEval.audioRequired && !completionEval.audioDone && (
                 <span className="px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900">
-                  لم يرسل الواجب الصوتي
+                  {tr('video_missing_audio', 'لم يرسل الواجب الصوتي')}
                 </span>
               )}
             </div>
@@ -1294,18 +1393,20 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
             <div className="space-y-5">
               {lesson.instruction && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-sm text-slate-800 leading-relaxed font-medium">
-                  {lesson.instruction}
+                  {tr(`video_instr_${lesson.id}`, lesson.instruction)}
                 </div>
               )}
 
               {/* Helper Image */}
               {helperImgUrl && (
                 <div className="space-y-2">
-                  <div className="text-xs font-extrabold text-slate-600">صورة توضيحية للدرس:</div>
+                  <div className="text-xs font-extrabold text-slate-600">
+                    {tr('video_helper_image_label', 'صورة توضيحية للدرس:')}
+                  </div>
                   <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 max-w-md">
                     <img
                       src={helperImgUrl}
-                      alt={lesson.title}
+                      alt={tr(`video_title_${lesson.id}`, lesson.title)}
                       onClick={() => setZoomedImg(helperImgUrl)}
                       className="w-full max-h-60 object-contain cursor-zoom-in"
                     />
@@ -1325,7 +1426,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                 <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 space-y-2">
                   <div className="text-xs font-extrabold text-indigo-900 flex items-center gap-1.5">
                     <Volume2 className="w-4 h-4 text-indigo-600" />
-                    <span>تسجيل شرح المعلم المرفق بالدرس</span>
+                    <span>{tr('video_teacher_explain_audio', 'تسجيل شرح المعلم المرفق بالدرس')}</span>
                   </div>
                   <audio
                     ref={explainAudioRef}
@@ -1343,7 +1444,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
 
               {!lesson.instruction && !helperImgUrl && explainAudioCandidates.length === 0 && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-600 font-semibold text-center">
-                  شاهد الفيديو بتركيز؛ ستظهر الأسئلة التفاعلية تلقائياً أثناء العرض.
+                  {tr('video_watch_carefully_hint', 'شاهد الفيديو بتركيز؛ ستظهر الأسئلة التفاعلية تلقائياً أثناء العرض.')}
                 </div>
               )}
 
@@ -1354,25 +1455,25 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span className="text-emerald-800 font-extrabold">
-                        تم إكمال جميع أجزاء هذا الدرس ({progress.videoScore}%)
+                        {tr('video_all_parts_done', 'تم إكمال جميع أجزاء هذا الدرس')} ({progress.videoScore}%)
                       </span>
                     </>
                   ) : completionEval?.videoDone ? (
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span className="text-emerald-800 font-extrabold">
-                        تم توثيق إجابات الفيديو ({progress.videoScore}%)
+                        {tr('video_answers_recorded_score', 'تم توثيق إجابات الفيديو')} ({progress.videoScore}%)
                       </span>
                     </>
                   ) : !allVideoQsAnswered ? (
                     <>
                       <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                      <span>أجب عن جميع أسئلة الفيديو الزمنية لتفعيل توثيق الدرس</span>
+                      <span>{tr('video_answer_all_to_enable', 'أجب عن جميع أسئلة الفيديو الزمنية لتفعيل توثيق الدرس')}</span>
                     </>
                   ) : (
                     <>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>جاهز لتسجيل إجابات الفيديو وتوثيق الدرس</span>
+                      <span>{tr('video_ready_to_finish', 'جاهز لتسجيل إجابات الفيديو وتوثيق الدرس')}</span>
                     </>
                   )}
                 </div>
@@ -1415,11 +1516,13 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-base font-extrabold text-slate-900">
-                      {lesson.uploadTitle || tr('video_tab_image_hw', 'تسليم واجب الصورة')}
+                      {lesson.uploadTitle
+                        ? tr(`video_upload_title_${lesson.id}`, lesson.uploadTitle)
+                        : tr('video_tab_image_hw', 'تسليم واجب الصورة')}
                     </h4>
                     {!isImageLocked && (
                       <p className="text-xs text-slate-500">
-                        التقط صورة واضحة لواجبك عبر الكاميرا أو اختر صورة من جهازك.
+                        {tr('video_photo_hw_hint', 'التقط صورة واضحة لواجبك عبر الكاميرا أو اختر صورة من جهازك.')}
                       </p>
                     )}
                   </div>
@@ -1427,13 +1530,13 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                   {isImageLocked ? (
                     <div className="p-3.5 rounded-2xl bg-emerald-100/80 border border-emerald-300 text-xs sm:text-sm font-extrabold text-emerald-900 flex items-center gap-2">
                       <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
-                      <span>تم تسليم صورة الواجب وحفظها بنجاح ✓ (الإرسال مقفل)</span>
+                      <span>{tr('video_photo_locked_banner', 'تم تسليم صورة الواجب وحفظها بنجاح ✓ (الإرسال مقفل)')}</span>
                     </div>
                   ) : (
                     <>
                       {isRetryUnlocked && progress.imageLink && (
                         <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900">
-                          سبق تسليم صورة لهذا الدرس — يمكنك إرسال صورة جديدة لاستبدالها أو الإبقاء على الصورة الحالية كما هي.
+                          {tr('video_photo_retry_hint', 'سبق تسليم صورة لهذا الدرس — يمكنك إرسال صورة جديدة لاستبدالها أو الإبقاء على الصورة الحالية كما هي.')}
                         </div>
                       )}
 
@@ -1443,8 +1546,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           <button
                             type="button"
                             onClick={() => startCamera(cameraFacing)}
-                            title="فتح الكاميرا"
-                            aria-label="فتح الكاميرا"
+                            title={tr('video_capture_photo', 'فتح الكاميرا')}
+                            aria-label={tr('video_capture_photo', 'فتح الكاميرا')}
                             className="h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
                           >
                             <Camera className="w-7 h-7" />
@@ -1453,8 +1556,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           <button
                             type="button"
                             onClick={stopCamera}
-                            title="إغلاق الكاميرا"
-                            aria-label="إغلاق الكاميرا"
+                            title={tr('video_close', 'إغلاق الكاميرا')}
+                            aria-label={tr('video_close', 'إغلاق الكاميرا')}
                             className="h-16 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
                           >
                             <X className="w-7 h-7" />
@@ -1462,8 +1565,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                         )}
 
                         <label
-                          title="اختيار صورة من الجهاز"
-                          aria-label="اختيار صورة من الجهاز"
+                          title={tr('video_tab_image_hw', 'اختيار صورة من الجهاز')}
+                          aria-label={tr('video_tab_image_hw', 'اختيار صورة من الجهاز')}
                           className="h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-2xs transition-transform active:scale-95 cursor-pointer"
                         >
                           <Upload className="w-7 h-7" />
@@ -1498,7 +1601,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                         >
                           <SwitchCamera className="w-4 h-4" />
-                          <span>تبديل الكاميرا</span>
+                          <span>{tr('video_switch_camera', 'تبديل الكاميرا')}</span>
                         </button>
                         <button
                           type="button"
@@ -1506,7 +1609,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
                         >
                           <Camera className="w-4 h-4" />
-                          <span>التقاط الصورة</span>
+                          <span>{tr('video_capture_photo', 'التقاط الصورة')}</span>
                         </button>
                       </div>
                     </div>
@@ -1526,7 +1629,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           onClick={() => setCapturedImageData(null)}
                           className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
                         >
-                          إلغاء
+                          {tr('video_cancel', 'إلغاء')}
                         </button>
                         <button
                           type="button"
@@ -1539,7 +1642,11 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           ) : (
                             <Send className="w-4 h-4" />
                           )}
-                          <span>{uploadingImage ? 'جاري الرفع...' : 'حفظ وإرسال الصورة'}</span>
+                          <span>
+                            {uploadingImage
+                              ? tr('video_uploading', 'جاري الرفع...')
+                              : tr('video_send_photo', 'حفظ وإرسال الصورة')}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -1550,7 +1657,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 max-w-lg">
                       <div className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>الصورة المسلمة لهذا الدرس</span>
+                        <span>{tr('video_submitted_photo_label', 'الصورة المسلمة لهذا الدرس')}</span>
                       </div>
                       <img
                         src={resolveVideoQuestionImage(progress.imageLink) || progress.imageLink}
@@ -1584,7 +1691,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     </h4>
                     {!isAudioLocked && (
                       <p className="text-xs text-slate-500">
-                        الحد الأقصى للتسجيل: {lesson.maxRecordingTime || 60} ثانية.
+                        {tr('video_max_rec_limit', 'الحد الأقصى للتسجيل:')} {lesson.maxRecordingTime || 60}{' '}
+                        {tr('video_seconds_unit', 'ثانية')}
                       </p>
                     )}
                   </div>
@@ -1592,13 +1700,13 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                   {isAudioLocked ? (
                     <div className="p-3.5 rounded-2xl bg-emerald-100/80 border border-emerald-300 text-xs sm:text-sm font-extrabold text-emerald-900 flex items-center gap-2">
                       <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
-                      <span>تم تسليم الواجب الصوتي وحفظه بنجاح ✓ (الإرسال مقفل)</span>
+                      <span>{tr('video_audio_locked_banner', 'تم تسليم الواجب الصوتي وحفظه بنجاح ✓ (الإرسال مقفل)')}</span>
                     </div>
                   ) : (
                     <>
                       {isRetryUnlocked && progress.recordingLink && (
                         <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900">
-                          سبق تسليم تسجيل صوتي لهذا الدرس — يمكنك تسجيل أو رفع بديل جديد أو الإبقاء على التسجيل الحالي كما هو.
+                          {tr('video_audio_retry_hint', 'سبق تسليم تسجيل صوتي لهذا الدرس — يمكنك تسجيل أو رفع بديل جديد أو الإبقاء على التسجيل الحالي كما هو.')}
                         </div>
                       )}
 
@@ -1609,8 +1717,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                             <button
                               type="button"
                               onClick={startRecording}
-                              title="بدء التسجيل الصوتي"
-                              aria-label="بدء التسجيل الصوتي"
+                              title={tr('video_tab_audio_hw', 'بدء التسجيل الصوتي')}
+                              aria-label={tr('video_tab_audio_hw', 'بدء التسجيل الصوتي')}
                               className="h-16 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
                             >
                               <Mic className="w-7 h-7" />
@@ -1619,8 +1727,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                             <button
                               type="button"
                               onClick={stopRecording}
-                              title="إيقاف التسجيل"
-                              aria-label="إيقاف التسجيل"
+                              title={tr('video_cancel', 'إيقاف التسجيل')}
+                              aria-label={tr('video_cancel', 'إيقاف التسجيل')}
                               className="h-16 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center shadow-sm ring-2 ring-rose-500 transition-transform active:scale-95 cursor-pointer"
                             >
                               <Square className="w-7 h-7 fill-rose-500 text-rose-500 animate-pulse" />
@@ -1628,8 +1736,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           )}
 
                           <label
-                            title="رفع ملف صوتي"
-                            aria-label="رفع ملف صوتي"
+                            title={tr('video_tab_audio_hw', 'رفع ملف صوتي')}
+                            aria-label={tr('video_tab_audio_hw', 'رفع ملف صوتي')}
                             className="h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-2xs transition-transform active:scale-95 cursor-pointer"
                           >
                             <Upload className="w-7 h-7" />
@@ -1666,7 +1774,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           }}
                           className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
                         >
-                          إلغاء
+                          {tr('video_cancel', 'إلغاء')}
                         </button>
                         <button
                           type="button"
@@ -1679,7 +1787,11 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                           ) : (
                             <Send className="w-4 h-4" />
                           )}
-                          <span>{uploadingAudio ? 'جاري الإرسال...' : 'حفظ وإرسال التسجيل'}</span>
+                          <span>
+                            {uploadingAudio
+                              ? tr('video_sending', 'جاري الإرسال...')
+                              : tr('video_send_audio', 'حفظ وإرسال التسجيل')}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -1689,7 +1801,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 max-w-lg">
                       <div className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>التسجيل الصوتي المسلم لهذا الدرس</span>
+                        <span>{tr('video_submitted_audio_label', 'التسجيل الصوتي المسلم لهذا الدرس')}</span>
                       </div>
                       <audio
                         controls
@@ -1717,6 +1829,9 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
       {activeModalQuestion && (
         <VideoQuestionModal
           question={activeModalQuestion.question}
+          lessonId={lesson.id}
+          questionType={activeModalQuestion.type}
+          questionIndex={Number(activeModalQuestion.key.split('_')[1] || 0)}
           showResult={lesson.showResult}
           onSubmit={handleQuestionAnswerSubmit}
           onRewatch={handleRewatchBeforeQuestion}

@@ -22,6 +22,7 @@ import {
   consumeVideoRetryAttempt,
   evaluateVideoLessonCompletion,
   getVideoLessonScheduleStatus,
+  getVideoRemainingRetries,
 } from '../videoSheets';
 
 interface VideoLessonsModalProps {
@@ -144,7 +145,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               type="button"
               onClick={handleRefresh}
               className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-              title="تحديث القائمة"
+              title={tr('video_refresh_list', 'تحديث القائمة')}
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
@@ -152,7 +153,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               type="button"
               onClick={onClose}
               className="p-2 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-              title="إغلاق"
+              title={tr('video_close', 'إغلاق')}
             >
               <X className="w-5 h-5" />
             </button>
@@ -180,13 +181,13 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               onClick={() => setHideCompleted((prev) => !prev)}
               title={
                 hideCompleted
-                  ? `إظهار المكتملة (${completedCount})`
-                  : `إخفاء المكتملة (${completedCount})`
+                  ? `${tr('video_show_completed', 'إظهار المكتملة')} (${completedCount})`
+                  : `${tr('video_hide_completed', 'إخفاء المكتملة')} (${completedCount})`
               }
               aria-label={
                 hideCompleted
-                  ? `إظهار المكتملة (${completedCount})`
-                  : `إخفاء المكتملة (${completedCount})`
+                  ? `${tr('video_show_completed', 'إظهار المكتملة')} (${completedCount})`
+                  : `${tr('video_hide_completed', 'إخفاء المكتملة')} (${completedCount})`
               }
               className={`px-2.5 sm:px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[36px] sm:min-h-[38px] shrink-0 ${
                 !hideCompleted
@@ -197,8 +198,8 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               {hideCompleted ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
               <span className="hidden sm:inline">
                 {hideCompleted
-                  ? `إظهار المكتملة (${completedCount})`
-                  : `إخفاء المكتملة (${completedCount})`}
+                  ? `${tr('video_show_completed', 'إظهار المكتملة')} (${completedCount})`
+                  : `${tr('video_hide_completed', 'إخفاء المكتملة')} (${completedCount})`}
               </span>
             </button>
           </div>
@@ -224,8 +225,8 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
             <div className="text-center py-12 px-4 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
               <div>
                 {hideCompleted && completedCount > 0
-                  ? 'أحسنت! تم إكمال جميع الدروس المتاحة حالياً وإخفاؤها من القائمة.'
-                  : 'لا توجد دروس فيديو مطابقة للتصفية الحالية.'}
+                  ? tr('video_all_completed_hidden', 'أحسنت! تم إكمال جميع الدروس المتاحة حالياً وإخفاؤها من القائمة.')
+                  : tr('video_no_matching_lessons', 'لا توجد دروس فيديو مطابقة للتصفية الحالية.')}
               </div>
               {hideCompleted && completedCount > 0 && (
                 <button
@@ -234,7 +235,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                   className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold cursor-pointer inline-flex items-center gap-1.5"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  <span>عرض الدروس المكتملة ({completedCount})</span>
+                  <span>{tr('video_show_completed_btn', 'عرض الدروس المكتملة')} ({completedCount})</span>
                 </button>
               )}
             </div>
@@ -246,18 +247,15 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               const isPartial = !isCompleted && evalRes.hasAnyProgress;
               const schedule = getVideoLessonScheduleStatus(lesson);
               const isActive = activeLessonId === lesson.id;
-              const remainingRetries =
-                prog && typeof prog.retryResetCount === 'number' && !isNaN(prog.retryResetCount)
-                  ? prog.retryResetCount
-                  : lesson.retryCount;
+              const remainingRetries = getVideoRemainingRetries(lesson, currentStudent, prog);
               const isConfirmingRetry = confirmRetryLessonId === lesson.id;
               const totalQs = lesson.questions.length + lesson.audioQuestions.length;
 
               const missingTextParts: string[] = [];
               if (isPartial) {
-                if (!evalRes.videoDone) missingTextParts.push('الفيديو والأسئلة');
-                if (evalRes.imageRequired && !evalRes.imageDone) missingTextParts.push('واجب الصورة');
-                if (evalRes.audioRequired && !evalRes.audioDone) missingTextParts.push('الواجب الصوتي');
+                if (!evalRes.videoDone) missingTextParts.push(tr('video_part_video_qs', 'الفيديو والأسئلة'));
+                if (evalRes.imageRequired && !evalRes.imageDone) missingTextParts.push(tr('video_tab_image_hw', 'واجب الصورة'));
+                if (evalRes.audioRequired && !evalRes.audioDone) missingTextParts.push(tr('video_tab_audio_hw', 'الواجب الصوتي'));
               }
 
               return (
@@ -279,7 +277,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                         </span>
                         {schedule.effectiveEndDate && (
                           <span className="hidden sm:inline text-slate-400">
-                            • ينتهي: {schedule.effectiveEndDate}
+                            • {tr('video_ends_on', 'ينتهي:')} {schedule.effectiveEndDate}
                           </span>
                         )}
                       </div>
@@ -290,7 +288,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
 
                       {isPartial && missingTextParts.length > 0 && (
                         <div className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-block">
-                          متبقي: {missingTextParts.join(' • ')}
+                          {tr('video_remaining_label', 'متبقي:')} {missingTextParts.join(' • ')}
                         </div>
                       )}
 
@@ -298,24 +296,24 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                         {totalQs > 0 && (
                           <span className="flex items-center gap-1 font-semibold">
                             <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                            <span>{totalQs} أسئلة تفاعلية</span>
+                            <span>{totalQs} {tr('video_interactive_qs_label', 'أسئلة تفاعلية')}</span>
                           </span>
                         )}
                         {lesson.allowUpload !== 'لا' && (
                           <span className="flex items-center gap-1 font-semibold">
                             <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>واجب صورة</span>
+                            <span>{tr('video_photo_hw_label', 'واجب صورة')}</span>
                           </span>
                         )}
                         {lesson.allowRecording !== 'لا' && (
                           <span className="flex items-center gap-1 font-semibold">
                             <Mic className="w-3.5 h-3.5 text-amber-600" />
-                            <span>تسجيل صوتي</span>
+                            <span>{tr('video_audio_hw_label', 'تسجيل صوتي')}</span>
                           </span>
                         )}
                         {prog && prog.videoScore > 0 && (
                           <span className="font-extrabold text-indigo-700">
-                            الدرجة: {prog.videoScore}%
+                            {tr('video_score_label', 'الدرجة:')} {prog.videoScore}%
                           </span>
                         )}
                       </div>
@@ -329,7 +327,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                           <span>
                             {schedule.reason === 'expired'
                               ? tr('video_status_expired', 'منتهي الصلاحية')
-                              : 'لم يبدأ بعد'}
+                              : tr('video_status_not_started', 'لم يبدأ بعد')}
                           </span>
                         </span>
                       ) : isCompleted ? (
@@ -358,7 +356,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                             className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer min-h-[38px]"
                           >
                             <Play className="w-3.5 h-3.5" />
-                            <span>عرض الدرس</span>
+                            <span>{tr('video_view_lesson', 'عرض الدرس')}</span>
                           </button>
                         </>
                       ) : (
@@ -370,7 +368,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                                 : 'bg-blue-50 text-blue-700'
                             }`}
                           >
-                            {isPartial ? 'غير مكتمل' : tr('video_status_new', 'جديد')}
+                            {isPartial ? tr('video_status_incomplete', 'غير مكتمل') : tr('video_status_new', 'جديد')}
                           </span>
                           <button
                             type="button"
@@ -378,7 +376,11 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                             className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer min-h-[38px] sm:min-h-[40px]"
                           >
                             <Play className="w-3.5 h-3.5" />
-                            <span>{isPartial ? 'أكمل الدرس' : 'ابدأ الدرس'}</span>
+                            <span>
+                              {isPartial
+                                ? tr('video_continue_lesson', 'أكمل الدرس')
+                                : tr('video_start_lesson', 'ابدأ الدرس')}
+                            </span>
                           </button>
                         </>
                       )}
@@ -388,7 +390,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                   {isConfirmingRetry && (
                     <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="font-bold text-amber-950">
-                        هل تريد إعادة حل هذا الدرس؟ سيتم خصم محاولة من رصيد الإعادة ({remainingRetries}).
+                        {tr('video_retry_confirm_msg', 'هل تريد إعادة حل هذا الدرس؟ سيتم خصم محاولة من رصيد الإعادة')} ({remainingRetries}).
                       </span>
                       <div className="flex items-center gap-2">
                         <button
@@ -396,14 +398,14 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                           onClick={() => setConfirmRetryLessonId(null)}
                           className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-slate-700 font-bold cursor-pointer"
                         >
-                          إلغاء
+                          {tr('video_cancel', 'إلغاء')}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleConfirmRetry(lesson)}
                           className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-extrabold cursor-pointer"
                         >
-                          تأكيد الإعادة
+                          {tr('video_confirm_retry', 'تأكيد الإعادة')}
                         </button>
                       </div>
                     </div>

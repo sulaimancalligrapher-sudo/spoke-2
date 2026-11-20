@@ -11,7 +11,6 @@ import {
   Film,
 } from 'lucide-react';
 import {
-  DEFAULT_TRANSLATIONS,
   TranslationItem,
   translateBatchWithAI,
   translateSingleWithAI,
@@ -20,7 +19,7 @@ import {
   ensureTranslationsSheet,
   saveTranslationsToSheets,
 } from '../../utils/googleSheets';
-import { VideoLesson } from '../videoSheets';
+import { VideoLesson, buildAllVideoTranslationItems } from '../videoSheets';
 
 interface VideoTranslationManagerProps {
   translations: TranslationItem[];
@@ -41,81 +40,12 @@ export const VideoTranslationManager: React.FC<VideoTranslationManagerProps> = (
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
-  const buildVideoItems = (baseList: TranslationItem[], lessons: VideoLesson[]): TranslationItem[] => {
-    const map = new Map<string, TranslationItem>();
-
-    // 1. Default Video UI + QR login items
-    DEFAULT_TRANSLATIONS.filter(
-      (d) => d.category === 'video' || d.id.startsWith('login_qr_')
-    ).forEach((d) => map.set(d.id, d));
-
-    // 2. Saved translations override
-    baseList.forEach((item) => {
-      if (
-        item.category === 'video' ||
-        item.id.startsWith('video_') ||
-        item.id === 'nav_video_btn' ||
-        item.id.startsWith('login_qr_')
-      ) {
-        const existing = map.get(item.id);
-        map.set(
-          item.id,
-          existing
-            ? {
-                ...existing,
-                ar: item.ar !== undefined ? item.ar : existing.ar,
-                th: item.th !== undefined ? item.th : existing.th,
-                en: item.en !== undefined ? item.en : existing.en,
-              }
-            : { ...item, category: 'video' }
-        );
-      }
-    });
-
-    // 3. Dynamic Video Lesson Titles & Topics
-    lessons.forEach((lesson) => {
-      const topic = (lesson.topic || '').trim();
-      if (topic) {
-        const topicId = `video_topic_${topic}`;
-        const existingT = map.get(topicId);
-        map.set(topicId, {
-          id: topicId,
-          category: 'video',
-          categoryLabel: 'مواضيع دروس الفيديو (فيديو_الأسئلة)',
-          ar: existingT?.ar?.trim() ? existingT.ar : topic,
-          th: existingT?.th || '',
-          en: existingT?.en || '',
-          isSheetLinked: true,
-          sheetSourceNote: 'موضوع درس فيديو',
-        });
-      }
-
-      const title = (lesson.title || '').trim();
-      if (title) {
-        const titleId = `video_title_${lesson.id}`;
-        const existingL = map.get(titleId);
-        map.set(titleId, {
-          id: titleId,
-          category: 'video',
-          categoryLabel: 'عناوين دروس الفيديو (فيديو_الأسئلة)',
-          ar: existingL?.ar?.trim() ? existingL.ar : title,
-          th: existingL?.th || '',
-          en: existingL?.en || '',
-          isSheetLinked: true,
-          sheetSourceNote: `موضوع: ${topic || 'عام'}`,
-        });
-      }
-    });
-
-    return Array.from(map.values());
-  };
-
   const [videoItems, setVideoItems] = useState<TranslationItem[]>(() =>
-    buildVideoItems(translations, videoLessons)
+    buildAllVideoTranslationItems(videoLessons, translations)
   );
 
   useEffect(() => {
-    setVideoItems(buildVideoItems(translations, videoLessons));
+    setVideoItems(buildAllVideoTranslationItems(videoLessons, translations));
   }, [translations, videoLessons]);
 
   const [translatingId, setTranslatingId] = useState<string | null>(null);
