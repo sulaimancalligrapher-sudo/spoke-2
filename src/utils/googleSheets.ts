@@ -47,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyTfQx8kPamsv5kVvPRoZdDKUv7HoVsIAsqlBWdno1wrl7-BQzkiB1YrGKd_dSMdYExMA/exec';
+  'https://script.google.com/macros/s/AKfycbwSvwtAQrVqNlLbhxtM6nckp3tXbXXzHnueEFWKNJrQsg5KXOCXWNDgZ2kHeuzfhviTTA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -3779,12 +3779,29 @@ function formatSheetDateISO(val) {
   return s;
 }
 
+function parseScheduleGroupIdsGS(rawVal) {
+  if (Array.isArray(rawVal)) {
+    return rawVal.map(function (v) { return String(v || "").trim(); }).filter(Boolean);
+  }
+  var s = String(rawVal || "").trim();
+  if (!s) return [];
+  if (s.charAt(0) === "[") {
+    try {
+      var arr = JSON.parse(s);
+      if (Array.isArray(arr)) {
+        return arr.map(function (v) { return String(v || "").trim(); }).filter(Boolean);
+      }
+    } catch (e) {}
+  }
+  return s.split(",").map(function (v) { return String(v || "").trim(); }).filter(Boolean);
+}
+
 function readCourseScheduleGS(ss) {
   var gSheet = ss.getSheetByName(SCHEDULE_GROUPS_SHEET_NAME);
   var dSheet = ss.getSheetByName(SCHEDULE_DAYS_SHEET_NAME);
   var groups = [];
   var days = [];
-  var settings = { lockFutureDays: false, courseTitle: "جدول الدورة اليومي" };
+  var settings = { lockFutureDays: true, courseTitle: "جدول الدورة اليومي" };
 
   if (gSheet && gSheet.getLastRow() > 1) {
     var gRows = gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(5, gSheet.getLastColumn())).getValues();
@@ -3821,11 +3838,13 @@ function readCourseScheduleGS(ss) {
       var dDate = formatSheetDateISO(dr[1]);
       if (!dDate && did === "__SETTINGS__") continue;
       if (!dDate) continue;
+      var gIds = parseScheduleGroupIdsGS(dr[3]);
       days.push({
         id: did || ("day_" + dDate),
         date: dDate,
         dayType: String(dr[2] || "lesson").trim(),
-        groupId: String(dr[3] || "").trim(),
+        groupIds: gIds,
+        groupId: gIds[0] || "",
         customTitle: String(dr[4] || "").trim(),
         notes: String(dr[5] || "").trim()
       });
@@ -3840,7 +3859,7 @@ function writeCourseScheduleGS(ss, payload) {
   var dSheet = getScheduleDaysSheet(ss);
   var groups = Array.isArray(payload.groups) ? payload.groups : [];
   var days = Array.isArray(payload.days) ? payload.days : [];
-  var settings = payload.settings || { lockFutureDays: false, courseTitle: "جدول الدورة اليومي" };
+  var settings = payload.settings || { lockFutureDays: true, courseTitle: "جدول الدورة اليومي" };
 
   if (gSheet.getLastRow() > 1) {
     gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(5, gSheet.getLastColumn())).clearContent();
@@ -3867,11 +3886,12 @@ function writeCourseScheduleGS(ss, payload) {
   if (days.length > 0) {
     for (var j = 0; j < days.length; j++) {
       var d = days[j];
+      var dayGIds = Array.isArray(d.groupIds) ? d.groupIds : parseScheduleGroupIdsGS(d.groupId);
       dValues.push([
         String(d.id || ("day_" + (j + 1))),
         String(d.date || ""),
         String(d.dayType || "lesson"),
-        String(d.groupId || ""),
+        dayGIds.length > 0 ? JSON.stringify(dayGIds) : "",
         String(d.customTitle || ""),
         String(d.notes || ""),
         j === 0 ? JSON.stringify(settings) : ""

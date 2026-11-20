@@ -46,7 +46,8 @@ export interface CourseScheduleDay {
   id: string;
   date: string; // YYYY-MM-DD
   dayType: ScheduleDayType;
-  groupId: string; // Empty string if unassigned
+  groupIds: string[]; // Supports 0, 1, or multiple groups per day
+  groupId?: string; // Legacy backwards-compatibility mirror of groupIds[0] || ''
   customTitle?: string;
   notes?: string;
 }
@@ -68,6 +69,55 @@ export const COURSE_SCHEDULE_SHEETS = {
 };
 
 export const STORAGE_KEY_COURSE_SCHEDULE = 'faseeh_course_schedule_v1';
+
+export const SCHEDULE_DAY_TYPE_META: Record<
+  ScheduleDayType,
+  {
+    labelAr: string;
+    cardBg: string;
+    cardBorder: string;
+    badgeBg: string;
+    badgeText: string;
+    badgeBorder: string;
+    dotBg: string;
+    calBg: string;
+    selectCls: string;
+  }
+> = {
+  lesson: {
+    labelAr: 'درس عادي',
+    cardBg: 'bg-emerald-50/70',
+    cardBorder: 'border-emerald-300',
+    badgeBg: 'bg-emerald-100',
+    badgeText: 'text-emerald-900',
+    badgeBorder: 'border-emerald-300',
+    dotBg: 'bg-emerald-500',
+    calBg: 'bg-emerald-50 border-emerald-300 text-emerald-950 hover:bg-emerald-100',
+    selectCls: 'bg-emerald-100 border-emerald-400 text-emerald-950',
+  },
+  review: {
+    labelAr: 'مراجعة',
+    cardBg: 'bg-sky-50/80',
+    cardBorder: 'border-sky-300',
+    badgeBg: 'bg-sky-100',
+    badgeText: 'text-sky-900',
+    badgeBorder: 'border-sky-300',
+    dotBg: 'bg-sky-500',
+    calBg: 'bg-sky-50 border-sky-300 text-sky-950 hover:bg-sky-100',
+    selectCls: 'bg-sky-100 border-sky-400 text-sky-950',
+  },
+  exam: {
+    labelAr: 'امتحان',
+    cardBg: 'bg-rose-50/80',
+    cardBorder: 'border-rose-300',
+    badgeBg: 'bg-rose-100',
+    badgeText: 'text-rose-900',
+    badgeBorder: 'border-rose-300',
+    dotBg: 'bg-rose-500',
+    calBg: 'bg-rose-50 border-rose-300 text-rose-950 hover:bg-rose-100',
+    selectCls: 'bg-rose-100 border-rose-400 text-rose-950',
+  },
+};
 
 export const SCHEDULE_EXERCISE_META: Record<
   ScheduleExerciseType,
@@ -139,7 +189,7 @@ export function createEmptyCourseSchedule(): CourseScheduleData {
     groups: [],
     days: [],
     settings: {
-      lockFutureDays: false,
+      lockFutureDays: true,
       courseTitle: 'جدول الدورة اليومي',
     },
   };
@@ -149,10 +199,8 @@ export function normalizeDateISO(raw: unknown): string {
   if (!raw) return '';
   const str = String(raw).trim();
   if (!str) return '';
-  // Already YYYY-MM-DD
   const direct = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (direct) return `${direct[1]}-${direct[2]}-${direct[3]}`;
-  // YYYY/MM/DD
   const slash = str.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
   if (slash) {
     return `${slash[1]}-${slash[2].padStart(2, '0')}-${slash[3].padStart(2, '0')}`;
@@ -173,6 +221,46 @@ export function getTodayLocalISO(): string {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+export function parseScheduleGroupIds(rawIds: unknown, legacySingleId?: unknown): string[] {
+  const seen = new Set<string>();
+  const addId = (val: unknown) => {
+    const clean = String(val || '').trim();
+    if (clean && !seen.has(clean)) seen.add(clean);
+  };
+
+  if (Array.isArray(rawIds)) {
+    rawIds.forEach(addId);
+  } else if (typeof rawIds === 'string' && rawIds.trim()) {
+    const s = rawIds.trim();
+    if (s.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) parsed.forEach(addId);
+      } catch {
+        addId(s);
+      }
+    } else {
+      s.split(',').forEach(addId);
+    }
+  }
+
+  if (legacySingleId !== undefined && legacySingleId !== null) {
+    const leg = String(legacySingleId).trim();
+    if (leg.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(leg);
+        if (Array.isArray(parsed)) parsed.forEach(addId);
+      } catch {
+        addId(leg);
+      }
+    } else if (leg) {
+      leg.split(',').forEach(addId);
+    }
+  }
+
+  return Array.from(seen);
 }
 
 export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
@@ -217,11 +305,13 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
               : rawType === 'exam' || rawType === 'امتحان'
               ? 'exam'
               : 'lesson';
+          const groupIds = parseScheduleGroupIds(d?.groupIds, d?.groupId);
           return {
             id: String(d?.id || `day_${iso}_${idx}`).trim(),
             date: iso,
             dayType,
-            groupId: String(d?.groupId || '').trim(),
+            groupIds,
+            groupId: groupIds[0] || '',
             customTitle: d?.customTitle ? String(d.customTitle) : '',
             notes: d?.notes ? String(d.notes) : '',
           } as CourseScheduleDay;
@@ -231,7 +321,10 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
     : [];
 
   const settings: CourseScheduleSettings = {
-    lockFutureDays: Boolean(raw.settings?.lockFutureDays),
+    lockFutureDays:
+      raw.settings?.lockFutureDays !== undefined
+        ? Boolean(raw.settings.lockFutureDays)
+        : true,
     courseTitle:
       raw.settings?.courseTitle !== undefined
         ? String(raw.settings.courseTitle)
@@ -302,13 +395,18 @@ export async function saveCourseScheduleToSheets(
   }
 
   try {
+    const daysPayload = schedule.days.map((d) => ({
+      ...d,
+      groupIds: d.groupIds || [],
+      groupId: d.groupIds?.[0] || d.groupId || '',
+    }));
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'save_course_schedule',
         groups: schedule.groups,
-        days: schedule.days,
+        days: daysPayload,
         settings: schedule.settings,
       }),
     });
@@ -344,14 +442,17 @@ export async function saveCourseScheduleToSheets(
 }
 
 /**
- * Generates chronological schedule slots between startDate and endDate matching selected weekdays.
+ * Generates chronological schedule slots between startDate and endDate matching selected weekdays,
+ * optionally distributing groups sequentially with `groupsPerDay` groups assigned to each day.
  * Weekday index follows JS Date.getDay(): 0 = Sun, 1 = Mon, ..., 6 = Sat.
  */
 export function generateCalendarDays(
   startDateISO: string,
   endDateISO: string,
   weekdays: number[],
-  defaultDayType: ScheduleDayType = 'lesson'
+  defaultDayType: ScheduleDayType = 'lesson',
+  groups: CourseGroup[] = [],
+  groupsPerDay: number = 1
 ): CourseScheduleDay[] {
   const sISO = normalizeDateISO(startDateISO);
   const eISO = normalizeDateISO(endDateISO);
@@ -364,6 +465,8 @@ export function generateCalendarDays(
 
   const daySet = new Set(weekdays);
   const result: CourseScheduleDay[] = [];
+  const perDay = Math.max(0, Math.floor(groupsPerDay));
+  let groupCursor = 0;
   let guard = 0;
 
   while (cursor <= end && guard < 400) {
@@ -373,11 +476,19 @@ export function generateCalendarDays(
       const m = String(cursor.getMonth() + 1).padStart(2, '0');
       const d = String(cursor.getDate()).padStart(2, '0');
       const iso = `${y}-${m}-${d}`;
+
+      let assignedIds: string[] = [];
+      if (perDay > 0 && groupCursor < groups.length) {
+        assignedIds = groups.slice(groupCursor, groupCursor + perDay).map((g) => g.id);
+        groupCursor += perDay;
+      }
+
       result.push({
         id: `day_${iso}_${Math.random().toString(36).slice(2, 6)}`,
         date: iso,
         dayType: defaultDayType,
-        groupId: '',
+        groupIds: assignedIds,
+        groupId: assignedIds[0] || '',
         customTitle: '',
         notes: '',
       });
@@ -426,7 +537,6 @@ export function extractAllExerciseTopics(params: {
   catchSubjects: CatchLessonSubject[];
   videoLessons: VideoLesson[];
 }): AvailableTopicsCatalog {
-  // 1. Pronunciation topics
   const pronCounts = new Map<string, number>();
   for (const s of params.subjects) {
     const clean = (s || '').trim();
@@ -440,19 +550,16 @@ export function extractAllExerciseTopics(params: {
     .filter(([, count]) => count > 0)
     .map(([topicName, count]) => ({ topicName, count }));
 
-  // 2. Matching topics
   const matching = params.matchingSubjects.map((s) => ({
     topicName: (s.subjectName || '').trim(),
     count: s.exercises?.length || 0,
   }));
 
-  // 3. Dictation topics
   const dictation = params.dictationSubjects.map((s) => ({
     topicName: (s.subjectName || '').trim(),
     count: s.exercises?.length || 0,
   }));
 
-  // 4. Writing topics
   const writingMap = new Map<string, number>();
   for (const tpl of params.writingTemplates) {
     const tName = (tpl.topic || 'خط النسخ (الأساسيات)').trim();
@@ -463,13 +570,11 @@ export function extractAllExerciseTopics(params: {
     count,
   }));
 
-  // 5. Catch topics
   const catchList = params.catchSubjects.map((s) => ({
     topicName: (s.subjectName || '').trim(),
     count: s.exercises?.length || 0,
   }));
 
-  // 6. Video lessons (individually selectable by title + id so multiple videos under same topic stay distinct)
   const video = params.videoLessons.map((v) => ({
     lessonId: v.id,
     topicName: (v.title || v.topic || v.id).trim(),
@@ -491,6 +596,7 @@ export interface ScheduledLessonProgressStatus {
   partial: boolean;
   doneCount: number;
   totalCount: number;
+  detailTextAr: string;
 }
 
 const stripDiacritics = (s: string) =>
@@ -519,7 +625,15 @@ export function evaluateScheduledLessonStatus(
     const words = ctx.curriculum.filter(
       (w) => (w.lessonSubject || '').trim() === cleanTopic
     );
-    if (words.length === 0) return { completed: false, partial: false, doneCount: 0, totalCount: 0 };
+    if (words.length === 0) {
+      return {
+        completed: false,
+        partial: false,
+        doneCount: 0,
+        totalCount: 0,
+        detailTextAr: 'لا توجد كلمات مسجلة',
+      };
+    }
     let done = 0;
     for (const w of words) {
       const cleanW = stripDiacritics(w.word);
@@ -533,6 +647,10 @@ export function evaluateScheduledLessonStatus(
       partial: done > 0 && done < words.length,
       doneCount: done,
       totalCount: words.length,
+      detailTextAr:
+        done === 0
+          ? `لم يبدأ النطق بعد (0 / ${words.length})`
+          : `تم نطق ${done} من ${words.length} كلمة`,
     };
   }
 
@@ -548,6 +666,10 @@ export function evaluateScheduledLessonStatus(
       partial: !isCompleted && done > 0,
       doneCount: done,
       totalCount: total,
+      detailTextAr:
+        done === 0
+          ? 'لم يحل تمرين الوصل بعد'
+          : `أنجز ${done}${total > 0 ? ` / ${total}` : ''} تدريب`,
     };
   }
 
@@ -563,6 +685,10 @@ export function evaluateScheduledLessonStatus(
       partial: !isCompleted && done > 0,
       doneCount: done,
       totalCount: total,
+      detailTextAr:
+        done === 0
+          ? 'لم يحل الإملاء بعد'
+          : `أنجز ${done}${total > 0 ? ` / ${total}` : ''} كلمة إملاء`,
     };
   }
 
@@ -580,6 +706,10 @@ export function evaluateScheduledLessonStatus(
       partial: !isCompleted && done > 0,
       doneCount: done,
       totalCount: total,
+      detailTextAr:
+        done === 0
+          ? 'لم يكتب التمرين بعد'
+          : `كتب ${done}${total > 0 ? ` / ${total}` : ''} لوحة`,
     };
   }
 
@@ -595,6 +725,10 @@ export function evaluateScheduledLessonStatus(
       partial: !isCompleted && done > 0,
       doneCount: done,
       totalCount: total,
+      detailTextAr:
+        done === 0
+          ? 'لم يلعب تحدي الصيد بعد'
+          : `أتم ${done}${total > 0 ? ` / ${total}` : ''} جولة صيد`,
     };
   }
 
@@ -605,7 +739,13 @@ export function evaluateScheduledLessonStatus(
       (v) => (v.title || '').trim() === cleanTopic || (v.topic || '').trim() === cleanTopic
     );
   if (!vLesson) {
-    return { completed: false, partial: false, doneCount: 0, totalCount: 1 };
+    return {
+      completed: false,
+      partial: false,
+      doneCount: 0,
+      totalCount: 1,
+      detailTextAr: 'لم يُشاهد الفيديو بعد',
+    };
   }
   const prog = ctx.videoProgressMap[vLesson.id];
   const ev = evaluateVideoLessonCompletion(vLesson, prog);
@@ -614,10 +754,22 @@ export function evaluateScheduledLessonStatus(
     (ev.imageRequired && ev.imageDone ? 1 : 0) +
     (ev.audioRequired && ev.audioDone ? 1 : 0);
   const totalParts = 1 + (ev.imageRequired ? 1 : 0) + (ev.audioRequired ? 1 : 0);
+
+  const partsText: string[] = [
+    ev.videoDone ? 'الفيديو والأسئلة ✓' : 'الفيديو ✗',
+  ];
+  if (ev.imageRequired) {
+    partsText.push(ev.imageDone ? 'واجب الصورة ✓' : 'واجب الصورة ✗');
+  }
+  if (ev.audioRequired) {
+    partsText.push(ev.audioDone ? 'الواجب الصوتي ✓' : 'الواجب الصوتي ✗');
+  }
+
   return {
     completed: ev.isFullyCompleted,
     partial: !ev.isFullyCompleted && doneParts > 0,
     doneCount: doneParts,
     totalCount: totalParts,
+    detailTextAr: partsText.join(' · '),
   };
 }

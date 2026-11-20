@@ -32,6 +32,7 @@ import {
   ScheduleDayType,
   ScheduleExerciseType,
   ScheduleLessonRef,
+  SCHEDULE_DAY_TYPE_META,
   SCHEDULE_EXERCISE_META,
   buildScheduleLessonKey,
   extractAllExerciseTopics,
@@ -107,6 +108,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   });
   const [genWeekdays, setGenWeekdays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [genDayType, setGenDayType] = useState<ScheduleDayType>('lesson');
+  const [genGroupsPerDay, setGenGroupsPerDay] = useState<number>(1);
   const [singleDayDate, setSingleDayDate] = useState<string>(todayISO);
 
   // Cloud sync status
@@ -146,6 +148,33 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       null,
     [schedule.groups, selectedGroupId]
   );
+
+  // Map each lesson key -> list of group names containing that lesson (to mark & color dropdown options)
+  const topicAssignmentMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const grp of schedule.groups) {
+      for (const l of grp.lessons) {
+        const list = map.get(l.key) || [];
+        if (!list.includes(grp.name)) {
+          list.push(grp.name);
+        }
+        map.set(l.key, list);
+      }
+    }
+    return map;
+  }, [schedule.groups]);
+
+  // Count how many days each group is assigned to across the schedule
+  const groupDayUsageCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const d of schedule.days) {
+      const ids = d.groupIds?.length ? d.groupIds : d.groupId ? [d.groupId] : [];
+      for (const gid of ids) {
+        counts.set(gid, (counts.get(gid) || 0) + 1);
+      }
+    }
+    return counts;
+  }, [schedule.days]);
 
   // Create a new group
   const handleCreateGroup = (e: React.FormEvent) => {
@@ -188,9 +217,16 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       return;
     }
     const nextGroups = schedule.groups.filter((g) => g.id !== groupId);
-    const nextDays = schedule.days.map((d) =>
-      d.groupId === groupId ? { ...d, groupId: '' } : d
-    );
+    const nextDays = schedule.days.map((d) => {
+      const filtered = (d.groupIds || (d.groupId ? [d.groupId] : [])).filter(
+        (id) => id !== groupId
+      );
+      return {
+        ...d,
+        groupIds: filtered,
+        groupId: filtered[0] || '',
+      };
+    });
     onUpdateSchedule({ ...schedule, groups: nextGroups, days: nextDays });
     if (selectedGroupId === groupId) {
       setSelectedGroupId(nextGroups[0]?.id || '');
@@ -242,11 +278,14 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       });
       return;
     }
+    const perDay = Math.max(1, Math.floor(Number(genGroupsPerDay) || 1));
     const generated = generateCalendarDays(
       genStartDate,
       genEndDate,
       genWeekdays,
-      genDayType
+      genDayType,
+      schedule.groups,
+      perDay
     );
     const existingDates = new Set(schedule.days.map((d) => d.date));
     const additions = generated.filter((d) => !existingDates.has(d.date));
@@ -254,9 +293,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       a.date.localeCompare(b.date)
     );
     onUpdateSchedule({ ...schedule, days: merged });
+    const withGroupsCount = additions.filter((d) => d.groupIds.length > 0).length;
     setStatusBanner({
       type: 'success',
-      message: `تمت إضافة ${additions.length} يوماً جديداً إلى الجدول (إجمالي الأيام: ${merged.length}).`,
+      message: `تمت إضافة ${additions.length} يوماً جديداً إلى الجدول (تم توزيع المجموعات تلقائياً على ${withGroupsCount} يوماً، بمعدل ${perDay} مجموعة/يوم).`,
     });
   };
 
@@ -273,6 +313,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       id: `day_${singleDayDate}_${Date.now()}`,
       date: singleDayDate,
       dayType: 'lesson',
+      groupIds: [],
       groupId: '',
       customTitle: '',
       notes: '',
@@ -294,14 +335,56 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     });
   };
 
+  const handleAddGroupToDay = (dayId: string, groupId: string) => {
+    if (!groupId) return;
+    const day = schedule.days.find((d) => d.id === dayId);
+    if (!day) return;
+    const current = day.groupIds?.length ? day.groupIds : day.groupId ? [day.groupId] : [];
+    if (current.includes(groupId)) return;
+    const nextIds = [...current, groupId];
+    handleUpdateDay(dayId, { groupIds: nextIds, groupId: nextIds[0] || '' });
+  };
+
+  const handleRemoveGroupFromDay = (dayId: string, groupId: string) => {
+    const day = schedule.days.find((d) => d.id === dayId);
+    if (!day) return;
+    const current = day.groupIds?.length ? day.groupIds : day.groupId ? [day.groupId] : [];
+    const nextIds = current.filter((id) => id !== groupId);
+    handleUpdateDay(dayId, { groupIds: nextIds, groupId: nextIds[0] || '' });
+  };
+
   const handleClearDay = (dayId: string) => {
-    handleUpdateDay(dayId, { groupId: '', customTitle: '', notes: '' });
+    handleUpdateDay(dayId, {
+      groupIds: [],
+      groupId: '',
+      customTitle: '',
+      notes: '',
+    });
   };
 
   const handleDeleteDay = (dayId: string) => {
     onUpdateSchedule({
       ...schedule,
       days: schedule.days.filter((d) => d.id !== dayId),
+    });
+  };
+
+  const handleDeleteAllDays = () => {
+    if (schedule.days.length === 0) return;
+    if (
+      !confirm(
+        `هل تريد حذف جميع الأيام المجدولة بالكامل (${schedule.days.length} يوم)؟ لا يمكن التراجع قبل الحفظ إلا بإعادة الجلب.`
+      )
+    ) {
+      return;
+    }
+    onUpdateSchedule({
+      ...schedule,
+      days: [],
+    });
+    setStatusBanner({
+      type: 'warn',
+      message: 'تم حذف جميع الأيام من الجدول. اضغط «حفظ ومزامنة إلى الشيت» لتأكيد التغيير سحابياً.',
     });
   };
 
@@ -458,10 +541,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               )}
               <div>
                 <div className="text-xs font-extrabold text-slate-900">
-                  قفل الدروس المستقبلية حتى يحين تاريخها
+                  قفل دخول التمارين المستقبلية حتى يحين يومها
                 </div>
                 <div className="text-[11px] text-slate-600">
-                  عند التفعيل لا يمكن للطالب فتح أيام الغد وما بعدها قبل تاريخها.
+                  تظهر مواضيع الأيام القادمة للطالب للاطلاع فقط، ولا يفتح التمرين حتى يأتي تاريخه.
                 </div>
               </div>
             </div>
@@ -718,8 +801,18 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
                 {/* 6 Exercise Dropdowns */}
                 <div className="space-y-3 pt-3 border-t border-slate-100">
-                  <div className="text-xs font-extrabold text-slate-800">
-                    إضافة أو إزالة مواضيع من جميع التمارين الستة (يظهر ✓ بجانب المختار):
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-slate-800">
+                    <span>
+                      إضافة أو إزالة مواضيع من التمارين الستة:
+                    </span>
+                    <div className="flex items-center gap-2 text-[10px] font-bold">
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                        ✓ مضاف لهذه المجموعة
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
+                        ● مضاف لمجموعة أخرى
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {EXERCISE_TYPES_ORDER.map((exType) => {
@@ -771,12 +864,37 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                   v.lessonId
                                 );
                                 const isSel = selectedKeys.has(k);
+                                const assignedGroups = topicAssignmentMap.get(k) || [];
+                                const inAnyGroup = assignedGroups.length > 0;
+                                const labelBase = v.videoTopic
+                                  ? `${v.videoTopic} — ${v.topicName}`
+                                  : v.topicName;
                                 return (
-                                  <option key={v.lessonId} value={v.lessonId}>
-                                    {isSel ? '✓ ' : ''}
-                                    {v.videoTopic
-                                      ? `${v.videoTopic} — ${v.topicName}`
-                                      : v.topicName}
+                                  <option
+                                    key={v.lessonId}
+                                    value={v.lessonId}
+                                    style={
+                                      isSel
+                                        ? {
+                                            backgroundColor: '#d1fae5',
+                                            color: '#065f46',
+                                            fontWeight: 'bold',
+                                          }
+                                        : inAnyGroup
+                                        ? {
+                                            backgroundColor: '#fef3c7',
+                                            color: '#92400e',
+                                            fontWeight: 'bold',
+                                          }
+                                        : undefined
+                                    }
+                                  >
+                                    {isSel
+                                      ? `✓ [${assignedGroups.join('، ')}] `
+                                      : inAnyGroup
+                                      ? `● [${assignedGroups.join('، ')}] `
+                                      : ''}
+                                    {labelBase}
                                   </option>
                                 );
                               })}
@@ -818,12 +936,33 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                 item.topicName
                               );
                               const isSel = selectedKeys.has(k);
+                              const assignedGroups = topicAssignmentMap.get(k) || [];
+                              const inAnyGroup = assignedGroups.length > 0;
                               return (
                                 <option
                                   key={item.topicName}
                                   value={item.topicName}
+                                  style={
+                                    isSel
+                                      ? {
+                                          backgroundColor: '#d1fae5',
+                                          color: '#065f46',
+                                          fontWeight: 'bold',
+                                        }
+                                      : inAnyGroup
+                                      ? {
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
+                                          fontWeight: 'bold',
+                                        }
+                                      : undefined
+                                  }
                                 >
-                                  {isSel ? '✓ ' : ''}
+                                  {isSel
+                                    ? `✓ [${assignedGroups.join('، ')}] `
+                                    : inAnyGroup
+                                    ? `● [${assignedGroups.join('، ')}] `
+                                    : ''}
                                   {item.topicName} ({item.count})
                                 </option>
                               );
@@ -852,7 +991,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               <span>مولّد أيام وتواريخ الدورة التلقائي</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-600">
                   تاريخ البداية
@@ -884,12 +1023,31 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   onChange={(e) =>
                     setGenDayType(e.target.value as ScheduleDayType)
                   }
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white"
+                  className={`w-full px-3 py-2 rounded-xl border text-xs font-extrabold ${
+                    SCHEDULE_DAY_TYPE_META[genDayType].selectCls
+                  }`}
                 >
                   <option value="lesson">درس عادي</option>
                   <option value="review">مراجعة</option>
                   <option value="exam">امتحان</option>
                 </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-600">
+                  عدد المجموعات في اليوم الواحد
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={genGroupsPerDay}
+                  onChange={(e) =>
+                    setGenGroupsPerDay(
+                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
+                    )
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono font-extrabold text-center bg-indigo-50/40"
+                />
               </div>
             </div>
 
@@ -925,7 +1083,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
               >
                 <Sparkles className="w-4 h-4" />
-                <span>توليد وتجهيز أيام الجدول</span>
+                <span>توليد وتوزيع المجموعات على الجدول</span>
               </button>
 
               <div className="flex items-center gap-2">
@@ -949,14 +1107,34 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
           {/* Days List */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-extrabold text-slate-900">
-                أيام الجدول اليومي ({schedule.days.length})
-              </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  أيام الجدول اليومي ({schedule.days.length})
+                </h3>
+                {/* Distinct Color Legend */}
+                <div className="flex items-center gap-1.5 text-[10px] font-extrabold">
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300">
+                    درس عادي
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-900 border border-sky-300">
+                    مراجعة
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-900 border border-rose-300">
+                    امتحان
+                  </span>
+                </div>
+              </div>
+
               {schedule.days.length > 0 && (
-                <span className="text-[11px] font-semibold text-slate-500">
-                  رتّب المجموعات على كل يوم ولا تنسَ الضغط على «حفظ ومزامنة إلى الشيت»
-                </span>
+                <button
+                  type="button"
+                  onClick={handleDeleteAllDays}
+                  className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>حذف الكل</span>
+                </button>
               )}
             </div>
 
@@ -965,27 +1143,31 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 لا توجد أيام في الجدول حالياً. استخدم المولّد بالأعلى أو أضف يوماً مفرداً.
               </div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {schedule.days.map((day) => {
                   const dateInfo = formatScheduleDateLabel(day.date, 'ar');
                   const isToday = day.date === todayISO;
-                  const assignedGroup = schedule.groups.find(
-                    (g) => g.id === day.groupId
-                  );
+                  const typeMeta = SCHEDULE_DAY_TYPE_META[day.dayType];
+                  const dayGroupIds = day.groupIds?.length
+                    ? day.groupIds
+                    : day.groupId
+                    ? [day.groupId]
+                    : [];
+                  const dayGroups = dayGroupIds
+                    .map((gid) => schedule.groups.find((g) => g.id === gid))
+                    .filter((g): g is CourseGroup => Boolean(g));
 
                   return (
                     <div
                       key={day.id}
-                      className={`p-3.5 rounded-2xl border space-y-2.5 ${
-                        isToday
-                          ? 'bg-emerald-50/70 border-emerald-300'
-                          : 'bg-slate-50/70 border-slate-200'
+                      className={`p-4 rounded-2xl border-2 space-y-3 transition-all ${typeMeta.cardBg} ${typeMeta.cardBorder} ${
+                        isToday ? 'ring-2 ring-emerald-500 ring-offset-1' : ''
                       }`}
                     >
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-start">
                         {/* Date & Weekday */}
-                        <div className="md:col-span-3 flex items-center gap-2">
-                          <div className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-center min-w-[92px]">
+                        <div className="lg:col-span-3 flex items-center gap-2">
+                          <div className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-center min-w-[92px] shadow-2xs">
                             <div className="text-[11px] font-extrabold text-indigo-700">
                               {dateInfo.weekday}
                             </div>
@@ -1000,8 +1182,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                           )}
                         </div>
 
-                        {/* Day Type */}
-                        <div className="md:col-span-2">
+                        {/* Day Type with Distinct Color */}
+                        <div className="lg:col-span-2">
                           <select
                             value={day.dayType}
                             onChange={(e) =>
@@ -1009,7 +1191,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                 dayType: e.target.value as ScheduleDayType,
                               })
                             }
-                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                            className={`w-full px-2.5 py-2 rounded-xl border text-xs font-extrabold cursor-pointer ${typeMeta.selectCls}`}
                           >
                             <option value="lesson">درس عادي</option>
                             <option value="review">مراجعة</option>
@@ -1017,36 +1199,89 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                           </select>
                         </div>
 
-                        {/* Assigned Group */}
-                        <div className="md:col-span-4">
+                        {/* Multiple Assigned Groups + Add Group Dropdown */}
+                        <div className="lg:col-span-5 space-y-2">
+                          {dayGroups.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {dayGroups.map((grp) => (
+                                <span
+                                  key={grp.id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-300 text-xs font-extrabold text-slate-900 shadow-2xs"
+                                >
+                                  <span>{grp.name}</span>
+                                  <span className="text-[10px] text-slate-500 font-semibold">
+                                    ({grp.lessons.length})
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleRemoveGroupFromDay(day.id, grp.id)
+                                    }
+                                    className="p-0.5 rounded-full hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                    title="إزالة هذه المجموعة من اليوم"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
                           <select
-                            value={day.groupId}
-                            onChange={(e) =>
-                              handleUpdateDay(day.id, {
-                                groupId: e.target.value,
-                              })
-                            }
-                            className={`w-full px-2.5 py-2 rounded-xl border text-xs font-extrabold ${
-                              assignedGroup
-                                ? 'border-emerald-300 bg-white text-emerald-950'
-                                : 'border-slate-300 bg-white text-slate-500'
-                            }`}
+                            value=""
+                            onChange={(e) => {
+                              const gid = e.target.value;
+                              if (gid) handleAddGroupToDay(day.id, gid);
+                            }}
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-300 bg-white text-xs font-extrabold text-slate-700 cursor-pointer"
                           >
-                            <option value="">— يوم حر بدون مجموعة —</option>
-                            {schedule.groups.map((grp) => (
-                              <option key={grp.id} value={grp.id}>
-                                {grp.name} ({grp.lessons.length} دروس)
-                              </option>
-                            ))}
+                            <option value="">
+                              {dayGroups.length === 0
+                                ? '+ إضافة مجموعة لهذا اليوم (أو يترك يوماً حراً)...'
+                                : '+ إضافة مجموعة إضافية لهذا اليوم...'}
+                            </option>
+                            {schedule.groups.map((grp) => {
+                              const alreadyOnThisDay = dayGroupIds.includes(grp.id);
+                              const usedCount = groupDayUsageCount.get(grp.id) || 0;
+                              const usedElsewhere =
+                                !alreadyOnThisDay && usedCount > 0;
+                              return (
+                                <option
+                                  key={grp.id}
+                                  value={grp.id}
+                                  disabled={alreadyOnThisDay}
+                                  style={
+                                    alreadyOnThisDay
+                                      ? {
+                                          backgroundColor: '#e2e8f0',
+                                          color: '#64748b',
+                                          fontWeight: 'bold',
+                                        }
+                                      : usedElsewhere
+                                      ? {
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e',
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {alreadyOnThisDay
+                                    ? `✓ ${grp.name} (مختارة في هذا اليوم)`
+                                    : usedElsewhere
+                                    ? `● ${grp.name} (${grp.lessons.length} دروس) — مستخدمة في الجدول`
+                                    : `${grp.name} (${grp.lessons.length} دروس)`}
+                                </option>
+                              );
+                            })}
                           </select>
                         </div>
 
                         {/* Day Row Actions */}
-                        <div className="md:col-span-3 flex items-center justify-end gap-1.5">
+                        <div className="lg:col-span-2 flex items-center justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleClearDay(day.id)}
-                            className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
                             title="تفريغ اليوم"
                           >
                             <Eraser className="w-3.5 h-3.5" />
@@ -1055,7 +1290,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                           <button
                             type="button"
                             onClick={() => handleDeleteDay(day.id)}
-                            className="p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer"
+                            className="p-1.5 rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 cursor-pointer"
                             title="حذف اليوم"
                           >
                             <Trash2 className="w-4 h-4" />

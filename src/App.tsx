@@ -300,7 +300,9 @@ export default function App() {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const hasTodayScheduleLesson = useMemo(() => {
     const tIso = getTodayLocalISO();
-    return courseSchedule.days.some((d) => d.date === tIso && Boolean(d.groupId));
+    return courseSchedule.days.some(
+      (d) => d.date === tIso && ((d.groupIds && d.groupIds.length > 0) || Boolean(d.groupId))
+    );
   }, [courseSchedule.days]);
 
   useEffect(() => {
