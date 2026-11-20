@@ -47,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxQqn5cq41nbuPrMgjEKq3-bUYR14-d2WFD6uQAZsACCpA5Br3_Ygm6apMHkH1YdqJOxA/exec';
+  'https://script.google.com/macros/s/AKfycbyTfQx8kPamsv5kVvPRoZdDKUv7HoVsIAsqlBWdno1wrl7-BQzkiB1YrGKd_dSMdYExMA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -3450,6 +3450,8 @@ var VIDEO_ANSWERS_SHEET_NAME = "فيديو_الإجابات";
 var VIDEO_CORRECTIONS_SHEET_NAME = "فيديو_التصحيح";
 var TELEGRAM_CONFIG_SHEET_NAME = "تيليغرام_الإعدادات";
 var TELEGRAM_USERS_SHEET_NAME = "تيليغرام_الطلاب";
+var SCHEDULE_GROUPS_SHEET_NAME = "مجموعات_الجدول";
+var SCHEDULE_DAYS_SHEET_NAME = "الجدول_اليومي";
 
 function getVideoQuestionsSheet(ss) {
   var sheet = ss.getSheetByName(VIDEO_QUESTIONS_SHEET_NAME);
@@ -3737,6 +3739,148 @@ function parseRetryLimitSettingGS(rawStr) {
     if (!isNaN(n)) return { allowRetry: n > 0, maxRetries: Math.max(0, n) };
   }
   return { allowRetry: true, maxRetries: 3 };
+}
+
+// =========================================================================
+// دوال مساعدة لقسم المجموعات والجدول اليومي للدورة (ورقتان مستقلتان تماماً)
+// =========================================================================
+function getScheduleGroupsSheet(ss) {
+  var sheet = ss.getSheetByName(SCHEDULE_GROUPS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SCHEDULE_GROUPS_SHEET_NAME);
+    var headers = ["ID المجموعة", "اسم المجموعة", "الوصف", "الدروس المختارة JSON", "تاريخ الإنشاء"];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function getScheduleDaysSheet(ss) {
+  var sheet = ss.getSheetByName(SCHEDULE_DAYS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SCHEDULE_DAYS_SHEET_NAME);
+    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON"];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function formatSheetDateISO(val) {
+  if (!val) return "";
+  if (Object.prototype.toString.call(val) === "[object Date]" && !isNaN(val.getTime())) {
+    return Utilities.formatDate(val, Session.getScriptTimeZone() || "GMT+3", "yyyy-MM-dd");
+  }
+  var s = String(val).trim();
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + "-" + m[2] + "-" + m[3];
+  return s;
+}
+
+function readCourseScheduleGS(ss) {
+  var gSheet = ss.getSheetByName(SCHEDULE_GROUPS_SHEET_NAME);
+  var dSheet = ss.getSheetByName(SCHEDULE_DAYS_SHEET_NAME);
+  var groups = [];
+  var days = [];
+  var settings = { lockFutureDays: false, courseTitle: "جدول الدورة اليومي" };
+
+  if (gSheet && gSheet.getLastRow() > 1) {
+    var gRows = gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(5, gSheet.getLastColumn())).getValues();
+    for (var i = 0; i < gRows.length; i++) {
+      var r = gRows[i];
+      var gid = String(r[0] || "").trim();
+      var gname = String(r[1] || "").trim();
+      if (!gid && !gname) continue;
+      var lessonsArr = [];
+      try { if (r[3]) lessonsArr = JSON.parse(String(r[3])); } catch (e) {}
+      groups.push({
+        id: gid || ("grp_" + (i + 1)),
+        name: gname || ("مجموعة " + (i + 1)),
+        description: String(r[2] || "").trim(),
+        lessons: Array.isArray(lessonsArr) ? lessonsArr : [],
+        createdAt: String(r[4] || "").trim()
+      });
+    }
+  }
+
+  if (dSheet && dSheet.getLastRow() > 1) {
+    var dRows = dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(7, dSheet.getLastColumn())).getValues();
+    for (var j = 0; j < dRows.length; j++) {
+      var dr = dRows[j];
+      if (j === 0 && dr[6]) {
+        try {
+          var parsedSettings = JSON.parse(String(dr[6]));
+          if (parsedSettings && typeof parsedSettings === "object") {
+            settings = parsedSettings;
+          }
+        } catch (se) {}
+      }
+      var did = String(dr[0] || "").trim();
+      var dDate = formatSheetDateISO(dr[1]);
+      if (!dDate && did === "__SETTINGS__") continue;
+      if (!dDate) continue;
+      days.push({
+        id: did || ("day_" + dDate),
+        date: dDate,
+        dayType: String(dr[2] || "lesson").trim(),
+        groupId: String(dr[3] || "").trim(),
+        customTitle: String(dr[4] || "").trim(),
+        notes: String(dr[5] || "").trim()
+      });
+    }
+  }
+
+  return { groups: groups, days: days, settings: settings };
+}
+
+function writeCourseScheduleGS(ss, payload) {
+  var gSheet = getScheduleGroupsSheet(ss);
+  var dSheet = getScheduleDaysSheet(ss);
+  var groups = Array.isArray(payload.groups) ? payload.groups : [];
+  var days = Array.isArray(payload.days) ? payload.days : [];
+  var settings = payload.settings || { lockFutureDays: false, courseTitle: "جدول الدورة اليومي" };
+
+  if (gSheet.getLastRow() > 1) {
+    gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(5, gSheet.getLastColumn())).clearContent();
+  }
+  if (groups.length > 0) {
+    var gValues = [];
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      gValues.push([
+        String(g.id || ("grp_" + (i + 1))),
+        String(g.name || ""),
+        String(g.description || ""),
+        JSON.stringify(Array.isArray(g.lessons) ? g.lessons : []),
+        String(g.createdAt || "")
+      ]);
+    }
+    gSheet.getRange(2, 1, gValues.length, 5).setValues(gValues);
+  }
+
+  if (dSheet.getLastRow() > 1) {
+    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(7, dSheet.getLastColumn())).clearContent();
+  }
+  var dValues = [];
+  if (days.length > 0) {
+    for (var j = 0; j < days.length; j++) {
+      var d = days[j];
+      dValues.push([
+        String(d.id || ("day_" + (j + 1))),
+        String(d.date || ""),
+        String(d.dayType || "lesson"),
+        String(d.groupId || ""),
+        String(d.customTitle || ""),
+        String(d.notes || ""),
+        j === 0 ? JSON.stringify(settings) : ""
+      ]);
+    }
+  } else {
+    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settings)]);
+  }
+  dSheet.getRange(2, 1, dValues.length, 7).setValues(dValues);
 }
 
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
@@ -4472,6 +4616,17 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (ج-12) جلب بيانات المجموعات والجدول اليومي للدورة (GET)
+    if (e && e.parameter && e.parameter.action === "get_course_schedule") {
+      var schedData = readCourseScheduleGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        groups: schedData.groups,
+        days: schedData.days,
+        settings: schedData.settings
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
@@ -5095,6 +5250,26 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
+    // (S) نقاط نهاية قسم المجموعات والجدول اليومي للدورة (POST)
+    if (data.action === "get_course_schedule") {
+      var schedRes = readCourseScheduleGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        groups: schedRes.groups,
+        days: schedRes.days,
+        settings: schedRes.settings
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_course_schedule") {
+      writeCourseScheduleGS(ss, data);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        scheduleSaved: true,
+        message: "تم حفظ المجموعات والجدول اليومي في Google Sheets بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (-1) تهيئة ورقة "الرئيسية"
     if (data.action === "init_home_sheet") {
       getHomeSheet(ss);

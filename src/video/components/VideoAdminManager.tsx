@@ -1070,45 +1070,43 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
                       </select>
                     </div>
 
-                    {editingLesson.audioHomeworkMode === 'verify' && (
-                      <>
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-700">
-                            نص السؤال / التوجيه للطالب
-                          </label>
-                          <input
-                            type="text"
-                            value={editingLesson.audioHomeworkPrompt || ''}
-                            onChange={(e) =>
-                              setEditingLesson({
-                                ...editingLesson,
-                                audioHomeworkPrompt: e.target.value,
-                              })
-                            }
-                            placeholder="مثال: انطق الكلمة أو الجملة التالية بصوت واضح"
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold"
-                          />
-                        </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <label className="text-[11px] font-bold text-slate-700">
+                        نص السؤال / التوجيه للطالب (يظهر فوق أزرار التسجيل)
+                      </label>
+                      <input
+                        type="text"
+                        value={editingLesson.audioHomeworkPrompt || ''}
+                        onChange={(e) =>
+                          setEditingLesson({
+                            ...editingLesson,
+                            audioHomeworkPrompt: e.target.value,
+                          })
+                        }
+                        placeholder="مثال: اقرأ الجملة التالية بصوت واضح ثم أرسل التسجيل"
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-bold"
+                      />
+                    </div>
 
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-700">
-                            الكلمة أو الجملة المطلوبة للتحقق من النطق (بالعربية)
-                          </label>
-                          <input
-                            type="text"
-                            required={editingLesson.audioHomeworkMode === 'verify'}
-                            value={editingLesson.audioHomeworkTarget || ''}
-                            onChange={(e) =>
-                              setEditingLesson({
-                                ...editingLesson,
-                                audioHomeworkTarget: e.target.value,
-                              })
-                            }
-                            placeholder="مثال: بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-sm font-extrabold text-slate-900"
-                          />
-                        </div>
-                      </>
+                    {editingLesson.audioHomeworkMode === 'verify' && (
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-700">
+                          الكلمة أو الجملة المطلوبة للتحقق من النطق (بالعربية)
+                        </label>
+                        <input
+                          type="text"
+                          required={editingLesson.audioHomeworkMode === 'verify'}
+                          value={editingLesson.audioHomeworkTarget || ''}
+                          onChange={(e) =>
+                            setEditingLesson({
+                              ...editingLesson,
+                              audioHomeworkTarget: e.target.value,
+                            })
+                          }
+                          placeholder="مثال: بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-amber-300 bg-white text-sm font-extrabold text-slate-900"
+                        />
+                      </div>
                     )}
                   </div>
                 </div>

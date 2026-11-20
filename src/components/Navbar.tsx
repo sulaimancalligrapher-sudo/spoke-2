@@ -17,6 +17,7 @@ import {
   Pencil,
   Target,
   Film,
+  Calendar,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import { LanguageSelector } from './LanguageSelector';
@@ -50,6 +51,9 @@ interface NavbarProps {
   onOpenWriting?: () => void;
   onOpenCatchLessons?: () => void;
   onOpenVideoLessons?: () => void;
+  onOpenCourseSchedule?: () => void;
+  hasCourseSchedule?: boolean;
+  hasTodayScheduleLesson?: boolean;
   currentMode?: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video';
   onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video') => void;
 }
@@ -81,6 +85,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenWriting,
   onOpenCatchLessons,
   onOpenVideoLessons,
+  onOpenCourseSchedule,
+  hasCourseSchedule,
+  hasTodayScheduleLesson,
   currentMode = 'pronunciation',
   onSelectMode,
 }) => {
@@ -339,6 +346,25 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Film className="w-3.5 h-3.5 shrink-0 text-emerald-300" />
               <span>{tr('nav_video_btn', 'فيديو')}</span>
+            </button>
+          )}
+
+          {/* Course Daily Schedule Button (جدول الدروس) */}
+          {onOpenCourseSchedule && hasCourseSchedule && (
+            <button
+              type="button"
+              onClick={() => {
+                setLessonsMenuOpen(false);
+                onOpenCourseSchedule();
+              }}
+              className="relative flex items-center justify-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition-all shadow-sm cursor-pointer whitespace-nowrap shrink-0"
+              title={tr('schedule_modal_title', 'جدول الدروس اليومي')}
+            >
+              <Calendar className="w-3.5 h-3.5 shrink-0 text-teal-100" />
+              <span>{tr('nav_schedule_btn', 'جدول الدروس')}</span>
+              {hasTodayScheduleLesson && (
+                <span className="w-2 h-2 rounded-full bg-amber-300 animate-pulse" />
+              )}
             </button>
           )}
 

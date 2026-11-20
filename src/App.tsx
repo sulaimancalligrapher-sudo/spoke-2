@@ -46,6 +46,15 @@ import { SocialIcon, getSocialBrandClasses } from './components/SocialIcon';
 import { InteractiveVideoArena } from './video/components/InteractiveVideoArena';
 import { VideoLessonsModal } from './video/components/VideoLessonsModal';
 import { VideoCorrectionModal } from './video/components/VideoCorrectionModal';
+import { CourseScheduleModal } from './components/CourseScheduleModal';
+import {
+  CourseScheduleData,
+  ScheduleLessonRef,
+  fetchCourseScheduleFromSheets,
+  getLocalCourseSchedule,
+  getTodayLocalISO,
+  saveLocalCourseSchedule,
+} from './utils/courseSchedule';
 import {
   VideoLesson,
   VideoStudentProgress,
@@ -137,6 +146,7 @@ import {
   Pencil,
   Target,
   Film,
+  Calendar,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -189,7 +199,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -282,6 +292,16 @@ export default function App() {
   const [isVideoResetMode, setIsVideoResetMode] = useState(false);
   const [isVideoLessonsModalOpen, setIsVideoLessonsModalOpen] = useState(false);
   const [isVideoCorrectionModalOpen, setIsVideoCorrectionModalOpen] = useState(false);
+
+  // Course Groups & Daily Schedule State (مجموعات_الجدول / الجدول_اليومي)
+  const [courseSchedule, setCourseSchedule] = useState<CourseScheduleData>(() =>
+    getLocalCourseSchedule()
+  );
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const hasTodayScheduleLesson = useMemo(() => {
+    const tIso = getTodayLocalISO();
+    return courseSchedule.days.some((d) => d.date === tIso && Boolean(d.groupId));
+  }, [courseSchedule.days]);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent | TouchEvent) => {
@@ -477,7 +497,7 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes] =
+    const [currRes, homeCfg, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
@@ -489,6 +509,7 @@ export default function App() {
         writingSheetService.fetchLessonsFromSheet().catch(() => null),
         writingSheetService.fetchARRewardsFromSheet().catch(() => null),
         fetchVideoLessonsFromSheets(url).catch(() => null),
+        fetchCourseScheduleFromSheets(url).catch(() => null),
       ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -599,6 +620,10 @@ export default function App() {
       setVideoLessons(videoLessonsRes);
       saveLocalVideoLessons(videoLessonsRes);
       setActiveVideoLessonId((prev) => prev || videoLessonsRes[0].id);
+    }
+    // 9. Update course groups & daily schedule from sheets "مجموعات_الجدول" & "الجدول_اليومي"
+    if (scheduleRes) {
+      setCourseSchedule(scheduleRes);
     }
     if (currentStudent && url) {
       fetchStudentVideoProgress(url, currentStudent.id, currentStudent.name)
@@ -1045,6 +1070,13 @@ export default function App() {
               setVideoLessons(vLessons);
               setActiveVideoLessonId((prev) => prev || vLessons[0].id);
             }
+          })
+          .catch(() => {});
+
+        // Auto-fetch Course Groups & Daily Schedule ("مجموعات_الجدول" / "الجدول_اليومي")
+        fetchCourseScheduleFromSheets(activeConfig.webhookUrl)
+          .then((sched) => {
+            if (sched) setCourseSchedule(sched);
           })
           .catch(() => {});
       }
@@ -1592,7 +1624,93 @@ export default function App() {
     setIsCatchLessonsModalOpen(false);
     setIsVideoLessonsModalOpen(false);
     setIsVideoCorrectionModalOpen(false);
+    setIsScheduleModalOpen(false);
     setLandingLessonsMenuOpen(false);
+  };
+
+  const handleOpenScheduledLesson = (ref: ScheduleLessonRef) => {
+    closeAllLessonModals();
+    const cleanTopic = (ref.topicName || '').trim();
+
+    if (ref.exerciseType === 'pronunciation') {
+      const targetWord =
+        curriculum.find((w) => (w.lessonSubject || '').trim() === cleanTopic) ||
+        curriculum[0];
+      if (targetWord) {
+        setStudentSubject(cleanTopic || targetWord.lessonSubject || '');
+        handleSelectWord(targetWord, false);
+        return;
+      }
+      openPronunciationLessonsModal();
+      return;
+    }
+
+    if (ref.exerciseType === 'matching') {
+      const subj =
+        matchingSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
+        matchingSubjects[0];
+      if (subj) {
+        setActiveMatchingSubjectId(subj.id);
+        setActiveMatchingExerciseIdx(0);
+      }
+      setAppMode('matching');
+      setCurrentView('practice');
+      return;
+    }
+
+    if (ref.exerciseType === 'dictation') {
+      const subj =
+        dictationSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
+        dictationSubjects[0];
+      if (subj) {
+        setActiveDictationSubjectId(subj.id);
+        setActiveDictationExerciseIdx(0);
+      }
+      setAppMode('dictation');
+      setCurrentView('practice');
+      return;
+    }
+
+    if (ref.exerciseType === 'writing') {
+      const tpl =
+        writingTemplates.find(
+          (t) => (t.topic || 'خط النسخ (الأساسيات)').trim() === cleanTopic
+        ) || writingTemplates[0] || null;
+      setSelectedWritingTemplate(tpl);
+      setAppMode('writing');
+      setCurrentView('practice');
+      return;
+    }
+
+    if (ref.exerciseType === 'catch') {
+      const subj =
+        catchSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
+        catchSubjects[0];
+      if (subj) {
+        setActiveCatchSubjectId(subj.id);
+        setActiveCatchExerciseIdx(0);
+      }
+      setAppMode('catch');
+      setCurrentView('practice');
+      return;
+    }
+
+    if (ref.exerciseType === 'video') {
+      const vLesson =
+        (ref.lessonId && videoLessons.find((v) => v.id === ref.lessonId)) ||
+        videoLessons.find(
+          (v) =>
+            (v.title || '').trim() === cleanTopic ||
+            (v.topic || '').trim() === cleanTopic
+        ) ||
+        videoLessons[0];
+      if (vLesson) {
+        setActiveVideoLessonId(vLesson.id);
+        setIsVideoResetMode(false);
+      }
+      setAppMode('video');
+      setCurrentView('practice');
+    }
   };
 
   const openPronunciationLessonsModal = () => {
@@ -1755,7 +1873,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -1914,6 +2032,15 @@ export default function App() {
               setActiveVideoLessonId(updated[0].id);
             }
           }}
+          courseSchedule={courseSchedule}
+          onUpdateCourseSchedule={(next) => {
+            setCourseSchedule(next);
+            saveLocalCourseSchedule(next);
+          }}
+          onOpenSchedulePreview={() => {
+            handleBackToStudent();
+            setIsScheduleModalOpen(true);
+          }}
         />
 
         <SettingsModal
@@ -2027,6 +2154,12 @@ export default function App() {
         onOpenWriting={openWritingExercise}
         onOpenCatchLessons={openCatchLessonsModal}
         onOpenVideoLessons={openVideoLessonsModal}
+        onOpenCourseSchedule={() => {
+          closeAllLessonModals();
+          setIsScheduleModalOpen(true);
+        }}
+        hasCourseSchedule={courseSchedule.days.length > 0}
+        hasTodayScheduleLesson={hasTodayScheduleLesson}
         currentMode={appMode}
         onSelectMode={(mode) => {
           closeAllLessonModals();
@@ -2233,6 +2366,23 @@ export default function App() {
                     <Film className="w-5 h-5 text-emerald-400" />
                     <span>{t('nav_video_btn', 'فيديو')}</span>
                   </button>
+
+                  {courseSchedule.days.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeAllLessonModals();
+                        setIsScheduleModalOpen(true);
+                      }}
+                      className="relative flex items-center justify-center gap-2.5 px-7 py-4 bg-teal-600/95 hover:bg-teal-500 text-white border border-teal-300/35 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl cursor-pointer hover:scale-105 active:scale-95"
+                    >
+                      <Calendar className="w-5 h-5 text-teal-100" />
+                      <span>{t('nav_schedule_btn', 'جدول الدروس')}</span>
+                      {hasTodayScheduleLesson && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-300 animate-ping" />
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3262,6 +3412,29 @@ export default function App() {
         }
         onRefreshProgress={refreshAllVideoData}
         t={t}
+      />
+
+      <CourseScheduleModal
+        isOpen={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
+        schedule={courseSchedule}
+        currentStudent={currentStudent}
+        currentLang={currentLang}
+        translations={translations}
+        t={t}
+        curriculum={curriculum}
+        studentHistory={studentHistory}
+        matchingSubjects={matchingSubjects}
+        matchingHistory={matchingHistory}
+        dictationSubjects={dictationSubjects}
+        dictationHistory={dictationHistory}
+        writingTemplates={writingTemplates}
+        writingHistory={writingHistory}
+        catchSubjects={catchSubjects}
+        catchHistory={catchHistory}
+        videoLessons={videoLessons}
+        videoProgressMap={videoProgressMap}
+        onOpenScheduledLesson={handleOpenScheduledLesson}
       />
 
       {/* Student Login & Registration Verification Modal */}

@@ -380,19 +380,51 @@ export function verifyVideoAudioPronunciation(
   targetText: string,
   spokenText: string
 ): { matched: boolean; score: number; cleanSpoken: string } {
-  const cleanTarget = removeTashkeel(targetText || '').replace(/\s+/g, ' ').trim();
-  const cleanSpoken = removeTashkeel(spokenText || '').replace(/\s+/g, ' ').trim();
+  const normalizePlain = (txt: string) =>
+    removeTashkeel(txt || '')
+      .replace(/[إأآا]/g, 'ا')
+      .replace(/[ىي]/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .replace(/[.,!؟;:_#%&*()<>[\]{}"'،؛]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const cleanTarget = normalizePlain(targetText);
+  const cleanSpoken = normalizePlain(spokenText);
   if (!cleanTarget || !cleanSpoken) {
-    return { matched: false, score: 0, cleanSpoken: spokenText.trim() };
+    return { matched: false, score: 0, cleanSpoken: (spokenText || '').trim() };
   }
   if (cleanTarget === cleanSpoken || cleanSpoken.includes(cleanTarget)) {
-    return { matched: true, score: 100, cleanSpoken: spokenText.trim() };
+    return { matched: true, score: 100, cleanSpoken: (spokenText || '').trim() };
   }
   const evalRes = evaluateArabicLocal(targetText, spokenText, 1, 'medium');
+  if (evalRes.isMatch || evalRes.score >= 70) {
+    return {
+      matched: true,
+      score: evalRes.score,
+      cleanSpoken: (spokenText || '').trim(),
+    };
+  }
+  // Multi-word sentence tolerance: check how many target words appear in spoken tokens
+  const targetTokens = cleanTarget.split(' ').filter(Boolean);
+  const spokenTokens = cleanSpoken.split(' ').filter(Boolean);
+  if (targetTokens.length >= 2 && spokenTokens.length > 0) {
+    const matchedTokens = targetTokens.filter((tt) =>
+      spokenTokens.some((st) => st === tt || st.includes(tt) || tt.includes(st))
+    ).length;
+    const ratio = Math.round((matchedTokens / targetTokens.length) * 100);
+    if (ratio >= 70) {
+      return {
+        matched: true,
+        score: Math.max(evalRes.score, ratio),
+        cleanSpoken: (spokenText || '').trim(),
+      };
+    }
+  }
   return {
     matched: Boolean(evalRes.isMatch),
     score: evalRes.score,
-    cleanSpoken: spokenText.trim(),
+    cleanSpoken: (spokenText || '').trim(),
   };
 }
 

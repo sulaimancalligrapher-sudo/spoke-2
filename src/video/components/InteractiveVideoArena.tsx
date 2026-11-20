@@ -43,7 +43,14 @@ import {
   saveVideoQuestionAnswer,
   verifyVideoAudioPronunciation,
 } from '../videoSheets';
-import { createSpeechRecognizer, isSpeechRecognitionSupported } from '../../utils/arabicAudio';
+import {
+  getSupportedAudioMimeType,
+  detectSpeechPulseAnalysis,
+} from '../../utils/arabicAudio';
+import {
+  transcribeWithInBrowserWhisper,
+  WhisperProgress,
+} from '../../utils/whisperEngine';
 import { isMobileOrTabletDevice, isTouchLandscapeViewport } from '../../arWriting/utils/devicePerformance';
 import { VideoQuestionModal } from './VideoQuestionModal';
 
@@ -196,15 +203,14 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   const [audioFeedback, setAudioFeedback] = useState<string | null>(null);
   const [retryAudioReplaced, setRetryAudioReplaced] = useState(false);
 
-  // Audio Pronunciation Check State (for audioHomeworkMode === 'verify')
-  const speechRecognizerRef = useRef<any>(null);
-  const lastHeardTranscriptRef = useRef<string>('');
-  const [isCheckingPronunciation, setIsCheckingPronunciation] = useState(false);
-  const [pronunciationLiveText, setPronunciationLiveText] = useState('');
+  // Audio Pronunciation Check State (automatic Whisper verification for audioHomeworkMode === 'verify')
+  const [isVerifyingPronunciation, setIsVerifyingPronunciation] = useState(false);
+  const [whisperProgress, setWhisperProgress] = useState<WhisperProgress | null>(null);
   const [pronunciationResult, setPronunciationResult] = useState<{
     status: 'pass' | 'warn';
     spoken: string;
     score: number;
+    noSpeech?: boolean;
   } | null>(null);
 
   // Complete lesson status
@@ -237,7 +243,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     setRecordedAudioBlobUrl(null);
     setRecordedAudioBase64(null);
     setAudioFeedback(null);
-    setPronunciationLiveText('');
+    setIsVerifyingPronunciation(false);
+    setWhisperProgress(null);
     setPronunciationResult(null);
     setCompletionMessage(null);
     setActiveTab('study');
@@ -246,7 +253,6 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     triggeredKeysSessionRef.current = new Set();
     stopCamera();
     stopRecording();
-    stopPronunciationCheck();
   }, [lesson?.id, isResetMode]);
 
   // Reset retry replacement flags whenever entering retry mode or switching lessons
@@ -783,138 +789,120 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     }
   };
 
-  // Pronunciation Check Logic for Audio Homework (verify mode)
-  const stopPronunciationCheck = () => {
-    if (speechRecognizerRef.current) {
-      try {
-        speechRecognizerRef.current.stop();
-      } catch {}
-      speechRecognizerRef.current = null;
-    }
-    setIsCheckingPronunciation(false);
-  };
+  // Cross-browser In-Browser Whisper Pronunciation Verification (runs automatically once recording stops)
+  const verifyRecordedAudioBlob = async (audioBlob: Blob, targetText: string) => {
+    const cleanTarget = targetText.trim();
+    if (!cleanTarget) return;
 
-  const evaluatePronunciationTranscript = (spokenText: string) => {
-    const target = (lesson?.audioHomeworkTarget || '').trim();
-    const cleanSpoken = (spokenText || '').trim();
-    if (!target || !cleanSpoken) {
-      setAudioFeedback(
-        tr(
-          'video_audio_no_speech_detected',
-          'لم يُسمع صوت واضح، اضغط «تحقق من النطق» وتحدث بوضوح قرب الميكروفون.'
-        )
-      );
-      return;
-    }
-    const res = verifyVideoAudioPronunciation(target, cleanSpoken);
-    setPronunciationResult({
-      status: res.matched ? 'pass' : 'warn',
-      spoken: res.cleanSpoken,
-      score: res.score,
+    setIsVerifyingPronunciation(true);
+    setWhisperProgress({
+      status: 'transcribing',
+      message: tr('video_audio_verifying', 'جاري تحليل النطق تلقائياً...'),
     });
-  };
 
-  const handleTogglePronunciationCheck = () => {
-    if (!lesson) return;
-    if (isCheckingPronunciation) {
-      stopPronunciationCheck();
-      if (lastHeardTranscriptRef.current.trim()) {
-        evaluatePronunciationTranscript(lastHeardTranscriptRef.current);
+    try {
+      const pulseAnalysis = await detectSpeechPulseAnalysis(audioBlob).catch(() => ({
+        pulses: 1,
+        totalDuration: 1.0,
+        speechDuration: 0.8,
+      }));
+      const acousticPulses = pulseAnalysis.pulses;
+      const audioDuration = pulseAnalysis.totalDuration || pulseAnalysis.speechDuration;
+
+      if (pulseAnalysis.speechDuration < 0.08 && acousticPulses === 0) {
+        setPronunciationResult({
+          status: 'warn',
+          spoken: '',
+          score: 0,
+          noSpeech: true,
+        });
+        return;
       }
-      return;
-    }
 
-    setAudioFeedback(null);
-    setPronunciationLiveText('');
-    lastHeardTranscriptRef.current = '';
+      const transcript = await transcribeWithInBrowserWhisper(
+        audioBlob,
+        cleanTarget,
+        1,
+        (p) => setWhisperProgress(p),
+        {
+          lessonVocabulary: [cleanTarget],
+          audioDuration,
+          acousticPulses,
+        }
+      );
 
-    if (!isSpeechRecognitionSupported()) {
-      const target = (lesson.audioHomeworkTarget || '').trim();
+      const cleanSpoken = (transcript || '').trim();
+      if (!cleanSpoken) {
+        setPronunciationResult({
+          status: 'warn',
+          spoken: '',
+          score: 0,
+          noSpeech: true,
+        });
+        return;
+      }
+
+      const res = verifyVideoAudioPronunciation(cleanTarget, cleanSpoken);
+      setPronunciationResult({
+        status: res.matched ? 'pass' : 'warn',
+        spoken: res.cleanSpoken,
+        score: res.score,
+      });
+    } catch (err) {
+      console.warn('Whisper video audio check notice:', err);
       setPronunciationResult({
         status: 'warn',
-        spoken: target ? '' : '',
+        spoken: '',
         score: 0,
+        noSpeech: true,
       });
-      setAudioFeedback('المتصفح الحالي لا يدعم التعرّف الصوتي المباشر، يمكنك إرسال التسجيل للمعلم مباشرة.');
-      return;
-    }
-
-    if (isRecording) stopRecording();
-
-    let finalized = false;
-    const rec = createSpeechRecognizer(
-      (transcript, isFinal) => {
-        lastHeardTranscriptRef.current = transcript;
-        setPronunciationLiveText(transcript);
-        if (isFinal && !finalized) {
-          finalized = true;
-          try {
-            rec?.stop();
-          } catch {}
-          setIsCheckingPronunciation(false);
-          speechRecognizerRef.current = null;
-          evaluatePronunciationTranscript(transcript);
-        }
-      },
-      () => {
-        setIsCheckingPronunciation(false);
-        speechRecognizerRef.current = null;
-        if (lastHeardTranscriptRef.current.trim() && !finalized) {
-          finalized = true;
-          evaluatePronunciationTranscript(lastHeardTranscriptRef.current);
-        } else {
-          setAudioFeedback(
-            tr(
-              'video_audio_no_speech_detected',
-              'لم يُسمع صوت واضح، اضغط «تحقق من النطق» وتحدث بوضوح قرب الميكروفون.'
-            )
-          );
-        }
-      },
-      () => {
-        setIsCheckingPronunciation(false);
-        speechRecognizerRef.current = null;
-        if (lastHeardTranscriptRef.current.trim() && !finalized) {
-          finalized = true;
-          evaluatePronunciationTranscript(lastHeardTranscriptRef.current);
-        }
-      }
-    );
-
-    if (rec) {
-      speechRecognizerRef.current = rec;
-      setIsCheckingPronunciation(true);
-      try {
-        rec.start();
-      } catch {
-        setIsCheckingPronunciation(false);
-        speechRecognizerRef.current = null;
-      }
+    } finally {
+      setIsVerifyingPronunciation(false);
     }
   };
 
-  // Audio recorder logic for Audio Homework
+  // Audio recorder logic for Audio Homework (cross-browser MIME + 350ms end padding)
   const stopRecording = () => {
     if (recordTimerRef.current) {
       window.clearInterval(recordTimerRef.current);
       recordTimerRef.current = null;
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {}
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      setTimeout(() => {
+        try {
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
+        } catch {}
+      }, 350);
     }
     setIsRecording(false);
   };
 
   const startRecording = async () => {
-    stopPronunciationCheck();
     setAudioFeedback(null);
     setPronunciationResult(null);
-    setPronunciationLiveText('');
+    setIsVerifyingPronunciation(false);
+    setWhisperProgress(null);
+
+    const activeLesson = lesson;
+    const isVerifyAfterStop =
+      activeLesson?.audioHomeworkMode === 'verify' &&
+      Boolean(activeLesson?.audioHomeworkTarget?.trim());
+    const targetForVerify = activeLesson?.audioHomeworkTarget?.trim() || '';
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const preferredMime = getSupportedAudioMimeType();
+      let recorder: MediaRecorder;
+      try {
+        recorder = preferredMime
+          ? new MediaRecorder(stream, { mimeType: preferredMime })
+          : new MediaRecorder(stream);
+      } catch {
+        recorder = new MediaRecorder(stream);
+      }
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       setRecordElapsed(0);
@@ -922,13 +910,15 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
       setRecordedAudioBase64(null);
 
       recorder.ondataavailable = (ev) => {
-        if (ev.data.size > 0) audioChunksRef.current.push(ev.data);
+        if (ev.data && ev.data.size > 0) audioChunksRef.current.push(ev.data);
       };
 
       recorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
-        const mime = recorder.mimeType || 'audio/webm';
-        const blob = new Blob(audioChunksRef.current, { type: mime });
+        const mime = recorder.mimeType || preferredMime || 'audio/mp4';
+        const chunks = [...audioChunksRef.current];
+        audioChunksRef.current = [];
+        const blob = new Blob(chunks, { type: mime });
         const url = URL.createObjectURL(blob);
         setRecordedAudioBlobUrl(url);
         setRecordedAudioMime(mime);
@@ -937,11 +927,15 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
           if (typeof reader.result === 'string') setRecordedAudioBase64(reader.result);
         };
         reader.readAsDataURL(blob);
+
+        if (isVerifyAfterStop && targetForVerify) {
+          void verifyRecordedAudioBlob(blob, targetForVerify);
+        }
       };
 
-      recorder.start();
+      recorder.start(200);
       setIsRecording(true);
-      const maxSec = lesson?.maxRecordingTime || 60;
+      const maxSec = activeLesson?.maxRecordingTime || 60;
       recordTimerRef.current = window.setInterval(() => {
         setRecordElapsed((prev) => {
           const next = prev + 1;
@@ -952,16 +946,15 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
         });
       }, 1000);
     } catch {
-      setAudioFeedback('تعذر الوصول إلى الميكروفون. يمكنك رفع ملف صوتي من جهازك.');
+      setAudioFeedback('تعذر الوصول إلى الميكروفون. يرجى تفعيل صلاحية الميكروفون في المتصفح.');
     }
   };
 
   const handleAudioFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    stopPronunciationCheck();
     setPronunciationResult(null);
-    setPronunciationLiveText('');
+    setIsVerifyingPronunciation(false);
     const blobUrl = URL.createObjectURL(file);
     setRecordedAudioBlobUrl(blobUrl);
     setRecordedAudioMime(file.type || 'audio/mp3');
@@ -977,7 +970,6 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
 
   const handleUploadAudioHomework = async () => {
     if (!lesson || !recordedAudioBase64) return;
-    stopPronunciationCheck();
     setUploadingAudio(true);
     setAudioFeedback(null);
     try {
@@ -994,7 +986,8 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
       setRecordedAudioBlobUrl(null);
       setRecordedAudioBase64(null);
       setPronunciationResult(null);
-      setPronunciationLiveText('');
+      setIsVerifyingPronunciation(false);
+      setWhisperProgress(null);
       if (isRetryUnlocked) setRetryAudioReplaced(true);
       setAudioFeedback(
         res.cloudSaved
@@ -1819,9 +1812,9 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                 Boolean(progress.recordingLink) && (!isRetryUnlocked || retryAudioReplaced);
               const isAudioVerifyMode =
                 lesson.audioHomeworkMode === 'verify' && Boolean(lesson.audioHomeworkTarget?.trim());
-              const speechSupported = isSpeechRecognitionSupported();
+              const hasPrompt = Boolean(lesson.audioHomeworkPrompt?.trim());
               const canSubmitAudio =
-                !isAudioVerifyMode || !speechSupported || pronunciationResult !== null;
+                !isAudioVerifyMode || (!isVerifyingPronunciation && pronunciationResult !== null);
 
               return (
                 <div className="space-y-4">
@@ -1837,29 +1830,33 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     )}
                   </div>
 
-                  {/* Prompt + Target Text Card when Pronunciation Verification Mode is Active */}
-                  {isAudioVerifyMode && !isAudioLocked && (
+                  {/* Prompt Card: Shown in BOTH Free mode (if prompt set) and Verify mode */}
+                  {(hasPrompt || isAudioVerifyMode) && !isAudioLocked && (
                     <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-2 max-w-xl">
-                      {lesson.audioHomeworkPrompt && (
+                      {hasPrompt && (
                         <div className="text-xs sm:text-sm font-bold text-amber-950">
-                          {tr(`video_audio_hw_prompt_${lesson.id}`, lesson.audioHomeworkPrompt)}
+                          {tr(`video_audio_hw_prompt_${lesson.id}`, lesson.audioHomeworkPrompt!)}
                         </div>
                       )}
-                      <div className="text-[11px] font-bold text-amber-800">
-                        {tr('video_audio_verify_label', 'النص المطلوب نطقه:')}
-                      </div>
-                      <div
-                        className="p-3 rounded-xl bg-white border border-amber-200 text-lg sm:text-xl font-extrabold text-slate-900 leading-relaxed text-center"
-                        dir="rtl"
-                      >
-                        {lesson.audioHomeworkTarget}
-                      </div>
-                      <p className="text-[11px] font-semibold text-amber-900">
-                        {tr(
-                          'video_audio_verify_hint',
-                          'سجّل صوتك أو ارفعه أولاً، ثم اضغط «تحقق من النطق» لتقييم نطقك وتفعيل زر الإرسال.'
-                        )}
-                      </p>
+                      {isAudioVerifyMode && (
+                        <>
+                          <div className="text-[11px] font-bold text-amber-800">
+                            {tr('video_audio_verify_label', 'النص المطلوب نطقه:')}
+                          </div>
+                          <div
+                            className="p-3 rounded-xl bg-white border border-amber-200 text-lg sm:text-xl font-extrabold text-slate-900 leading-relaxed text-center"
+                            dir="rtl"
+                          >
+                            {lesson.audioHomeworkTarget}
+                          </div>
+                          <p className="text-[11px] font-semibold text-amber-900">
+                            {tr(
+                              'video_audio_verify_hint',
+                              'اضغط زر التسجيل وانطق النص المطلوب؛ وعند الإيقاف سيتم التحقق من نطقك تلقائياً لتتمكن من إرساله للمعلم.'
+                            )}
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -1872,22 +1869,30 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     <>
                       {isRetryUnlocked && progress.recordingLink && (
                         <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900">
-                          {tr('video_audio_retry_hint', 'سبق تسليم تسجيل صوتي لهذا الدرس — يمكنك تسجيل أو رفع بديل جديد أو الإبقاء على التسجيل الحالي كما هو.')}
+                          {tr('video_audio_retry_hint', 'سبق تسليم تسجيل صوتي لهذا الدرس — يمكنك تسجيل بديل جديد أو الإبقاء على التسجيل الحالي كما هو.')}
                         </div>
                       )}
 
-                      {/* Two Large Side-by-Side Icon-Only Buttons */}
+                      {/* Mic Button (alone in verify mode, side-by-side with file upload in free mode) */}
                       <div className="space-y-2 max-w-xs">
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className={`grid gap-3 ${isAudioVerifyMode ? 'grid-cols-1' : 'grid-cols-2'}`}>
                           {!isRecording ? (
                             <button
                               type="button"
                               onClick={startRecording}
+                              disabled={isVerifyingPronunciation}
                               title={tr('video_tab_audio_hw', 'بدء التسجيل الصوتي')}
                               aria-label={tr('video_tab_audio_hw', 'بدء التسجيل الصوتي')}
-                              className="h-16 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
+                              className="h-16 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center gap-2 shadow-sm transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
                             >
                               <Mic className="w-7 h-7" />
+                              {isAudioVerifyMode && (
+                                <span className="text-xs sm:text-sm font-extrabold">
+                                  {recordedAudioBlobUrl
+                                    ? tr('video_audio_check_retry_btn', 'إعادة التسجيل والتحقق')
+                                    : tr('video_tab_audio_hw', 'بدء التسجيل الصوتي')}
+                                </span>
+                              )}
                             </button>
                           ) : (
                             <button
@@ -1895,25 +1900,32 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                               onClick={stopRecording}
                               title={tr('video_cancel', 'إيقاف التسجيل')}
                               aria-label={tr('video_cancel', 'إيقاف التسجيل')}
-                              className="h-16 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center shadow-sm ring-2 ring-rose-500 transition-transform active:scale-95 cursor-pointer"
+                              className="h-16 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center gap-2 shadow-sm ring-2 ring-rose-500 transition-transform active:scale-95 cursor-pointer"
                             >
                               <Square className="w-7 h-7 fill-rose-500 text-rose-500 animate-pulse" />
+                              {isAudioVerifyMode && (
+                                <span className="text-xs sm:text-sm font-extrabold">
+                                  {tr('video_cancel', 'إيقاف التسجيل')}
+                                </span>
+                              )}
                             </button>
                           )}
 
-                          <label
-                            title={tr('video_tab_audio_hw', 'رفع ملف صوتي')}
-                            aria-label={tr('video_tab_audio_hw', 'رفع ملف صوتي')}
-                            className="h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-2xs transition-transform active:scale-95 cursor-pointer"
-                          >
-                            <Upload className="w-7 h-7" />
-                            <input
-                              type="file"
-                              accept="audio/*"
-                              onChange={handleAudioFileUpload}
-                              className="hidden"
-                            />
-                          </label>
+                          {!isAudioVerifyMode && (
+                            <label
+                              title={tr('video_tab_audio_hw', 'رفع ملف صوتي')}
+                              aria-label={tr('video_tab_audio_hw', 'رفع ملف صوتي')}
+                              className="h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-2xs transition-transform active:scale-95 cursor-pointer"
+                            >
+                              <Upload className="w-7 h-7" />
+                              <input
+                                type="file"
+                                accept="audio/*"
+                                onChange={handleAudioFileUpload}
+                                className="hidden"
+                              />
+                            </label>
+                          )}
                         </div>
 
                         {isRecording && (
@@ -1932,77 +1944,63 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                     <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 space-y-3 max-w-lg">
                       <audio controls src={recordedAudioBlobUrl} className="w-full h-10" />
 
-                      {/* Quick Pronunciation Verification Step (if enabled for this lesson) */}
-                      {isAudioVerifyMode && (
-                        <div className="space-y-2.5 pt-1 border-t border-indigo-200/70">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleTogglePronunciationCheck}
-                              className={`px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer shadow-2xs ${
-                                isCheckingPronunciation
-                                  ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
-                                  : pronunciationResult?.status === 'pass'
-                                  ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300'
-                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                              }`}
-                            >
-                              <Mic className="w-4 h-4 shrink-0" />
-                              <span>
-                                {isCheckingPronunciation
-                                  ? tr('video_audio_checking_btn', 'تحدث الآن... جاري الاستماع (اضغط للإيقاف)')
-                                  : pronunciationResult
-                                  ? tr('video_audio_check_retry_btn', 'إعادة التحقق من النطق')
-                                  : tr('video_audio_check_btn', 'تحقق من النطق')}
-                              </span>
-                            </button>
-
-                            {pronunciationResult?.status === 'pass' && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-extrabold border border-emerald-300">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>✓</span>
-                              </span>
+                      {/* Automatic Whisper Verification Feedback (Single-Step Recording) */}
+                      {isAudioVerifyMode && isVerifyingPronunciation && (
+                        <div className="p-3 rounded-xl bg-white border border-indigo-200 flex items-center gap-2.5 text-xs font-bold text-indigo-900">
+                          <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div>
+                              {whisperProgress?.status === 'loading'
+                                ? tr('video_audio_whisper_loading', 'جاري تجهيز محرك النطق الذكي لأول مرة...')
+                                : tr('video_audio_verifying', 'جاري تحليل النطق تلقائياً...')}
+                            </div>
+                            {typeof whisperProgress?.progress === 'number' && whisperProgress.status === 'loading' && (
+                              <div className="w-full h-1.5 bg-indigo-100 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-indigo-600 transition-all"
+                                  style={{ width: `${Math.min(100, Math.round(whisperProgress.progress))}%` }}
+                                />
+                              </div>
                             )}
                           </div>
+                        </div>
+                      )}
 
-                          {isCheckingPronunciation && pronunciationLiveText && (
-                            <div className="px-3 py-2 rounded-xl bg-white border border-indigo-200 text-xs font-bold text-slate-800">
-                              {tr('video_audio_heard_label', 'النطق المسموع:')} {pronunciationLiveText}
-                            </div>
-                          )}
-
-                          {pronunciationResult && (
-                            <div
-                              className={`p-3 rounded-xl border text-xs font-bold space-y-1 ${
-                                pronunciationResult.status === 'pass'
-                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                                  : 'bg-amber-50 border-amber-300 text-amber-950'
-                              }`}
-                            >
-                              <div className="flex items-start gap-2">
-                                {pronunciationResult.status === 'pass' ? (
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                                ) : (
-                                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                )}
-                                <span>
-                                  {pronunciationResult.status === 'pass'
-                                    ? tr(
-                                        'video_audio_verify_pass',
-                                        'نطق سليم ومطابق للمطلوب! يمكنك الآن إرسال الواجب للمعلم.'
-                                      )
-                                    : tr(
-                                        'video_audio_verify_warn',
-                                        'نطق غير سليم أو غير مطابق — يمكنك التمرن وإعادة المحاولة مرة أخرى، أو إرسال التسجيل الحالي للمعلم الآن.'
-                                      )}
-                                </span>
-                              </div>
-                              {pronunciationResult.spoken && (
-                                <div className="text-[11px] opacity-85">
-                                  {tr('video_audio_heard_label', 'النطق المسموع:')}{' '}
-                                  <span className="font-extrabold">{pronunciationResult.spoken}</span>
-                                </div>
-                              )}
+                      {isAudioVerifyMode && !isVerifyingPronunciation && pronunciationResult && (
+                        <div
+                          className={`p-3 rounded-xl border text-xs font-bold space-y-1.5 ${
+                            pronunciationResult.status === 'pass'
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                              : 'bg-amber-50 border-amber-300 text-amber-950'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            {pronunciationResult.status === 'pass' ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            )}
+                            <span>
+                              {pronunciationResult.status === 'pass'
+                                ? tr(
+                                    'video_audio_verify_pass',
+                                    'نطق سليم ومطابق للمطلوب! يمكنك الآن إرسال الواجب للمعلم.'
+                                  )
+                                : pronunciationResult.noSpeech
+                                ? tr(
+                                    'video_audio_no_speech_detected',
+                                    'لم يُسمع صوت واضح في التسجيل، أعد التسجيل وتحدث بوضوح قرب الميكروفون.'
+                                  )
+                                : tr(
+                                    'video_audio_verify_warn',
+                                    'نطق غير سليم أو غير مطابق — يمكنك إعادة التسجيل مرة أخرى، أو إرسال التسجيل الحالي للمعلم الآن.'
+                                  )}
+                            </span>
+                          </div>
+                          {pronunciationResult.spoken && (
+                            <div className="text-[11px] opacity-90">
+                              {tr('video_audio_heard_label', 'النطق المسموع:')}{' '}
+                              <span className="font-extrabold">{pronunciationResult.spoken}</span>
                             </div>
                           )}
                         </div>
@@ -2012,11 +2010,11 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            stopPronunciationCheck();
                             setRecordedAudioBlobUrl(null);
                             setRecordedAudioBase64(null);
                             setPronunciationResult(null);
-                            setPronunciationLiveText('');
+                            setIsVerifyingPronunciation(false);
+                            setWhisperProgress(null);
                           }}
                           className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
                         >

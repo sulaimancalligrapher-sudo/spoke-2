@@ -69,6 +69,7 @@ import {
   Pencil,
   Target,
   Film,
+  Calendar,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
@@ -81,6 +82,8 @@ import { CatchAdminManager } from './CatchAdminManager';
 import { VideoAdminManager } from '../video/components/VideoAdminManager';
 import { VideoTranslationManager } from '../video/components/VideoTranslationManager';
 import { VideoLesson } from '../video/videoSheets';
+import { CourseScheduleAdmin } from './CourseScheduleAdmin';
+import { CourseScheduleData, createEmptyCourseSchedule } from '../utils/courseSchedule';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
@@ -167,7 +170,10 @@ interface AdminPanelProps {
   onPreviewCatchArReward?: (tier: ARRewardTier) => void;
   videoLessons?: VideoLesson[];
   onUpdateVideoLessons?: (lessons: VideoLesson[]) => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  courseSchedule?: CourseScheduleData;
+  onUpdateCourseSchedule?: (next: CourseScheduleData) => void;
+  onOpenSchedulePreview?: () => void;
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -240,9 +246,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onPreviewCatchArReward,
   videoLessons = [],
   onUpdateVideoLessons,
+  courseSchedule,
+  onUpdateCourseSchedule,
+  onOpenSchedulePreview,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1203,6 +1212,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Film className={`w-4 h-4 ${activeTab === 'video' ? 'text-white' : 'text-indigo-600'}`} />
             <span>فيديو تفاعلي</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'schedule'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Calendar className={`w-4 h-4 ${activeTab === 'schedule' ? 'text-white' : 'text-emerald-600'}`} />
+            <span>المجموعات والجدول اليومي</span>
           </button>
 
           <button
@@ -2903,6 +2924,23 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             translations={translations || []}
             onSaveTranslations={onUpdateTranslations}
             geminiApiKey={geminiApiKey}
+          />
+        )}
+
+        {/* TAB 10: COURSE GROUPS & DAILY SCHEDULE (المجموعات والجدول اليومي للدورة) */}
+        {activeTab === 'schedule' && (
+          <CourseScheduleAdmin
+            schedule={courseSchedule || createEmptyCourseSchedule()}
+            onUpdateSchedule={onUpdateCourseSchedule || (() => {})}
+            webhookUrl={sheetsConfig.webhookUrl}
+            curriculum={curriculum}
+            subjects={subjects}
+            matchingSubjects={matchingSubjects || []}
+            dictationSubjects={dictationSubjects || []}
+            writingTemplates={writingTemplates || []}
+            catchSubjects={catchSubjects || []}
+            videoLessons={videoLessons || []}
+            onOpenStudentPreview={onOpenSchedulePreview || onBackToApp}
           />
         )}
 
