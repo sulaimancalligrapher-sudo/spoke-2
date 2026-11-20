@@ -20,6 +20,7 @@ import {
   VideoLesson,
   VideoStudentProgress,
   consumeVideoRetryAttempt,
+  evaluateVideoLessonCompletion,
   getVideoLessonScheduleStatus,
 } from '../videoSheets';
 
@@ -61,7 +62,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
   const [refreshing, setRefreshing] = useState(false);
 
   const completedCount = useMemo(() => {
-    return lessons.filter((l) => progressMap[l.id]?.completed === 'تم').length;
+    return lessons.filter((l) => evaluateVideoLessonCompletion(l, progressMap[l.id]).isFullyCompleted).length;
   }, [lessons, progressMap]);
 
   const topics = useMemo(() => {
@@ -76,7 +77,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
     return lessons.filter((l) => {
       if (selectedTopic !== 'ALL' && l.topic !== selectedTopic) return false;
       const prog = progressMap[l.id];
-      if (hideCompleted && prog?.completed === 'تم') return false;
+      if (hideCompleted && evaluateVideoLessonCompletion(l, prog).isFullyCompleted) return false;
       return true;
     });
   }, [lessons, selectedTopic, hideCompleted, progressMap]);
@@ -129,7 +130,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               <h3 className="text-base sm:text-lg font-extrabold text-white truncate">
                 {tr('video_modal_title', 'دروس الفيديو التفاعلي')}
               </h3>
-              <p className="text-xs text-blue-100 truncate">
+              <p className="hidden sm:block text-xs text-blue-100 truncate">
                 {tr(
                   'video_modal_subtitle',
                   'شاهد الدرس وأجب على الأسئلة الزمنية وسلم واجبك المصور أو الصوتي'
@@ -159,12 +160,12 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
         </div>
 
         {/* Filter Bar */}
-        <div className="px-4 sm:px-5 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
-          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[200px]">
+        <div className="px-3 sm:px-5 py-2.5 sm:py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <select
               value={selectedTopic}
               onChange={(e) => setSelectedTopic(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[38px]"
+              className="w-auto max-w-[165px] sm:max-w-[230px] px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 min-h-[36px] sm:min-h-[38px] truncate"
             >
               <option value="ALL">{tr('video_all_topics', 'جميع المواضيع')}</option>
               {topics.map((topic) => (
@@ -177,14 +178,24 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
             <button
               type="button"
               onClick={() => setHideCompleted((prev) => !prev)}
-              className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer min-h-[38px] ${
+              title={
+                hideCompleted
+                  ? `إظهار المكتملة (${completedCount})`
+                  : `إخفاء المكتملة (${completedCount})`
+              }
+              aria-label={
+                hideCompleted
+                  ? `إظهار المكتملة (${completedCount})`
+                  : `إخفاء المكتملة (${completedCount})`
+              }
+              className={`px-2.5 sm:px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[36px] sm:min-h-[38px] shrink-0 ${
                 !hideCompleted
                   ? 'bg-indigo-50 border-indigo-300 text-indigo-800'
                   : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-100'
               }`}
             >
-              {hideCompleted ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              <span>
+              {hideCompleted ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+              <span className="hidden sm:inline">
                 {hideCompleted
                   ? `إظهار المكتملة (${completedCount})`
                   : `إخفاء المكتملة (${completedCount})`}
@@ -198,15 +209,17 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               onClose();
               onOpenCorrections();
             }}
-            className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer min-h-[38px]"
+            title={tr('video_teacher_corrections_btn', 'تصحيح المعلم')}
+            aria-label={tr('video_teacher_corrections_btn', 'تصحيح المعلم')}
+            className="px-2.5 sm:px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[36px] sm:min-h-[38px] shrink-0"
           >
             <Award className="w-4 h-4 text-amber-600" />
-            <span>{tr('video_teacher_corrections_btn', 'تصحيح المعلم')}</span>
+            <span className="hidden sm:inline">{tr('video_teacher_corrections_btn', 'تصحيح المعلم')}</span>
           </button>
         </div>
 
         {/* Lessons List */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-3">
+        <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-2.5 sm:space-y-3">
           {filteredLessons.length === 0 ? (
             <div className="text-center py-12 px-4 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
               <div>
@@ -228,20 +241,29 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
           ) : (
             filteredLessons.map((lesson) => {
               const prog = progressMap[lesson.id];
-              const isCompleted = prog?.completed === 'تم';
+              const evalRes = evaluateVideoLessonCompletion(lesson, prog);
+              const isCompleted = evalRes.isFullyCompleted;
+              const isPartial = !isCompleted && evalRes.hasAnyProgress;
               const schedule = getVideoLessonScheduleStatus(lesson);
               const isActive = activeLessonId === lesson.id;
               const remainingRetries =
-                prog && typeof prog.retryResetCount === 'number'
+                prog && typeof prog.retryResetCount === 'number' && !isNaN(prog.retryResetCount)
                   ? prog.retryResetCount
                   : lesson.retryCount;
               const isConfirmingRetry = confirmRetryLessonId === lesson.id;
               const totalQs = lesson.questions.length + lesson.audioQuestions.length;
 
+              const missingTextParts: string[] = [];
+              if (isPartial) {
+                if (!evalRes.videoDone) missingTextParts.push('الفيديو والأسئلة');
+                if (evalRes.imageRequired && !evalRes.imageDone) missingTextParts.push('واجب الصورة');
+                if (evalRes.audioRequired && !evalRes.audioDone) missingTextParts.push('الواجب الصوتي');
+              }
+
               return (
                 <div
                   key={lesson.id}
-                  className={`rounded-2xl border p-4 transition-all ${
+                  className={`rounded-2xl border p-3.5 sm:p-4 transition-all ${
                     !schedule.isAvailable
                       ? 'bg-slate-50 border-slate-200 opacity-75'
                       : isActive
@@ -249,14 +271,16 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                       : 'bg-white border-slate-200 hover:border-indigo-300'
                   }`}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="space-y-1.5 min-w-0 flex-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+                    <div className="space-y-1 min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
                         <span className="text-indigo-700">
                           {tr(`video_topic_${lesson.topic}`, lesson.topic)}
                         </span>
                         {schedule.effectiveEndDate && (
-                          <span className="text-slate-400">• ينتهي: {schedule.effectiveEndDate}</span>
+                          <span className="hidden sm:inline text-slate-400">
+                            • ينتهي: {schedule.effectiveEndDate}
+                          </span>
                         )}
                       </div>
 
@@ -264,7 +288,13 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                         {tr(`video_title_${lesson.id}`, lesson.title)}
                       </h4>
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-0.5">
+                      {isPartial && missingTextParts.length > 0 && (
+                        <div className="text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 inline-block">
+                          متبقي: {missingTextParts.join(' • ')}
+                        </div>
+                      )}
+
+                      <div className="hidden sm:flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-0.5">
                         {totalQs > 0 && (
                           <span className="flex items-center gap-1 font-semibold">
                             <Clock className="w-3.5 h-3.5 text-indigo-500" />
@@ -333,16 +363,22 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                         </>
                       ) : (
                         <>
-                          <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-extrabold">
-                            {tr('video_status_new', 'جديد')}
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold ${
+                              isPartial
+                                ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                : 'bg-blue-50 text-blue-700'
+                            }`}
+                          >
+                            {isPartial ? 'غير مكتمل' : tr('video_status_new', 'جديد')}
                           </span>
                           <button
                             type="button"
                             onClick={() => onSelectLesson(lesson.id, false)}
-                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer min-h-[40px]"
+                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer min-h-[38px] sm:min-h-[40px]"
                           >
                             <Play className="w-3.5 h-3.5" />
-                            <span>ابدأ الدرس</span>
+                            <span>{isPartial ? 'أكمل الدرس' : 'ابدأ الدرس'}</span>
                           </button>
                         </>
                       )}

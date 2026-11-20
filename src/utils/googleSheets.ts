@@ -47,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwvK5wVCCedutPubAC0V3-uLS8ZEI_ftwi_Y43-UZL3qWhKpK6-hhaQYpNVkRLF3cCH9w/exec';
+  'https://script.google.com/macros/s/AKfycbxQqn5cq41nbuPrMgjEKq3-bUYR14-d2WFD6uQAZsACCpA5Br3_Ygm6apMHkH1YdqJOxA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4760,7 +4760,7 @@ function doPost(e) {
             videoScore: Number(row[7] || 0),
             explainAudioScore: Number(row[8] || 0),
             answeredQuestions: parsedAns,
-            retryResetCount: row[10] !== "" && row[10] !== null && row[10] !== undefined ? Number(row[10]) : 0,
+            retryResetCount: (row[10] !== "" && row[10] !== null && row[10] !== undefined) ? Number(row[10]) : null,
             imageLink: String(row[11] || "").trim(),
             recordingLink: String(row[12] || "").trim()
           });
@@ -4786,7 +4786,7 @@ function doPost(e) {
 
       var lastR = vaSheet.getLastRow();
       var targetR = -1;
-      var existingRow = [nowFormatted, sId, sName, lId, topic, title, "", 0, 0, "{}", 0, "", ""];
+      var existingRow = [nowFormatted, sId, sName, lId, topic, title, "", 0, 0, "{}", "", "", ""];
       if (lastR > 1) {
         var rows = vaSheet.getRange(2, 1, lastR - 1, Math.max(13, vaSheet.getLastColumn())).getValues();
         for (var r = 0; r < rows.length; r++) {
@@ -4816,7 +4816,10 @@ function doPost(e) {
           answeredAt: String(data.answeredAt || nowFormatted)
         };
         if (data.videoScore !== undefined) existingRow[7] = Number(data.videoScore) || 0;
-        if (data.autoComplete === true || data.completed === "تم") existingRow[6] = "تم";
+        if (data.completed === "تم" || data.completed === "فيديو_تم") existingRow[6] = String(data.completed);
+        if (data.retryResetCount !== undefined && data.retryResetCount !== null && data.retryResetCount !== "") {
+          existingRow[10] = Number(data.retryResetCount);
+        }
       } else if (data.action === "upload_video_media" && data.base64Data) {
         uploadedUrl = uploadVideoBase64ToDriveGS(
           data.base64Data,
@@ -4826,17 +4829,26 @@ function doPost(e) {
         );
         if (data.mediaType === "image") existingRow[11] = uploadedUrl;
         else existingRow[12] = uploadedUrl;
+        if (data.completed === "تم") existingRow[6] = "تم";
+        if (data.retryResetCount !== undefined && data.retryResetCount !== null && data.retryResetCount !== "") {
+          existingRow[10] = Number(data.retryResetCount);
+        }
       } else if (data.action === "complete_video_lesson") {
-        existingRow[6] = "تم";
+        existingRow[6] = (data.completed === "فيديو_تم" ? "فيديو_تم" : "تم");
         if (data.videoScore !== undefined) existingRow[7] = Number(data.videoScore) || 0;
         if (data.explainAudioScore !== undefined) existingRow[8] = Number(data.explainAudioScore) || 0;
         if (data.imageLink) existingRow[11] = String(data.imageLink);
         if (data.recordingLink) existingRow[12] = String(data.recordingLink);
+        if (data.retryResetCount !== undefined && data.retryResetCount !== null && data.retryResetCount !== "") {
+          existingRow[10] = Number(data.retryResetCount);
+        }
       } else if (data.action === "retry_video_lesson") {
         existingRow[6] = "إعادة";
         existingRow[7] = 0;
         ansObj = {};
-        if (data.retryResetCount !== undefined) existingRow[10] = Number(data.retryResetCount) || 0;
+        if (data.retryResetCount !== undefined && data.retryResetCount !== null && data.retryResetCount !== "") {
+          existingRow[10] = Number(data.retryResetCount);
+        }
       }
 
       existingRow[0] = nowFormatted;

@@ -47,11 +47,12 @@ export interface VideoStudentProgress {
   lessonId: string;
   topic: string;
   title: string;
-  completed: 'تم' | 'إعادة' | '';
+  completed: 'تم' | 'فيديو_تم' | 'إعادة' | '';
+  videoCompleted?: boolean;
   videoScore: number;
   explainAudioScore: number;
   answeredQuestions: Record<string, VideoAnsweredQuestionEntry>;
-  retryResetCount: number; // Remaining retries
+  retryResetCount?: number; // Remaining retries (undefined when unset -> falls back to lesson.retryCount)
   imageLink?: string;
   recordingLink?: string;
   updatedAt?: string;
@@ -82,11 +83,11 @@ export interface VideoStudentSubmissionRow {
   lessonId: string;
   topic: string;
   title: string;
-  completed: 'تم' | 'إعادة' | '';
+  completed: 'تم' | 'فيديو_تم' | 'إعادة' | '';
   videoScore: number;
   explainAudioScore: number;
   answeredQuestions: Record<string, VideoAnsweredQuestionEntry>;
-  retryResetCount: number;
+  retryResetCount?: number;
   imageLink?: string;
   recordingLink?: string;
   updatedAt?: string;
@@ -408,6 +409,72 @@ export function clearLocalVideoProgress(studentId?: string): void {
   } catch {}
 }
 
+export interface VideoLessonCompletionEval {
+  isFullyCompleted: boolean;
+  videoDone: boolean;
+  videoQuestionsDone: boolean;
+  imageRequired: boolean;
+  imageDone: boolean;
+  audioRequired: boolean;
+  audioDone: boolean;
+  hasAnyProgress: boolean;
+  missingParts: ('video' | 'image' | 'audio')[];
+}
+
+export function evaluateVideoLessonCompletion(
+  lesson: VideoLesson,
+  progress?: VideoStudentProgress
+): VideoLessonCompletionEval {
+  const answered = progress?.answeredQuestions || {};
+  const videoQsDone =
+    lesson.questions.length === 0 ||
+    lesson.questions.every((_, idx) => Boolean(answered[`vq_${idx}`]));
+  const audioQsDone =
+    lesson.audioQuestions.length === 0 ||
+    lesson.audioQuestions.every((_, idx) => Boolean(answered[`aq_${idx}`]));
+  const videoQuestionsDone = videoQsDone && audioQsDone;
+
+  const videoDone = Boolean(
+    progress &&
+      (progress.videoCompleted === true ||
+        progress.completed === 'تم' ||
+        progress.completed === 'فيديو_تم')
+  );
+
+  const imageRequired = lesson.allowUpload !== 'لا';
+  const imageDone = !imageRequired || Boolean(progress?.imageLink && progress.imageLink.trim());
+
+  const audioRequired = lesson.allowRecording !== 'لا';
+  const audioDone = !audioRequired || Boolean(progress?.recordingLink && progress.recordingLink.trim());
+
+  const missingParts: ('video' | 'image' | 'audio')[] = [];
+  if (!videoDone) missingParts.push('video');
+  if (imageRequired && !imageDone) missingParts.push('image');
+  if (audioRequired && !audioDone) missingParts.push('audio');
+
+  const isFullyCompleted = missingParts.length === 0;
+  const hasAnyProgress = Boolean(
+    progress &&
+      (videoDone ||
+        Object.keys(answered).length > 0 ||
+        Boolean(progress.imageLink && progress.imageLink.trim()) ||
+        Boolean(progress.recordingLink && progress.recordingLink.trim()) ||
+        progress.completed === 'إعادة')
+  );
+
+  return {
+    isFullyCompleted,
+    videoDone,
+    videoQuestionsDone,
+    imageRequired,
+    imageDone,
+    audioRequired,
+    audioDone,
+    hasAnyProgress,
+    missingParts,
+  };
+}
+
 export async function fetchStudentVideoProgress(
   webhookUrl: string,
   studentId: string,
@@ -435,18 +502,22 @@ export async function fetchStudentVideoProgress(
           row.answeredQuestions && typeof row.answeredQuestions === 'object'
             ? row.answeredQuestions
             : {};
+        const comp = String(row.completed || '').trim() as VideoStudentProgress['completed'];
+        const rawRetry = row.retryResetCount;
+        const parsedRetry =
+          rawRetry !== undefined && rawRetry !== null && rawRetry !== '' && !isNaN(Number(rawRetry))
+            ? Number(rawRetry)
+            : undefined;
         sheetMap[lid] = {
           lessonId: lid,
           topic: String(row.topic || '').trim(),
           title: String(row.title || '').trim(),
-          completed: (row.completed as any) || '',
+          completed: comp || '',
+          videoCompleted: comp === 'تم' || comp === 'فيديو_تم',
           videoScore: Number(row.videoScore ?? 0) || 0,
           explainAudioScore: Number(row.explainAudioScore ?? 0) || 0,
           answeredQuestions: parsedAns,
-          retryResetCount:
-            row.retryResetCount !== undefined && row.retryResetCount !== null
-              ? Number(row.retryResetCount)
-              : 0,
+          retryResetCount: parsedRetry,
           imageLink: String(row.imageLink || '').trim() || undefined,
           recordingLink: String(row.recordingLink || '').trim() || undefined,
           updatedAt: String(row.updatedAt || '').trim() || undefined,
@@ -489,11 +560,10 @@ export async function saveVideoQuestionAnswer(
       ? Math.round((answeredValues.length / totalQs) * 100)
       : 100;
 
-  const allMainVideoAnswered =
-    lesson.questions.length > 0
-      ? lesson.questions.every((_, idx) => Boolean(nextAnswers[`vq_${idx}`]))
-      : lesson.audioQuestions.length > 0 &&
-        lesson.audioQuestions.every((_, idx) => Boolean(nextAnswers[`aq_${idx}`]));
+  const retryToPersist =
+    typeof currentProgress.retryResetCount === 'number' && !isNaN(currentProgress.retryResetCount)
+      ? currentProgress.retryResetCount
+      : lesson.retryCount;
 
   const updatedProgress: VideoStudentProgress = {
     ...currentProgress,
@@ -502,7 +572,7 @@ export async function saveVideoQuestionAnswer(
     title: lesson.title,
     answeredQuestions: nextAnswers,
     videoScore,
-    completed: allMainVideoAnswered ? 'تم' : currentProgress.completed,
+    retryResetCount: retryToPersist,
     updatedAt: new Date().toISOString(),
   };
 
@@ -526,8 +596,9 @@ export async function saveVideoQuestionAnswer(
         isCorrect: entry.isCorrect,
         questionType: entry.type,
         videoScore,
-        autoComplete: allMainVideoAnswered,
-        completed: allMainVideoAnswered ? 'تم' : currentProgress.completed,
+        autoComplete: false,
+        completed: currentProgress.completed || '',
+        retryResetCount: retryToPersist,
         answeredAt: entry.answeredAt,
       });
       return { success: res.success, updatedProgress };
@@ -553,6 +624,27 @@ export async function saveVideoHomeworkMedia(
   let finalUrl = base64Data;
   let cloudSaved = false;
 
+  const retryToPersist =
+    typeof currentProgress.retryResetCount === 'number' && !isNaN(currentProgress.retryResetCount)
+      ? currentProgress.retryResetCount
+      : lesson.retryCount;
+
+  const tentativeProgress: VideoStudentProgress = {
+    ...currentProgress,
+    lessonId: lesson.id,
+    topic: lesson.topic,
+    title: lesson.title,
+    imageLink: mediaType === 'image' ? finalUrl : currentProgress.imageLink,
+    recordingLink: mediaType === 'audio' ? finalUrl : currentProgress.recordingLink,
+    retryResetCount: retryToPersist,
+  };
+  const evalAfterMedia = evaluateVideoLessonCompletion(lesson, tentativeProgress);
+  const nextCompleted: VideoStudentProgress['completed'] = evalAfterMedia.isFullyCompleted
+    ? 'تم'
+    : currentProgress.completed === 'تم'
+    ? 'فيديو_تم'
+    : currentProgress.completed || '';
+
   if (webhookUrl && webhookUrl.trim().startsWith('http') && studentId) {
     try {
       const res = await callGoogleSheetsPost(webhookUrl, {
@@ -566,6 +658,8 @@ export async function saveVideoHomeworkMedia(
         mediaType,
         base64Data,
         mimeType,
+        completed: nextCompleted,
+        retryResetCount: retryToPersist,
       });
       if (res.success && res.data?.url) {
         finalUrl = String(res.data.url);
@@ -577,12 +671,10 @@ export async function saveVideoHomeworkMedia(
   }
 
   const updatedProgress: VideoStudentProgress = {
-    ...currentProgress,
-    lessonId: lesson.id,
-    topic: lesson.topic,
-    title: lesson.title,
+    ...tentativeProgress,
     imageLink: mediaType === 'image' ? finalUrl : currentProgress.imageLink,
     recordingLink: mediaType === 'audio' ? finalUrl : currentProgress.recordingLink,
+    completed: nextCompleted,
     updatedAt: new Date().toISOString(),
   };
 
@@ -603,12 +695,26 @@ export async function completeVideoLesson(
   }
 ): Promise<{ success: boolean; updatedProgress: VideoStudentProgress; cloudSaved: boolean }> {
   const { studentId, studentName, lesson, currentProgress } = params;
-  const updatedProgress: VideoStudentProgress = {
+
+  const retryToPersist =
+    typeof currentProgress.retryResetCount === 'number' && !isNaN(currentProgress.retryResetCount)
+      ? currentProgress.retryResetCount
+      : lesson.retryCount;
+
+  const draftProgress: VideoStudentProgress = {
     ...currentProgress,
     lessonId: lesson.id,
     topic: lesson.topic,
     title: lesson.title,
-    completed: 'تم',
+    videoCompleted: true,
+    retryResetCount: retryToPersist,
+  };
+  const evalRes = evaluateVideoLessonCompletion(lesson, draftProgress);
+  const nextCompleted: 'تم' | 'فيديو_تم' = evalRes.isFullyCompleted ? 'تم' : 'فيديو_تم';
+
+  const updatedProgress: VideoStudentProgress = {
+    ...draftProgress,
+    completed: nextCompleted,
     updatedAt: new Date().toISOString(),
   };
 
@@ -631,7 +737,8 @@ export async function completeVideoLesson(
         explainAudioScore: updatedProgress.explainAudioScore,
         imageLink: updatedProgress.imageLink || '',
         recordingLink: updatedProgress.recordingLink || '',
-        completed: 'تم',
+        completed: nextCompleted,
+        retryResetCount: retryToPersist,
       });
       cloudSaved = Boolean(res.success);
     } catch {}
@@ -651,16 +758,20 @@ export async function consumeVideoRetryAttempt(
 ): Promise<{ success: boolean; updatedProgress: VideoStudentProgress }> {
   const { studentId, studentName, lesson, currentProgress } = params;
   const currentRemaining =
-    typeof currentProgress.retryResetCount === 'number'
+    typeof currentProgress.retryResetCount === 'number' && !isNaN(currentProgress.retryResetCount)
       ? currentProgress.retryResetCount
       : lesson.retryCount;
 
   const updatedProgress: VideoStudentProgress = {
     ...currentProgress,
     completed: 'إعادة',
+    videoCompleted: false,
     retryResetCount: Math.max(0, currentRemaining - 1),
     answeredQuestions: {},
     videoScore: 0,
+    // Keep imageLink and recordingLink intact!
+    imageLink: currentProgress.imageLink,
+    recordingLink: currentProgress.recordingLink,
     updatedAt: new Date().toISOString(),
   };
 

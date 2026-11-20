@@ -5037,6 +5037,22 @@ export const DEFAULT_TRANSLATIONS: TranslationItem[] = [
     th: 'รายการวิดีโอ',
     en: 'Video Lessons',
   },
+  {
+    id: 'video_back_to_prev_point',
+    category: 'video',
+    categoryLabel: 'الفيديو التفاعلي (فيديو_الأسئلة)',
+    ar: 'رجوع',
+    th: 'ย้อนกลับ',
+    en: 'Back',
+  },
+  {
+    id: 'video_completed_locked',
+    category: 'video',
+    categoryLabel: 'الفيديو التفاعلي (فيديو_الأسئلة)',
+    ar: 'تم تسجيل إجابات الفيديو ✓',
+    th: 'บันทึกคำตอบวิดีโอแล้ว ✓',
+    en: 'Video Answers Saved ✓',
+  },
 ];
 
 export function getMatchingSubjectTranslationId(subjectName: string): string {

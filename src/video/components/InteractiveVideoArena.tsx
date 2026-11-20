@@ -35,12 +35,14 @@ import {
   VideoStudentProgress,
   VideoTimestampQuestion,
   completeVideoLesson,
+  evaluateVideoLessonCompletion,
   getPlayableVideoInfo,
   resolveVideoAudioAlternatives,
   resolveVideoQuestionImage,
   saveVideoHomeworkMedia,
   saveVideoQuestionAnswer,
 } from '../videoSheets';
+import { isMobileOrTabletDevice, isTouchLandscapeViewport } from '../../arWriting/utils/devicePerformance';
 import { VideoQuestionModal } from './VideoQuestionModal';
 
 declare global {
@@ -142,6 +144,10 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   const [volume, setVolume] = useState(90);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMobileLandscape, setIsMobileLandscape] = useState<boolean>(() => isTouchLandscapeViewport());
+  const [landscapeDismissed, setLandscapeDismissed] = useState(false);
+  const prevMobileLandscapeRef = useRef(isMobileLandscape);
+  const restoreLandscapeAfterQuestionRef = useRef(false);
   const [useDriveEmbedFallback, setUseDriveEmbedFallback] = useState(false);
   const [seekNotice, setSeekNotice] = useState<string | null>(null);
   const [ytReady, setYtReady] = useState(false);
@@ -173,6 +179,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   const [capturedImageMime, setCapturedImageMime] = useState<string>('image/jpeg');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageFeedback, setImageFeedback] = useState<string | null>(null);
+  const [retryImageReplaced, setRetryImageReplaced] = useState(false);
 
   // Audio Homework Recorder State
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -185,17 +192,20 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   const [recordedAudioMime, setRecordedAudioMime] = useState<string>('audio/webm');
   const [uploadingAudio, setUploadingAudio] = useState(false);
   const [audioFeedback, setAudioFeedback] = useState<string | null>(null);
+  const [retryAudioReplaced, setRetryAudioReplaced] = useState(false);
 
   // Complete lesson status
   const [completing, setCompleting] = useState(false);
   const [completionMessage, setCompletionMessage] = useState<string | null>(null);
 
   const playable = useMemo(() => getPlayableVideoInfo(lesson?.videoUrl), [lesson?.videoUrl]);
-  const isCompleted = progress.completed === 'تم';
-  const allVideoQsAnswered = useMemo(() => {
-    if (!lesson || lesson.questions.length === 0) return true;
-    return lesson.questions.every((q, idx) => Boolean(progress.answeredQuestions[`vq_${idx}`]));
-  }, [lesson, progress.answeredQuestions]);
+  const completionEval = useMemo(
+    () => (lesson ? evaluateVideoLessonCompletion(lesson, progress) : null),
+    [lesson, progress]
+  );
+  const isCompleted = Boolean(completionEval?.isFullyCompleted);
+  const isRetryUnlocked = progress.completed === 'إعادة' || isResetMode;
+  const allVideoQsAnswered = Boolean(completionEval?.videoQuestionsDone);
 
   const isSeekLocked = !allVideoQsAnswered && (!isCompleted || isResetMode);
 
@@ -216,10 +226,18 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     setAudioFeedback(null);
     setCompletionMessage(null);
     setActiveTab('study');
+    setLandscapeDismissed(false);
+    restoreLandscapeAfterQuestionRef.current = false;
     triggeredKeysSessionRef.current = new Set();
     stopCamera();
     stopRecording();
   }, [lesson?.id, isResetMode]);
+
+  // Reset retry replacement flags whenever entering retry mode or switching lessons
+  useEffect(() => {
+    setRetryImageReplaced(false);
+    setRetryAudioReplaced(false);
+  }, [lesson?.id, isResetMode, progress.completed === 'إعادة']);
 
   // Clear session-triggered keys if answers were reset or deleted from Google Sheets
   useEffect(() => {
@@ -230,18 +248,42 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     }
   }, [progress.answeredQuestions]);
 
-  // Listen to fullscreen changes
+  // Listen to fullscreen & mobile/tablet orientation changes
   useEffect(() => {
+    const checkLandscape = () => {
+      const landscape = isTouchLandscapeViewport();
+      setIsMobileLandscape(landscape);
+      if (landscape && !prevMobileLandscapeRef.current) {
+        setLandscapeDismissed(false);
+        if (!activeModalQuestion && !document.fullscreenElement && stageWrapperRef.current?.requestFullscreen) {
+          stageWrapperRef.current.requestFullscreen().catch(() => {});
+        }
+        window.scrollTo?.(0, 1);
+      } else if (!landscape && prevMobileLandscapeRef.current) {
+        setLandscapeDismissed(false);
+        if (isMobileOrTabletDevice() && document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+      prevMobileLandscapeRef.current = landscape;
+    };
+
     const onFsChange = () => {
       setIsFullscreen(Boolean(document.fullscreenElement));
     };
+
+    checkLandscape();
+    window.addEventListener('resize', checkLandscape);
+    window.addEventListener('orientationchange', checkLandscape);
     document.addEventListener('fullscreenchange', onFsChange);
     return () => {
+      window.removeEventListener('resize', checkLandscape);
+      window.removeEventListener('orientationchange', checkLandscape);
       document.removeEventListener('fullscreenchange', onFsChange);
       stopCamera();
       stopRecording();
     };
-  }, []);
+  }, [activeModalQuestion]);
 
   // Initialize YouTube IFrame API when lesson uses YouTube
   useEffect(() => {
@@ -381,10 +423,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
           ) {
             triggeredKeysSessionRef.current.add(key);
             pauseVideo();
-            if (document.fullscreenElement) {
-              document.exitFullscreen().catch(() => {});
-            }
-            setActiveModalQuestion({ question: q, type: 'video', key });
+            openTimedQuestionModal(q, 'video', key);
             break;
           }
         }
@@ -403,7 +442,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
           ) {
             triggeredKeysSessionRef.current.add(key);
             explainAudioRef.current.pause();
-            setActiveModalQuestion({ question: aq, type: 'audio', key });
+            openTimedQuestionModal(aq, 'audio', key);
             break;
           }
         }
@@ -494,12 +533,80 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
     }
   };
 
+  const openTimedQuestionModal = (
+    question: VideoTimestampQuestion,
+    type: 'video' | 'audio',
+    key: string
+  ) => {
+    const wasFsOrLandscape =
+      Boolean(document.fullscreenElement) ||
+      isTouchLandscapeViewport() ||
+      (isMobileLandscape && !landscapeDismissed);
+    restoreLandscapeAfterQuestionRef.current = wasFsOrLandscape;
+
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    if (isMobileOrTabletDevice()) {
+      try {
+        const lockRes = (screen.orientation as any)?.lock?.('portrait');
+        if (lockRes && typeof lockRes.catch === 'function') {
+          lockRes.catch(() => {});
+        }
+      } catch {}
+    }
+    setActiveModalQuestion({ question, type, key });
+  };
+
+  const restoreStageOrientationAfterQuestion = () => {
+    const shouldRestore = restoreLandscapeAfterQuestionRef.current;
+    restoreLandscapeAfterQuestionRef.current = false;
+    if (isMobileOrTabletDevice()) {
+      if (shouldRestore) {
+        setLandscapeDismissed(false);
+        try {
+          const lockRes = (screen.orientation as any)?.lock?.('landscape');
+          if (lockRes && typeof lockRes.catch === 'function') {
+            lockRes.catch(() => {
+              try {
+                (screen.orientation as any)?.unlock?.();
+              } catch {}
+            });
+          }
+        } catch {}
+        stageWrapperRef.current?.requestFullscreen?.().catch(() => {});
+      } else {
+        try {
+          (screen.orientation as any)?.unlock?.();
+        } catch {}
+      }
+    }
+  };
+
   const toggleFullscreen = () => {
     if (!stageWrapperRef.current) return;
-    if (!document.fullscreenElement) {
+    const currentlyExpanded = Boolean(document.fullscreenElement) || (isMobileLandscape && !landscapeDismissed);
+    if (!currentlyExpanded) {
+      setLandscapeDismissed(false);
       stageWrapperRef.current.requestFullscreen?.().catch(() => {});
+      if (isMobileOrTabletDevice()) {
+        try {
+          const lockRes = (screen.orientation as any)?.lock?.('landscape');
+          if (lockRes && typeof lockRes.catch === 'function') lockRes.catch(() => {});
+        } catch {}
+      }
     } else {
-      document.exitFullscreen?.().catch(() => {});
+      if (isMobileLandscape) {
+        setLandscapeDismissed(true);
+      }
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
+      }
+      if (isMobileOrTabletDevice()) {
+        try {
+          (screen.orientation as any)?.unlock?.();
+        } catch {}
+      }
     }
   };
 
@@ -526,6 +633,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   const handleCloseQuestionModal = () => {
     const modalType = activeModalQuestion?.type;
     setActiveModalQuestion(null);
+    restoreStageOrientationAfterQuestion();
     if (modalType === 'video') playVideo();
     else if (modalType === 'audio') explainAudioRef.current?.play().catch(() => {});
   };
@@ -561,6 +669,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
 
     triggeredKeysSessionRef.current.delete(keyToReset);
     setActiveModalQuestion(null);
+    restoreStageOrientationAfterQuestion();
     if (type === 'video') {
       seekVideoTo(target);
       playVideo();
@@ -647,9 +756,10 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
       });
       onUpdateProgress(lesson.id, res.updatedProgress);
       setCapturedImageData(null);
+      if (isRetryUnlocked) setRetryImageReplaced(true);
       setImageFeedback(
         res.cloudSaved
-          ? 'تم رفع صورة الواجب وحفظها في Google Sheets و Drive بنجاح!'
+          ? 'تم رفع صورة الواجب وحفظها بنجاح! (تم قفل الإرسال)'
           : 'تم حفظ صورة الواجب محلياً بنجاح (سجل دخولك للمزامنة مع الشيت).'
       );
     } finally {
@@ -748,9 +858,12 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
         currentProgress: progress,
       });
       onUpdateProgress(lesson.id, res.updatedProgress);
+      setRecordedAudioBlobUrl(null);
+      setRecordedAudioBase64(null);
+      if (isRetryUnlocked) setRetryAudioReplaced(true);
       setAudioFeedback(
         res.cloudSaved
-          ? 'تم إرسال التسجيل الصوتي وحفظه بنجاح!'
+          ? 'تم إرسال التسجيل الصوتي وحفظه بنجاح! (تم قفل الإرسال)'
           : 'تم حفظ التسجيل الصوتي محلياً بنجاح (سجل دخولك للمزامنة مع الشيت).'
       );
     } finally {
@@ -759,7 +872,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   };
 
   const handleFinishLesson = async () => {
-    if (!lesson) return;
+    if (!lesson || completionEval?.videoDone) return;
     if (!allVideoQsAnswered) {
       setCompletionMessage('يرجى مشاهدة الفيديو والإجابة على جميع الأسئلة الزمنية أولاً قبل توثيق الدرس.');
       return;
@@ -774,11 +887,21 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
         currentProgress: progress,
       });
       onUpdateProgress(lesson.id, res.updatedProgress);
-      setCompletionMessage(
-        res.cloudSaved
-          ? 'تم إنهاء الدرس وتوثيق الدرجة في سجل الشيت بنجاح!'
-          : 'تم توثيق إتمام الدرس محلياً بنجاح!'
-      );
+      const nextEval = evaluateVideoLessonCompletion(lesson, res.updatedProgress);
+      if (!nextEval.isFullyCompleted) {
+        const missingLabels: string[] = [];
+        if (nextEval.imageRequired && !nextEval.imageDone) missingLabels.push('واجب الصورة');
+        if (nextEval.audioRequired && !nextEval.audioDone) missingLabels.push('الواجب الصوتي');
+        setCompletionMessage(
+          `تم تسجيل إجابات الفيديو بنجاح! لإكمال الدرس بالكامل يرجى تسليم: ${missingLabels.join(' و ')}.`
+        );
+      } else {
+        setCompletionMessage(
+          res.cloudSaved
+            ? 'تم إنهاء وتوثيق جميع أجزاء الدرس في سجل الشيت بنجاح!'
+            : 'تم توثيق إتمام الدرس محلياً بنجاح!'
+        );
+      }
     } finally {
       setCompleting(false);
     }
@@ -804,6 +927,9 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
   const answeredCount = Object.keys(progress.answeredQuestions || {}).length;
   const helperImgUrl = resolveVideoQuestionImage(lesson.image);
   const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+
+  const isExpandedStage =
+    isFullscreen || (isMobileLandscape && !landscapeDismissed && !activeModalQuestion);
 
   return (
     <div className="flex flex-col gap-5 font-cairo" dir={currentLang === 'ar' ? 'rtl' : 'ltr'}>
@@ -900,13 +1026,26 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
       {/* Main Video Stage */}
       <div
         ref={stageWrapperRef}
-        className="bg-slate-950 rounded-3xl overflow-hidden border border-slate-800 shadow-xl flex flex-col"
+        className={
+          isExpandedStage
+            ? 'fixed inset-0 z-[80] w-screen h-[100dvh] bg-black flex flex-col overflow-hidden rounded-none border-0'
+            : 'bg-slate-950 rounded-3xl overflow-hidden border border-slate-800 shadow-xl flex flex-col'
+        }
       >
         {/* Viewport */}
-        <div className="relative w-full aspect-video bg-black flex items-center justify-center">
+        <div
+          className={
+            isExpandedStage
+              ? 'relative flex-1 min-h-0 w-full bg-black flex items-center justify-center overflow-hidden'
+              : 'relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden'
+          }
+        >
           {playable.kind === 'youtube' ? (
             <>
-              <div ref={ytMountRef} className="w-full h-full pointer-events-none" />
+              <div
+                ref={ytMountRef}
+                className="w-full h-full [&>div]:w-full [&>div]:h-full [&_iframe]:w-full [&_iframe]:h-full pointer-events-none"
+              />
               {/* Transparent click layer to toggle play/pause cleanly without exposing YouTube overlay */}
               <button
                 type="button"
@@ -935,7 +1074,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
               onError={() => {
                 if (playable.embedUrl) setUseDriveEmbedFallback(true);
               }}
-              className="w-full h-full object-contain cursor-pointer"
+              className="w-full h-full max-w-full max-h-full object-contain cursor-pointer"
             />
           ) : useDriveEmbedFallback && playable.embedUrl ? (
             <iframe
@@ -961,7 +1100,7 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
 
         {/* Custom Controls Bar (for YouTube & HTML5 video) */}
         {!useDriveEmbedFallback && playable.kind !== 'none' && (
-          <div className="bg-slate-900 text-white px-3.5 sm:px-4 py-3 space-y-2.5 border-t border-slate-800">
+          <div className="shrink-0 bg-slate-900/95 text-white px-3.5 sm:px-4 py-2 sm:py-3 space-y-2 border-t border-slate-800">
             {/* Timeline + Timestamp Markers */}
             <div dir="ltr" className="relative h-6 flex items-center">
               <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden relative">
@@ -1068,9 +1207,9 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                   type="button"
                   onClick={toggleFullscreen}
                   className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer"
-                  title="ملء الشاشة"
+                  title={isExpandedStage ? 'تصغير الشاشة' : 'ملء الشاشة'}
                 >
-                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  {isExpandedStage ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                 </button>
               </div>
             </div>
@@ -1129,6 +1268,28 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
 
         {/* Tab Panel */}
         <div className="p-4 sm:p-6 space-y-5">
+          {completionEval && completionEval.hasAnyProgress && !completionEval.isFullyCompleted && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 flex flex-wrap items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>هذا الدرس غير مكتمل بعد، المتبقي:</span>
+              {!completionEval.videoDone && (
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900">
+                  إنهاء الفيديو والأسئلة
+                </span>
+              )}
+              {completionEval.imageRequired && !completionEval.imageDone && (
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900">
+                  لم يرسل واجب الصورة
+                </span>
+              )}
+              {completionEval.audioRequired && !completionEval.audioDone && (
+                <span className="px-2 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900">
+                  لم يرسل الواجب الصوتي
+                </span>
+              )}
+            </div>
+          )}
+
           {activeTab === 'study' ? (
             <div className="space-y-5">
               {lesson.instruction && (
@@ -1185,279 +1346,369 @@ export const InteractiveVideoArena: React.FC<InteractiveVideoArenaProps> = ({
                   شاهد الفيديو بتركيز؛ ستظهر الأسئلة التفاعلية تلقائياً أثناء العرض.
                 </div>
               )}
+
+              {/* Tab 1 Only: Video & Questions Finish Footer */}
+              <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-xs text-slate-600 font-semibold flex items-center gap-2">
+                  {completionEval?.isFullyCompleted ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="text-emerald-800 font-extrabold">
+                        تم إكمال جميع أجزاء هذا الدرس ({progress.videoScore}%)
+                      </span>
+                    </>
+                  ) : completionEval?.videoDone ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="text-emerald-800 font-extrabold">
+                        تم توثيق إجابات الفيديو ({progress.videoScore}%)
+                      </span>
+                    </>
+                  ) : !allVideoQsAnswered ? (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                      <span>أجب عن جميع أسئلة الفيديو الزمنية لتفعيل توثيق الدرس</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>جاهز لتسجيل إجابات الفيديو وتوثيق الدرس</span>
+                    </>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={completing || Boolean(completionEval?.videoDone)}
+                  onClick={handleFinishLesson}
+                  className={`px-6 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm transition-all min-h-[44px] ${
+                    completionEval?.videoDone
+                      ? 'bg-emerald-100 text-emerald-800 border-2 border-emerald-400 cursor-default'
+                      : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white cursor-pointer'
+                  }`}
+                >
+                  {completing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>
+                    {completionEval?.videoDone
+                      ? tr('video_completed_locked', 'تم تسجيل إجابات الفيديو ✓')
+                      : tr('video_complete_btn', 'إنهاء وتوثيق الدرس')}
+                  </span>
+                </button>
+              </div>
+
+              {completionMessage && (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs sm:text-sm font-bold text-emerald-900">
+                  {completionMessage}
+                </div>
+              )}
             </div>
           ) : activeTab === 'image' ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-base font-extrabold text-slate-900">
-                    {lesson.uploadTitle || tr('video_tab_image_hw', 'تسليم واجب الصورة')}
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    التقط صورة واضحة لواجبك عبر الكاميرا أو اختر صورة من جهازك.
-                  </p>
-                </div>
-              </div>
+            (() => {
+              const isImageLocked =
+                Boolean(progress.imageLink) && (!isRetryUnlocked || retryImageReplaced);
 
-              {/* Action Controls */}
-              <div className="flex flex-wrap items-center gap-2.5">
-                {!isCameraOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => startCamera(cameraFacing)}
-                    className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer min-h-[42px]"
-                  >
-                    <Camera className="w-4 h-4" />
-                    <span>فتح الكاميرا</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={stopCamera}
-                    className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer min-h-[42px]"
-                  >
-                    <X className="w-4 h-4" />
-                    <span>إغلاق الكاميرا</span>
-                  </button>
-                )}
-
-                <label className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer min-h-[42px]">
-                  <Upload className="w-4 h-4" />
-                  <span>اختيار صورة من الجهاز</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              {/* Camera Live Viewport */}
-              {isCameraOpen && (
-                <div className="relative rounded-2xl overflow-hidden bg-black border border-slate-800 max-w-lg">
-                  <video
-                    ref={cameraVideoRef}
-                    playsInline
-                    muted
-                    className="w-full max-h-80 object-contain"
-                  />
-                  <div className="p-3 bg-slate-900 flex items-center justify-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = cameraFacing === 'environment' ? 'user' : 'environment';
-                        setCameraFacing(next);
-                        startCamera(next);
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <SwitchCamera className="w-4 h-4" />
-                      <span>تبديل الكاميرا</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={captureCameraSnapshot}
-                      className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Camera className="w-4 h-4" />
-                      <span>التقاط الصورة</span>
-                    </button>
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-base font-extrabold text-slate-900">
+                      {lesson.uploadTitle || tr('video_tab_image_hw', 'تسليم واجب الصورة')}
+                    </h4>
+                    {!isImageLocked && (
+                      <p className="text-xs text-slate-500">
+                        التقط صورة واضحة لواجبك عبر الكاميرا أو اختر صورة من جهازك.
+                      </p>
+                    )}
                   </div>
-                </div>
-              )}
 
-              {/* Preview Pending Image */}
-              {capturedImageData && (
-                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 space-y-3 max-w-lg">
-                  <img
-                    src={capturedImageData}
-                    alt="معاينة الواجب"
-                    className="w-full max-h-64 object-contain rounded-xl bg-white border border-slate-200"
-                  />
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCapturedImageData(null)}
-                      className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
-                    >
-                      إلغاء
-                    </button>
-                    <button
-                      type="button"
-                      disabled={uploadingImage}
-                      onClick={handleUploadImageHomework}
-                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer disabled:opacity-70"
-                    >
-                      {uploadingImage ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
+                  {isImageLocked ? (
+                    <div className="p-3.5 rounded-2xl bg-emerald-100/80 border border-emerald-300 text-xs sm:text-sm font-extrabold text-emerald-900 flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
+                      <span>تم تسليم صورة الواجب وحفظها بنجاح ✓ (الإرسال مقفل)</span>
+                    </div>
+                  ) : (
+                    <>
+                      {isRetryUnlocked && progress.imageLink && (
+                        <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900">
+                          سبق تسليم صورة لهذا الدرس — يمكنك إرسال صورة جديدة لاستبدالها أو الإبقاء على الصورة الحالية كما هي.
+                        </div>
                       )}
-                      <span>{uploadingImage ? 'جاري الرفع...' : 'حفظ وإرسال الصورة'}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              {/* Previously Uploaded Image */}
-              {progress.imageLink && !capturedImageData && (
-                <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 max-w-lg">
-                  <div className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>تم تسليم صورة الواجب لهذا الدرس</span>
-                  </div>
-                  <img
-                    src={resolveVideoQuestionImage(progress.imageLink) || progress.imageLink}
-                    alt="الواجب المسلم"
-                    onClick={() =>
-                      setZoomedImg(resolveVideoQuestionImage(progress.imageLink) || progress.imageLink!)
-                    }
-                    className="w-full max-h-56 object-contain rounded-xl bg-white border border-emerald-200 cursor-zoom-in"
-                  />
-                </div>
-              )}
+                      {/* Two Large Side-by-Side Icon-Only Buttons */}
+                      <div className="grid grid-cols-2 gap-3 max-w-xs">
+                        {!isCameraOpen ? (
+                          <button
+                            type="button"
+                            onClick={() => startCamera(cameraFacing)}
+                            title="فتح الكاميرا"
+                            aria-label="فتح الكاميرا"
+                            className="h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
+                          >
+                            <Camera className="w-7 h-7" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={stopCamera}
+                            title="إغلاق الكاميرا"
+                            aria-label="إغلاق الكاميرا"
+                            className="h-16 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
+                          >
+                            <X className="w-7 h-7" />
+                          </button>
+                        )}
 
-              {imageFeedback && (
-                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs font-bold text-blue-900">
-                  {imageFeedback}
+                        <label
+                          title="اختيار صورة من الجهاز"
+                          aria-label="اختيار صورة من الجهاز"
+                          className="h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-2xs transition-transform active:scale-95 cursor-pointer"
+                        >
+                          <Upload className="w-7 h-7" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleImageFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Camera Live Viewport */}
+                  {!isImageLocked && isCameraOpen && (
+                    <div className="relative rounded-2xl overflow-hidden bg-black border border-slate-800 max-w-lg">
+                      <video
+                        ref={cameraVideoRef}
+                        playsInline
+                        muted
+                        className="w-full max-h-80 object-contain"
+                      />
+                      <div className="p-3 bg-slate-900 flex items-center justify-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = cameraFacing === 'environment' ? 'user' : 'environment';
+                            setCameraFacing(next);
+                            startCamera(next);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <SwitchCamera className="w-4 h-4" />
+                          <span>تبديل الكاميرا</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={captureCameraSnapshot}
+                          className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Camera className="w-4 h-4" />
+                          <span>التقاط الصورة</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Preview Pending Image */}
+                  {!isImageLocked && capturedImageData && (
+                    <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 space-y-3 max-w-lg">
+                      <img
+                        src={capturedImageData}
+                        alt="معاينة الواجب"
+                        className="w-full max-h-64 object-contain rounded-xl bg-white border border-slate-200"
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCapturedImageData(null)}
+                          className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                        <button
+                          type="button"
+                          disabled={uploadingImage}
+                          onClick={handleUploadImageHomework}
+                          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer disabled:opacity-70"
+                        >
+                          {uploadingImage ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Send className="w-4 h-4" />
+                          )}
+                          <span>{uploadingImage ? 'جاري الرفع...' : 'حفظ وإرسال الصورة'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Previously Uploaded Image */}
+                  {progress.imageLink && !capturedImageData && (
+                    <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 max-w-lg">
+                      <div className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>الصورة المسلمة لهذا الدرس</span>
+                      </div>
+                      <img
+                        src={resolveVideoQuestionImage(progress.imageLink) || progress.imageLink}
+                        alt="الواجب المسلم"
+                        onClick={() =>
+                          setZoomedImg(resolveVideoQuestionImage(progress.imageLink) || progress.imageLink!)
+                        }
+                        className="w-full max-h-56 object-contain rounded-xl bg-white border border-emerald-200 cursor-zoom-in"
+                      />
+                    </div>
+                  )}
+
+                  {imageFeedback && (
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs font-bold text-blue-900">
+                      {imageFeedback}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()
           ) : (
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-base font-extrabold text-slate-900">
-                  {tr('video_tab_audio_hw', 'تسجيل الواجب الصوتي')}
-                </h4>
-                <p className="text-xs text-slate-500">
-                  الحد الأقصى للتسجيل: {lesson.maxRecordingTime || 60} ثانية.
-                </p>
-              </div>
+            (() => {
+              const isAudioLocked =
+                Boolean(progress.recordingLink) && (!isRetryUnlocked || retryAudioReplaced);
 
-              <div className="flex flex-wrap items-center gap-2.5">
-                {!isRecording ? (
-                  <button
-                    type="button"
-                    onClick={startRecording}
-                    className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer min-h-[42px]"
-                  >
-                    <Mic className="w-4 h-4" />
-                    <span>بدء التسجيل الصوتي</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={stopRecording}
-                    className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer min-h-[42px]"
-                  >
-                    <Square className="w-4 h-4 fill-rose-500 text-rose-500" />
-                    <span>
-                      إيقاف التسجيل ({formatTime(recordElapsed)} /{' '}
-                      {formatTime(lesson.maxRecordingTime || 60)})
-                    </span>
-                  </button>
-                )}
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-base font-extrabold text-slate-900">
+                      {tr('video_tab_audio_hw', 'تسجيل الواجب الصوتي')}
+                    </h4>
+                    {!isAudioLocked && (
+                      <p className="text-xs text-slate-500">
+                        الحد الأقصى للتسجيل: {lesson.maxRecordingTime || 60} ثانية.
+                      </p>
+                    )}
+                  </div>
 
-                <label className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs sm:text-sm font-extrabold flex items-center gap-2 cursor-pointer min-h-[42px]">
-                  <Upload className="w-4 h-4" />
-                  <span>رفع ملف صوتي</span>
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={handleAudioFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              {recordedAudioBlobUrl && (
-                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 space-y-3 max-w-lg">
-                  <audio controls src={recordedAudioBlobUrl} className="w-full h-10" />
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      disabled={uploadingAudio || !recordedAudioBase64}
-                      onClick={handleUploadAudioHomework}
-                      className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer disabled:opacity-70"
-                    >
-                      {uploadingAudio ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Send className="w-4 h-4" />
+                  {isAudioLocked ? (
+                    <div className="p-3.5 rounded-2xl bg-emerald-100/80 border border-emerald-300 text-xs sm:text-sm font-extrabold text-emerald-900 flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />
+                      <span>تم تسليم الواجب الصوتي وحفظه بنجاح ✓ (الإرسال مقفل)</span>
+                    </div>
+                  ) : (
+                    <>
+                      {isRetryUnlocked && progress.recordingLink && (
+                        <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900">
+                          سبق تسليم تسجيل صوتي لهذا الدرس — يمكنك تسجيل أو رفع بديل جديد أو الإبقاء على التسجيل الحالي كما هو.
+                        </div>
                       )}
-                      <span>{uploadingAudio ? 'جاري الإرسال...' : 'حفظ وإرسال التسجيل'}</span>
-                    </button>
-                  </div>
+
+                      {/* Two Large Side-by-Side Icon-Only Buttons */}
+                      <div className="space-y-2 max-w-xs">
+                        <div className="grid grid-cols-2 gap-3">
+                          {!isRecording ? (
+                            <button
+                              type="button"
+                              onClick={startRecording}
+                              title="بدء التسجيل الصوتي"
+                              aria-label="بدء التسجيل الصوتي"
+                              className="h-16 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center shadow-sm transition-transform active:scale-95 cursor-pointer"
+                            >
+                              <Mic className="w-7 h-7" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={stopRecording}
+                              title="إيقاف التسجيل"
+                              aria-label="إيقاف التسجيل"
+                              className="h-16 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center shadow-sm ring-2 ring-rose-500 transition-transform active:scale-95 cursor-pointer"
+                            >
+                              <Square className="w-7 h-7 fill-rose-500 text-rose-500 animate-pulse" />
+                            </button>
+                          )}
+
+                          <label
+                            title="رفع ملف صوتي"
+                            aria-label="رفع ملف صوتي"
+                            className="h-16 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 border-2 border-slate-300 flex items-center justify-center shadow-2xs transition-transform active:scale-95 cursor-pointer"
+                          >
+                            <Upload className="w-7 h-7" />
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              onChange={handleAudioFileUpload}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+
+                        {isRecording && (
+                          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-rose-50 border border-rose-200 text-xs font-mono font-extrabold text-rose-700">
+                            <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
+                            <span>
+                              {formatTime(recordElapsed)} / {formatTime(lesson.maxRecordingTime || 60)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {!isAudioLocked && recordedAudioBlobUrl && (
+                    <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 space-y-3 max-w-lg">
+                      <audio controls src={recordedAudioBlobUrl} className="w-full h-10" />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecordedAudioBlobUrl(null);
+                            setRecordedAudioBase64(null);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 text-xs font-bold cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                        <button
+                          type="button"
+                          disabled={uploadingAudio || !recordedAudioBase64}
+                          onClick={handleUploadAudioHomework}
+                          className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer disabled:opacity-70"
+                        >
+                          {uploadingAudio ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Send className="w-4 h-4" />
+                          )}
+                          <span>{uploadingAudio ? 'جاري الإرسال...' : 'حفظ وإرسال التسجيل'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {progress.recordingLink && !recordedAudioBlobUrl && (
+                    <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 max-w-lg">
+                      <div className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>التسجيل الصوتي المسلم لهذا الدرس</span>
+                      </div>
+                      <audio
+                        controls
+                        src={
+                          resolveVideoAudioAlternatives(progress.recordingLink)[0] || progress.recordingLink
+                        }
+                        className="w-full h-10"
+                      />
+                    </div>
+                  )}
+
+                  {audioFeedback && (
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs font-bold text-blue-900">
+                      {audioFeedback}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {progress.recordingLink && !recordedAudioBlobUrl && (
-                <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2 max-w-lg">
-                  <div className="text-xs font-extrabold text-emerald-800 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>تم تسليم التسجيل الصوتي لهذا الدرس</span>
-                  </div>
-                  <audio
-                    controls
-                    src={
-                      resolveVideoAudioAlternatives(progress.recordingLink)[0] || progress.recordingLink
-                    }
-                    className="w-full h-10"
-                  />
-                </div>
-              )}
-
-              {audioFeedback && (
-                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs font-bold text-blue-900">
-                  {audioFeedback}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Bottom Lesson Completion Footer */}
-          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="text-xs text-slate-600 font-semibold flex items-center gap-2">
-              {isCompleted ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="text-emerald-800 font-extrabold">
-                    تم إتمام هذا الدرس مسبقاً ({progress.videoScore}%)
-                  </span>
-                </>
-              ) : !allVideoQsAnswered ? (
-                <>
-                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>أجب عن جميع أسئلة الفيديو الزمنية لتفعيل توثيق الدرس</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>جاهز لإنهاء وتوثيق الدرس في سجلك</span>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              disabled={completing}
-              onClick={handleFinishLesson}
-              className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer min-h-[44px]"
-            >
-              {completing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4" />
-              )}
-              <span>{tr('video_complete_btn', 'إنهاء وتوثيق الدرس')}</span>
-            </button>
-          </div>
-
-          {completionMessage && (
-            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs sm:text-sm font-bold text-emerald-900">
-              {completionMessage}
-            </div>
+              );
+            })()
           )}
         </div>
       </div>
