@@ -240,6 +240,18 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     const grp = schedule.groups.find((g) => g.id === groupId);
     if (!grp) return;
     const exists = grp.lessons.some((l) => l.key === ref.key);
+    if (!exists) {
+      const otherOwner = schedule.groups.find(
+        (g) => g.id !== groupId && g.lessons.some((l) => l.key === ref.key)
+      );
+      if (otherOwner) {
+        setStatusBanner({
+          type: 'warn',
+          message: `الموضوع "${ref.topicName}" مختار مسبقاً في «${otherOwner.name}» ولا يمكن اختياره في مجموعة أخرى.`,
+        });
+        return;
+      }
+    }
     const nextLessons = exists
       ? grp.lessons.filter((l) => l.key !== ref.key)
       : [...grp.lessons, ref];
@@ -809,8 +821,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                       <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
                         ✓ مضاف لهذه المجموعة
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
-                        ● مضاف لمجموعة أخرى
+                      <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-700">
+                        🔒 مضاف لمجموعة أخرى (غير متاح للتكرار)
                       </span>
                     </div>
                   </div>
@@ -865,7 +877,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                 );
                                 const isSel = selectedKeys.has(k);
                                 const assignedGroups = topicAssignmentMap.get(k) || [];
-                                const inAnyGroup = assignedGroups.length > 0;
+                                const inOtherGroup = !isSel && assignedGroups.length > 0;
                                 const labelBase = v.videoTopic
                                   ? `${v.videoTopic} — ${v.topicName}`
                                   : v.topicName;
@@ -873,6 +885,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                   <option
                                     key={v.lessonId}
                                     value={v.lessonId}
+                                    disabled={inOtherGroup}
                                     style={
                                       isSel
                                         ? {
@@ -880,19 +893,18 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                             color: '#065f46',
                                             fontWeight: 'bold',
                                           }
-                                        : inAnyGroup
+                                        : inOtherGroup
                                         ? {
-                                            backgroundColor: '#fef3c7',
-                                            color: '#92400e',
-                                            fontWeight: 'bold',
+                                            backgroundColor: '#f1f5f9',
+                                            color: '#94a3b8',
                                           }
                                         : undefined
                                     }
                                   >
                                     {isSel
                                       ? `✓ [${assignedGroups.join('، ')}] `
-                                      : inAnyGroup
-                                      ? `● [${assignedGroups.join('، ')}] `
+                                      : inOtherGroup
+                                      ? `🔒 [${assignedGroups.join('، ')}] `
                                       : ''}
                                     {labelBase}
                                   </option>
@@ -937,11 +949,12 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                               );
                               const isSel = selectedKeys.has(k);
                               const assignedGroups = topicAssignmentMap.get(k) || [];
-                              const inAnyGroup = assignedGroups.length > 0;
+                              const inOtherGroup = !isSel && assignedGroups.length > 0;
                               return (
                                 <option
                                   key={item.topicName}
                                   value={item.topicName}
+                                  disabled={inOtherGroup}
                                   style={
                                     isSel
                                       ? {
@@ -949,19 +962,18 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                           color: '#065f46',
                                           fontWeight: 'bold',
                                         }
-                                      : inAnyGroup
+                                      : inOtherGroup
                                       ? {
-                                          backgroundColor: '#fef3c7',
-                                          color: '#92400e',
-                                          fontWeight: 'bold',
+                                          backgroundColor: '#f1f5f9',
+                                          color: '#94a3b8',
                                         }
                                       : undefined
                                   }
                                 >
                                   {isSel
                                     ? `✓ [${assignedGroups.join('، ')}] `
-                                    : inAnyGroup
-                                    ? `● [${assignedGroups.join('، ')}] `
+                                    : inOtherGroup
+                                    ? `🔒 [${assignedGroups.join('، ')}] `
                                     : ''}
                                   {item.topicName} ({item.count})
                                 </option>

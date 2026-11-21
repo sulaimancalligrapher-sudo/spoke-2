@@ -96,6 +96,9 @@ import {
   fetchCatchARRewardsFromSheet,
   verifyStudentLogin,
   fetchIDRegistrants,
+  getOrCreateDeviceId,
+  getFastOptionalGeolocation,
+  normalizeDigits,
   STORAGE_KEY_MATCHING_CURRICULUM,
   STORAGE_KEY_DICTATION_CURRICULUM,
   STORAGE_KEY_CATCH_CURRICULUM,
@@ -199,7 +202,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -1152,21 +1155,25 @@ export default function App() {
         setVideoProgressMap(getLocalVideoProgressMap(''));
       }
 
-      // URL Auto-Login (?username=...&sheet_number=... OR ?name=...&id=...) & Optional ?mode=video
+      // URL Auto-Login (?student_id=...&student_name=... OR ?username=...&sheet_number=... OR ?name=...&id=...) & Optional ?mode=video
       try {
         const searchParams = new URLSearchParams(window.location.search);
         const urlName = (
+          searchParams.get('student_name') ||
+          searchParams.get('subscriber_name') ||
           searchParams.get('username') ||
           searchParams.get('name') ||
           searchParams.get('student') ||
           ''
         ).trim();
-        const urlId = (
-          searchParams.get('sheet_number') ||
-          searchParams.get('sheetNumber') ||
-          searchParams.get('id') ||
-          ''
-        ).trim();
+        const urlId = normalizeDigits(
+          searchParams.get('student_id') ||
+            searchParams.get('subscriber_id') ||
+            searchParams.get('sheet_number') ||
+            searchParams.get('sheetNumber') ||
+            searchParams.get('id') ||
+            ''
+        );
         const urlMode = (searchParams.get('mode') || '').trim().toLowerCase();
 
         if (urlMode === 'video') {
@@ -1175,15 +1182,39 @@ export default function App() {
         }
 
         if (urlId || urlName) {
+          // Clean credential parameters from address bar cleanly
+          try {
+            const cleanedUrl = new URL(window.location.href);
+            [
+              'student_id',
+              'student_name',
+              'subscriber_id',
+              'subscriber_name',
+              'username',
+              'name',
+              'student',
+              'sheet_number',
+              'sheetNumber',
+              'id',
+            ].forEach((k) => cleanedUrl.searchParams.delete(k));
+            window.history.replaceState({}, document.title, cleanedUrl.pathname + cleanedUrl.search + cleanedUrl.hash);
+          } catch {}
+
           (async () => {
             let finalName = urlName;
             if (urlId && !finalName) {
               const registrants = await fetchIDRegistrants(activeConfig.webhookUrl);
-              const found = registrants.find((r) => String(r.id).trim() === urlId);
+              const found = registrants.find((r) => normalizeDigits(r.id) === urlId);
               if (found) finalName = found.name;
             }
             if (finalName && urlId) {
-              const check = await verifyStudentLogin(activeConfig.webhookUrl, finalName, urlId);
+              const deviceId = getOrCreateDeviceId();
+              const geo = await getFastOptionalGeolocation(250);
+              const check = await verifyStudentLogin(activeConfig.webhookUrl, finalName, urlId, {
+                deviceId,
+                lat: geo.lat,
+                lng: geo.lng,
+              });
               if (check.success && check.student) {
                 setCurrentStudent(check.student);
                 try {
@@ -1201,6 +1232,8 @@ export default function App() {
                     })
                     .catch(() => {});
                 }
+              } else if (check.error) {
+                setSyncNotice(check.error);
               }
             }
           })();
@@ -1875,7 +1908,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {

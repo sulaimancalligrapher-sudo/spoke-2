@@ -16,6 +16,9 @@ import {
   verifyStudentLogin,
   ensureIDRegistrantsSheet,
   fetchIDRegistrants,
+  getOrCreateDeviceId,
+  getFastOptionalGeolocation,
+  normalizeDigits,
 } from '../utils/googleSheets';
 
 interface StudentLoginModalProps {
@@ -55,8 +58,8 @@ function parseScannedQrPayload(rawText: string): { name?: string; id?: string } 
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const obj = JSON.parse(trimmed);
-      const name = String(obj.username ?? obj.name ?? obj.studentName ?? '').trim();
-      const id = String(obj.sheetNumber ?? obj.sheet_number ?? obj.id ?? obj.studentId ?? '').trim();
+      const name = String(obj.username ?? obj.name ?? obj.studentName ?? obj.student_name ?? obj.subscriber_name ?? '').trim();
+      const id = normalizeDigits(String(obj.sheetNumber ?? obj.sheet_number ?? obj.id ?? obj.studentId ?? obj.student_id ?? obj.subscriber_id ?? ''));
       if (name || id) return { name: name || undefined, id: id || undefined };
     } catch {}
   }
@@ -67,11 +70,23 @@ function parseScannedQrPayload(rawText: string): { name?: string; id?: string } 
       const queryPart = trimmed.includes('?') ? trimmed.split('?')[1] : trimmed;
       const params = new URLSearchParams(queryPart);
       const name = String(
-        params.get('username') || params.get('name') || params.get('student') || ''
+        params.get('username') ||
+          params.get('name') ||
+          params.get('student') ||
+          params.get('student_name') ||
+          params.get('subscriber_name') ||
+          ''
       ).trim();
-      const id = String(
-        params.get('sheet_number') || params.get('sheetNumber') || params.get('id') || ''
-      ).trim();
+      const id = normalizeDigits(
+        String(
+          params.get('sheet_number') ||
+            params.get('sheetNumber') ||
+            params.get('id') ||
+            params.get('student_id') ||
+            params.get('subscriber_id') ||
+            ''
+        )
+      );
       if (name || id) return { name: name || undefined, id: id || undefined };
     } catch {}
   }
@@ -82,17 +97,20 @@ function parseScannedQrPayload(rawText: string): { name?: string; id?: string } 
     .map((p) => p.trim())
     .filter(Boolean);
   if (parts.length >= 2) {
-    const firstIsNum = /^\d+$/.test(parts[0]);
-    const secondIsNum = /^\d+$/.test(parts[1]);
+    const firstDigits = normalizeDigits(parts[0]);
+    const secondDigits = normalizeDigits(parts[1]);
+    const firstIsNum = /^\d+$/.test(firstDigits);
+    const secondIsNum = /^\d+$/.test(secondDigits);
     if (firstIsNum && !secondIsNum) {
-      return { id: parts[0], name: parts[1] };
+      return { id: firstDigits, name: parts[1] };
     }
-    return { name: parts[0], id: parts[1] };
+    return { name: parts[0], id: secondDigits || parts[1] };
   }
 
   // 4. Single token (likely student ID or plain name)
-  if (/^[a-zA-Z0-9_-]{2,}$/.test(trimmed)) {
-    return { id: trimmed };
+  const normToken = normalizeDigits(trimmed);
+  if (/^[a-zA-Z0-9_-]{2,}$/.test(normToken)) {
+    return { id: normToken };
   }
 
   return { name: trimmed };
@@ -152,12 +170,12 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
     setLoading(true);
     try {
       let cleanName = enteredName.trim();
-      let cleanId = enteredId.trim();
+      const cleanId = normalizeDigits(enteredId);
 
       // If QR only passed an ID, resolve the matching student name from ID registrants
       if (cleanId && !cleanName) {
         const registrants = await fetchIDRegistrants(webhookUrl);
-        const found = registrants.find((r) => String(r.id).trim() === cleanId);
+        const found = registrants.find((r) => normalizeDigits(r.id) === cleanId);
         if (found) {
           cleanName = found.name;
           setStudentName(found.name);
@@ -173,7 +191,13 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
         return;
       }
 
-      const result = await verifyStudentLogin(webhookUrl, cleanName, cleanId);
+      const deviceId = getOrCreateDeviceId();
+      const geo = await getFastOptionalGeolocation(250);
+      const result = await verifyStudentLogin(webhookUrl, cleanName, cleanId, {
+        deviceId,
+        lat: geo.lat,
+        lng: geo.lng,
+      });
 
       if (result.success && result.student) {
         setSuccessMsg(`أهلاً بك يا ${result.student.name}! تم التحقق من ورقة ID registrants بنجاح.`);

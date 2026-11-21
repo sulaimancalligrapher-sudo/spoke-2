@@ -47,7 +47,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwSvwtAQrVqNlLbhxtM6nckp3tXbXXzHnueEFWKNJrQsg5KXOCXWNDgZ2kHeuzfhviTTA/exec';
+  'https://script.google.com/macros/s/AKfycbxpOZFT1T4lWwuDmK8WYrJ0At10Fj8v4UeWUQCQun9sb90J7PoH2_C8sQNGaN4hbOqslQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -112,12 +112,12 @@ export async function callGoogleSheetsPost(webhookUrl: string, payload: any): Pr
         return { success: true, data, message: data.message };
       }
       if (data && (data.success === false || data.error)) {
-        return { success: false, error: data.error || data.message || 'خطأ من مزود Google Sheets' };
+        return { success: false, data, error: data.error || data.message || 'خطأ من مزود Google Sheets' };
       }
     } else {
       const errData = await proxyRes.json().catch(() => null);
       if (errData && (errData.error || errData.message)) {
-        return { success: false, error: errData.error || errData.message };
+        return { success: false, data: errData, error: errData.error || errData.message };
       }
     }
   } catch (proxyErr) {
@@ -134,6 +134,9 @@ export async function callGoogleSheetsPost(webhookUrl: string, payload: any): Pr
 
     if (directRes.ok) {
       const data = await directRes.json().catch(() => null);
+      if (data && (data.success === false || data.error)) {
+        return { success: false, data, error: data.error || data.message || 'خطأ من مزود Google Sheets' };
+      }
       return { success: true, data, message: data?.message };
     }
   } catch (directErr: any) {
@@ -499,10 +502,109 @@ export async function sendScoreToGoogleSheets(
   };
 }
 
+const DEVICE_ID_STORAGE_KEY = 'faseeh_device_id_v1';
+
 /**
- * Initialize or ensure sheet "ID registrants" exists with Col A: ID and Col B: اسم المشترك
+ * Normalize Eastern Arabic-Indic (٠-٩) and Persian (۰-۹) digits to Western ASCII digits (0-9)
  */
-export async function ensureIDRegistrantsSheet(webhookUrl: string): Promise<{ success: boolean; message: string }> {
+export function normalizeDigits(input: string): string {
+  return String(input || '')
+    .replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (c) => String(c.charCodeAt(0) - 0x06f0))
+    .trim();
+}
+
+/**
+ * Get or generate a persistent browser Device ID for multi-device limit enforcement
+ */
+export function getOrCreateDeviceId(): string {
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+    if (existing && existing.trim()) return existing.trim();
+    const generated = `DEV_${Math.random().toString(36).slice(2, 10).toUpperCase()}_${Date.now().toString(36).toUpperCase()}`;
+    localStorage.setItem(DEVICE_ID_STORAGE_KEY, generated);
+    return generated;
+  } catch {
+    return `DEV_TEMP_${Date.now().toString(36).toUpperCase()}`;
+  }
+}
+
+/**
+ * Non-blocking optional geolocation lookup with strict fast timeout (default 250ms)
+ */
+export async function getFastOptionalGeolocation(
+  timeoutMs = 250
+): Promise<{ lat: number | null; lng: number | null }> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return { lat: null, lng: null };
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (coords: { lat: number | null; lng: number | null }) => {
+      if (settled) return;
+      settled = true;
+      resolve(coords);
+    };
+    const timer = window.setTimeout(() => done({ lat: null, lng: null }), timeoutMs);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          window.clearTimeout(timer);
+          done({
+            lat: typeof pos.coords?.latitude === 'number' ? pos.coords.latitude : null,
+            lng: typeof pos.coords?.longitude === 'number' ? pos.coords.longitude : null,
+          });
+        },
+        () => {
+          window.clearTimeout(timer);
+          done({ lat: null, lng: null });
+        },
+        { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 600000 }
+      );
+    } catch {
+      window.clearTimeout(timer);
+      done({ lat: null, lng: null });
+    }
+  });
+}
+
+function parseRegistrantDevicesList(raw: any): { deviceId: string; location?: string; lastLogin?: string }[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((d) => d && (d.deviceId || d.id))
+      .map((d) => ({
+        deviceId: String(d.deviceId || d.id || '').trim(),
+        location: d.location ? String(d.location).trim() : undefined,
+        lastLogin: d.lastLogin ? String(d.lastLogin).trim() : undefined,
+      }));
+  }
+  if (typeof raw === 'string' && raw.trim().startsWith('[')) {
+    try {
+      return parseRegistrantDevicesList(JSON.parse(raw));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeRegistrantRow(r: any): StudentRegistrant {
+  const maxDevNum = Number(r?.maxDevices);
+  return {
+    id: normalizeDigits(String(r?.id || '')),
+    name: String(r?.name || '').trim(),
+    status: String(r?.status || 'مفعّل').trim() || 'مفعّل',
+    maxDevices: Number.isFinite(maxDevNum) && maxDevNum >= 1 ? Math.min(10, Math.round(maxDevNum)) : 2,
+    devices: parseRegistrantDevicesList(r?.devices),
+  };
+}
+
+/**
+ * Initialize or ensure sheet "ID registrants" exists with 5 columns (ID, Name, Status, MaxDevices, DevicesJSON)
+ */
+export async function ensureIDRegistrantsSheet(
+  webhookUrl: string
+): Promise<{ success: boolean; message: string; supportsDeviceSecurity?: boolean }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
     return { success: false, message: 'رابط Google Sheets Webhook غير صالح' };
   }
@@ -513,30 +615,34 @@ export async function ensureIDRegistrantsSheet(webhookUrl: string): Promise<{ su
 
   return {
     success: res.success,
-    message: res.message || (res.success ? 'تم تجهيز ورقة ID registrants بنجاح' : 'خطأ في الاتصال'),
+    supportsDeviceSecurity: Boolean(res.data?.registrantHandled),
+    message: res.message || (res.success ? 'تم تجهيز وتحديث أعمدة ورقة ID registrants بنجاح' : (res.error || 'خطأ في الاتصال')),
   };
 }
 
 /**
- * Fetch all registrants from sheet "ID registrants"
+ * Fetch all registrants from sheet "ID registrants" along with capability flag
  */
-export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentRegistrant[]> {
+export async function fetchIDRegistrantsDetailed(webhookUrl: string): Promise<{
+  registrants: StudentRegistrant[];
+  supportsDeviceSecurity: boolean;
+}> {
   if (webhookUrl && webhookUrl.trim().startsWith('http')) {
     try {
       const res = await callGoogleSheetsPost(webhookUrl, { action: 'get_registrants' });
       if (res.success && res.data && Array.isArray(res.data.registrants)) {
         const list: StudentRegistrant[] = res.data.registrants
-          .map((r: any) => ({
-            id: String(r.id || '').trim(),
-            name: String(r.name || '').trim(),
-          }))
+          .map(normalizeRegistrantRow)
           .filter((r: StudentRegistrant) => r.id && r.name && r.id !== 'ID' && r.name !== 'اسم المشترك');
 
         try {
           localStorage.setItem('faseeh_cached_registrants', JSON.stringify(list));
         } catch {}
 
-        if (list.length > 0) return list;
+        return {
+          registrants: list,
+          supportsDeviceSecurity: Boolean(res.data.supportsDeviceSecurity),
+        };
       }
     } catch (e) {
       console.warn('Error fetching ID registrants from Google Sheets:', e);
@@ -548,33 +654,203 @@ export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentReg
     const cached = localStorage.getItem('faseeh_cached_registrants');
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return {
+          registrants: parsed.map(normalizeRegistrantRow),
+          supportsDeviceSecurity: false,
+        };
+      }
     }
   } catch {}
 
   // Default demo registrants for offline/initial state
-  return [
-    { id: '1001', name: 'أحمد علي' },
-    { id: '1002', name: 'فاطمة محمد' },
-    { id: '1003', name: 'عمر خالد' },
-  ];
+  return {
+    registrants: [
+      { id: '1001', name: 'أحمد علي', status: 'مفعّل', maxDevices: 2, devices: [] },
+      { id: '1002', name: 'فاطمة محمد', status: 'مفعّل', maxDevices: 2, devices: [] },
+      { id: '1003', name: 'عمر خالد', status: 'مفعّل', maxDevices: 2, devices: [] },
+    ],
+    supportsDeviceSecurity: false,
+  };
+}
+
+/**
+ * Fetch all registrants from sheet "ID registrants"
+ */
+export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentRegistrant[]> {
+  const res = await fetchIDRegistrantsDetailed(webhookUrl);
+  return res.registrants;
+}
+
+/**
+ * Add a new registrant to sheet "ID registrants"
+ */
+export async function addIDRegistrantToSheet(
+  webhookUrl: string,
+  payload: { id: string; name: string; status?: string; maxDevices?: number }
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  const cleanId = normalizeDigits(payload.id);
+  const cleanName = payload.name.trim();
+  if (!cleanId || !cleanName) {
+    return { success: false, message: 'يرجى إدخال رقم ID واسم المشترك.' };
+  }
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets غير مضبوط.' };
+  }
+
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'add_registrant',
+    id: cleanId,
+    name: cleanName,
+    status: payload.status || 'مفعّل',
+    maxDevices: payload.maxDevices ?? 2,
+  });
+
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر إضافة المشترك' };
+  }
+  return {
+    success: true,
+    needsScriptUpdate: res.data?.registrantHandled !== true,
+    message: res.message || 'تمت إضافة المشترك إلى ورقة ID registrants بنجاح',
+  };
+}
+
+/**
+ * Update an existing registrant (ID, Name, Status, MaxDevices) in sheet "ID registrants"
+ */
+export async function updateIDRegistrantInSheet(
+  webhookUrl: string,
+  payload: { originalId: string; id: string; name: string; status: string; maxDevices: number }
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets غير مضبوط.' };
+  }
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'update_registrant',
+    originalId: normalizeDigits(payload.originalId),
+    id: normalizeDigits(payload.id),
+    name: payload.name.trim(),
+    status: payload.status || 'مفعّل',
+    maxDevices: Math.max(1, Math.min(10, Number(payload.maxDevices) || 2)),
+  });
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر تحديث بيانات المشترك' };
+  }
+  if (res.data?.registrantHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب وعدد الأجهزة.',
+    };
+  }
+  return { success: true, message: res.message || 'تم تحديث بيانات المشترك بنجاح' };
+}
+
+/**
+ * Reset all registered devices for a student so they can log in from new devices
+ */
+export async function resetRegistrantDevicesInSheet(
+  webhookUrl: string,
+  id: string
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets غير مضبوط.' };
+  }
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'reset_registrant_devices',
+    id: normalizeDigits(id),
+  });
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر تصفير الأجهزة' };
+  }
+  if (res.data?.registrantHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تصفير الأجهزة.',
+    };
+  }
+  return { success: true, message: res.message || 'تم تصفير الأجهزة المسجلة للطالب بنجاح' };
+}
+
+/**
+ * Delete a registrant row from sheet "ID registrants"
+ */
+export async function deleteIDRegistrantFromSheet(
+  webhookUrl: string,
+  id: string
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'رابط Google Sheets غير مضبوط.' };
+  }
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'delete_registrant',
+    id: normalizeDigits(id),
+  });
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر حذف المشترك' };
+  }
+  if (res.data?.registrantHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل حذف المشترك من الشيت.',
+    };
+  }
+  return { success: true, message: res.message || 'تم حذف المشترك بنجاح' };
 }
 
 /**
  * Verify student credentials against sheet "ID registrants"
+ * Supports server-side device limit locking, status check, and optional geolocation,
+ * with graceful fallback to legacy 2-column registrant matching if Apps Script hasn't been redeployed.
  */
 export async function verifyStudentLogin(
   webhookUrl: string,
   enteredName: string,
-  enteredId: string
-): Promise<{ success: boolean; student?: StudentRegistrant; error?: string }> {
+  enteredId: string,
+  opts?: { deviceId?: string; lat?: number | null; lng?: number | null }
+): Promise<{ success: boolean; student?: StudentRegistrant; error?: string; errorCode?: string }> {
   const cleanName = enteredName.trim();
-  const cleanId = enteredId.trim();
+  const cleanId = normalizeDigits(enteredId);
 
   if (!cleanName || !cleanId) {
     return { success: false, error: 'يرجى إدخال اسم المشترك ورقم ID معاً.' };
   }
 
+  // 1. Server-side verification with device + location enforcement when webhookUrl is configured
+  if (webhookUrl && webhookUrl.trim().startsWith('http')) {
+    try {
+      const deviceId = opts?.deviceId || getOrCreateDeviceId();
+      const serverRes = await callGoogleSheetsPost(webhookUrl, {
+        action: 'verify_student_login',
+        studentName: cleanName,
+        studentId: cleanId,
+        deviceId,
+        lat: opts?.lat ?? null,
+        lng: opts?.lng ?? null,
+      });
+
+      if (serverRes.data?.loginCheckHandled === true) {
+        if (serverRes.success && serverRes.data.student) {
+          return {
+            success: true,
+            student: normalizeRegistrantRow(serverRes.data.student),
+          };
+        }
+        return {
+          success: false,
+          errorCode: serverRes.data.errorCode,
+          error: serverRes.data.error || serverRes.error || 'تعذر تسجيل الدخول.',
+        };
+      }
+    } catch (e) {
+      console.warn('verify_student_login server check fallback triggered:', e);
+    }
+  }
+
+  // 2. Legacy / offline fallback matching against ID registrants list
   const registrants = await fetchIDRegistrants(webhookUrl);
 
   const normalizeArabic = (s: string) =>
@@ -588,17 +864,32 @@ export async function verifyStudentLogin(
 
   const normEntered = normalizeArabic(cleanName);
 
-  // 1. Exact match on both ID and Name
+  // Exact match on both normalized ID and Name
   const matched = registrants.find((r) => {
-    return String(r.id).trim() === cleanId && normalizeArabic(r.name) === normEntered;
+    return normalizeDigits(r.id) === cleanId && normalizeArabic(r.name) === normEntered;
   });
 
   if (matched) {
+    const rawStatus = String(matched.status || '').trim().toLowerCase();
+    if (
+      rawStatus === 'معطل' ||
+      rawStatus === 'معطّل' ||
+      rawStatus === 'لا' ||
+      rawStatus === 'no' ||
+      rawStatus === 'false' ||
+      rawStatus === 'disabled'
+    ) {
+      return {
+        success: false,
+        errorCode: 'ACCOUNT_DISABLED',
+        error: 'تم تعطيل هذا الحساب. يرجى التواصل مع الإدارة.',
+      };
+    }
     return { success: true, student: matched };
   }
 
-  // 2. If ID matches but name is different, give helpful guidance
-  const idMatch = registrants.find((r) => String(r.id).trim() === cleanId);
+  // ID matches but name differs
+  const idMatch = registrants.find((r) => normalizeDigits(r.id) === cleanId);
   if (idMatch) {
     return {
       success: false,
@@ -606,12 +897,12 @@ export async function verifyStudentLogin(
     };
   }
 
-  // 3. If Name matches but ID is different
+  // Name matches but ID differs
   const nameMatch = registrants.find((r) => normalizeArabic(r.name) === normEntered);
   if (nameMatch) {
     return {
       success: false,
-      error: `الاسم مسجل ولكن رقم ID غير مطابق للرقم المسجل له في ورقة (ID registrants).`,
+      error: 'الاسم مسجل ولكن رقم ID غير مطابق للرقم المسجل له في ورقة (ID registrants).',
     };
   }
 
@@ -3146,14 +3437,125 @@ function getLessonsSheet(ss) {
   return sheet;
 }
 
+// دالة مساعدة لضمان ترويسة الأعمدة الخمسة لورقة المشتركين "ID registrants"
+function ensureIDRegistrantsHeadersGS(sheet) {
+  var expected = ["ID", "اسم المشترك", "الحالة", "الحد الأقصى للأجهزة", "الأجهزة المسجلة JSON"];
+  if (sheet.getLastRow() === 0) {
+    sheet.getRange(1, 1, 1, 5).setValues([expected])
+      .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+    return;
+  }
+  var existingCols = Math.max(2, sheet.getLastColumn());
+  if (existingCols < 5) {
+    sheet.getRange(1, 1, 1, 5).setValues([expected])
+      .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+  }
+}
+
+function normRegDigitsGS(str) {
+  var s = String(str || "").trim();
+  var arNums = "٠١٢٣٤٥٦٧٨٩";
+  var faNums = "۰۱۲۳۴۵۶۷۸۹";
+  for (var i = 0; i < 10; i++) {
+    s = s.split(arNums[i]).join(String(i)).split(faNums[i]).join(String(i));
+  }
+  return s;
+}
+
+function normRegArabicGS(str) {
+  return String(str || "")
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .toLowerCase()
+    .replace(/[إأآا]/g, "ا")
+    .replace(/[ىي]/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseRegistrantDevicesGS(raw) {
+  if (!raw) return [];
+  var str = String(raw || "").trim();
+  if (!str || str.charAt(0) !== "[") return [];
+  try {
+    var arr = JSON.parse(str);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function isRegistrantDisabledGS(statusVal) {
+  var s = String(statusVal || "").trim().toLowerCase();
+  return s === "معطل" || s === "معطّل" || s === "لا" || s === "no" || s === "false" || s === "disabled" || s === "0";
+}
+
+function reverseGeocodeLocGS(lat, lng) {
+  if (lat === null || lat === undefined || lng === null || lng === undefined || lat === "" || lng === "") {
+    return "غير متاح";
+  }
+  var nLat = Number(lat);
+  var nLng = Number(lng);
+  if (isNaN(nLat) || isNaN(nLng)) return "غير متاح";
+  try {
+    var geo = Maps.newGeocoder().reverseGeocode(nLat, nLng);
+    if (geo && geo.results && geo.results.length > 0) {
+      var comps = geo.results[0].address_components || [];
+      var city = "";
+      var country = "";
+      for (var c = 0; c < comps.length; c++) {
+        var types = comps[c].types || [];
+        if (!city && (types.indexOf("locality") !== -1 || types.indexOf("administrative_area_level_1") !== -1)) {
+          city = comps[c].long_name || "";
+        }
+        if (!country && types.indexOf("country") !== -1) {
+          country = comps[c].long_name || "";
+        }
+      }
+      if (city && country) return city + "، " + country;
+      if (country) return country;
+      if (geo.results[0].formatted_address) return String(geo.results[0].formatted_address).slice(0, 60);
+    }
+  } catch (e) {}
+  return nLat.toFixed(4) + ", " + nLng.toFixed(4);
+}
+
+function readAllRegistrantsGS(sheet) {
+  var lastR = sheet.getLastRow();
+  var list = [];
+  if (lastR <= 1) return list;
+  var colCount = Math.max(5, sheet.getLastColumn());
+  var vals = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    var rId = normRegDigitsGS(vals[i][0]);
+    var rName = String(vals[i][1] || "").trim();
+    if (rId && rName && rId !== "ID") {
+      var rStatus = String(vals[i][2] || "").trim() || "مفعّل";
+      var rMax = Number(vals[i][3]);
+      if (isNaN(rMax) || rMax < 1) rMax = 2;
+      var rDevices = parseRegistrantDevicesGS(vals[i][4]);
+      list.push({
+        rowNumber: i + 2,
+        id: rId,
+        name: rName,
+        status: rStatus,
+        maxDevices: rMax,
+        devices: rDevices
+      });
+    }
+  }
+  return list;
+}
+
 // دالة مساعدة لإنشاء أو استرجاع ورقة المشتركين "ID registrants"
 function getIDRegistrantsSheet(ss) {
   var sheet = ss.getSheetByName("ID registrants");
   if (!sheet) {
     sheet = ss.insertSheet("ID registrants");
-    sheet.appendRow(["ID", "اسم المشترك"]);
-    sheet.getRange(1, 1, 1, 2).setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
-    sheet.appendRow(["1001", "أحمد علي"]);
+    ensureIDRegistrantsHeadersGS(sheet);
+    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 2, "[]"]);
+  } else {
+    ensureIDRegistrantsHeadersGS(sheet);
   }
   return sheet;
 }
@@ -3512,6 +3914,11 @@ function getTelegramConfigSheet(ss) {
     sheet.appendRow(["botUsername", ""]);
     sheet.appendRow(["enabled", "false"]);
     sheet.appendRow(["welcomeMessage", "مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم."]);
+    sheet.appendRow(["adminChatId", ""]);
+    sheet.appendRow(["notifyOnVideoCorrection", "true"]);
+    sheet.appendRow(["notifyAdminOnHomework", "false"]);
+    sheet.appendRow(["dailyReminderEnabled", "false"]);
+    sheet.appendRow(["customFooter", ""]);
   }
   return sheet;
 }
@@ -3530,7 +3937,17 @@ function getTelegramUsersSheet(ss) {
 function readTelegramConfigGS(ss) {
   var sheet = getTelegramConfigSheet(ss);
   var rows = sheet.getDataRange().getValues();
-  var cfg = { botToken: "", botUsername: "", enabled: false, welcomeMessage: "مرحباً بك! تم ربط حسابك بنجاح." };
+  var cfg = {
+    botToken: "",
+    botUsername: "",
+    enabled: false,
+    welcomeMessage: "مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.",
+    adminChatId: "",
+    notifyOnVideoCorrection: true,
+    notifyAdminOnHomework: false,
+    dailyReminderEnabled: false,
+    customFooter: ""
+  };
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0] || "").trim();
     var v = String(rows[i][1] || "").trim();
@@ -3538,6 +3955,11 @@ function readTelegramConfigGS(ss) {
     else if (k === "botUsername") cfg.botUsername = v;
     else if (k === "enabled") cfg.enabled = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
     else if (k === "welcomeMessage" && v) cfg.welcomeMessage = v;
+    else if (k === "adminChatId") cfg.adminChatId = v;
+    else if (k === "notifyOnVideoCorrection") cfg.notifyOnVideoCorrection = (v.toLowerCase() !== "false" && v !== "لا" && v !== "0");
+    else if (k === "notifyAdminOnHomework") cfg.notifyAdminOnHomework = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
+    else if (k === "dailyReminderEnabled") cfg.dailyReminderEnabled = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
+    else if (k === "customFooter") cfg.customFooter = v;
   }
   return cfg;
 }
@@ -3547,12 +3969,18 @@ function writeTelegramConfigGS(ss, cfg) {
   if (sheet.getLastRow() > 1) {
     sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
   }
-  sheet.getRange(2, 1, 4, 2).setValues([
+  var rows = [
     ["botToken", String(cfg.botToken || "").trim()],
     ["botUsername", String(cfg.botUsername || "").trim()],
     ["enabled", cfg.enabled ? "true" : "false"],
-    ["welcomeMessage", String(cfg.welcomeMessage || "مرحباً بك! تم ربط حسابك بنجاح.").trim()]
-  ]);
+    ["welcomeMessage", String(cfg.welcomeMessage || "مرحباً بك! تم ربط حسابك بنجاح.").trim()],
+    ["adminChatId", String(cfg.adminChatId || "").trim()],
+    ["notifyOnVideoCorrection", cfg.notifyOnVideoCorrection === false ? "false" : "true"],
+    ["notifyAdminOnHomework", cfg.notifyAdminOnHomework ? "true" : "false"],
+    ["dailyReminderEnabled", cfg.dailyReminderEnabled ? "true" : "false"],
+    ["customFooter", String(cfg.customFooter || "").trim()]
+  ];
+  sheet.getRange(2, 1, rows.length, 2).setValues(rows);
 }
 
 function sendTelegramBotMessageGS(ss, chatId, text, photoUrl) {
@@ -4193,20 +4621,14 @@ function doGet(e) {
     // (ج) إذا كان الطلب جلب قائمة المشتركين من ورقة "ID registrants"
     if (e && e.parameter && e.parameter.action === "get_registrants") {
       var regSheet = getIDRegistrantsSheet(ss);
-      var lastR = regSheet.getLastRow();
-      var registrants = [];
-      if (lastR > 1) {
-        var vals = regSheet.getRange(2, 1, lastR - 1, 2).getValues();
-        for (var i = 0; i < vals.length; i++) {
-          var rId = String(vals[i][0] || "").trim();
-          var rName = String(vals[i][1] || "").trim();
-          if (rId && rName && rId !== "ID") {
-            registrants.push({ id: rId, name: rName });
-          }
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({ success: true, registrants: registrants }))
-        .setMimeType(ContentService.MimeType.JSON);
+      var rows = readAllRegistrantsGS(regSheet).map(function(r) {
+        return { id: r.id, name: r.name, status: r.status, maxDevices: r.maxDevices, devices: r.devices };
+      });
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        supportsDeviceSecurity: true,
+        registrants: rows
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (ج-2) إذا كان الطلب جلب ملخص نتائج إجابات الطلاب من ورقة "answers 1"
@@ -4752,32 +5174,42 @@ function doPost(e) {
       var chatId = String(chat.id);
       var tgUser = chat.username ? ("@" + chat.username) : String(chat.first_name || "");
       var textMsg = String(data.message.text || "").trim();
+
+      // أمر معرفة رقم Chat ID للمشرف أو الطالب
+      if (/^(\/id|\/myid|id)$/i.test(textMsg)) {
+        sendTelegramBotMessageGS(ss, chatId, "رقم Chat ID الخاص بك هو:\\n<code>" + chatId + "</code>", "");
+        return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+      }
+
       var candidateId = "";
       var startMatch = textMsg.match(/\\/start\\s+([^\\s]+)/i);
       if (startMatch) {
-        candidateId = startMatch[1].trim();
-      } else if (/^[a-zA-Z0-9_-]{2,}$/.test(textMsg)) {
-        candidateId = textMsg;
+        candidateId = normRegDigitsGS(startMatch[1]);
+      } else {
+        var normMsgId = normRegDigitsGS(textMsg);
+        if (/^[a-zA-Z0-9_-]{2,}$/.test(normMsgId)) {
+          candidateId = normMsgId;
+        }
       }
 
       if (candidateId) {
         var regSheetTg = getIDRegistrantsSheet(ss);
-        var regRowsTg = regSheetTg.getDataRange().getValues();
+        var allRegsTg = readAllRegistrantsGS(regSheetTg);
         var matchedStudent = null;
-        for (var rIdx = 1; rIdx < regRowsTg.length; rIdx++) {
-          var rowId = String(regRowsTg[rIdx][0] || "").trim();
-          var rowName = String(regRowsTg[rIdx][1] || "").trim();
-          if (rowId === candidateId) {
-            matchedStudent = { id: rowId, name: rowName };
+        for (var rIdx = 0; rIdx < allRegsTg.length; rIdx++) {
+          if (allRegsTg[rIdx].id === candidateId) {
+            matchedStudent = allRegsTg[rIdx];
             break;
           }
         }
-        if (matchedStudent) {
+        if (matchedStudent && isRegistrantDisabledGS(matchedStudent.status)) {
+          sendTelegramBotMessageGS(ss, chatId, "هذا الحساب معطّل حالياً. يرجى التواصل مع الإدارة.", "");
+        } else if (matchedStudent) {
           var uSheet = getTelegramUsersSheet(ss);
           var uRows = uSheet.getDataRange().getValues();
           var foundRow = -1;
           for (var u = 1; u < uRows.length; u++) {
-            if (String(uRows[u][0] || "").trim() === matchedStudent.id) {
+            if (normRegDigitsGS(uRows[u][0]) === matchedStudent.id) {
               foundRow = u + 1;
               break;
             }
@@ -4795,7 +5227,7 @@ function doPost(e) {
           sendTelegramBotMessageGS(ss, chatId, "لم يتم العثور على رقم المشترك (" + candidateId + "). أرسل رقم الـ ID الصحيح للربط.", "");
         }
       } else {
-        sendTelegramBotMessageGS(ss, chatId, "أهلاً بك! أرسل رقم المشترك (ID) الخاص بك لربط حسابك وتلقي الإشعارات وتصحيح المعلم.", "");
+        sendTelegramBotMessageGS(ss, chatId, "أهلاً بك! أرسل رقم المشترك (ID) الخاص بك لربط حسابك وتلقي الإشعارات وتصحيح المعلم.\\nأو أرسل /id لمعرفة Chat ID الخاص بك.", "");
       }
       return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -5171,19 +5603,22 @@ function doPost(e) {
       }
 
       var telegramSent = false;
-      if (data.sendTelegram) {
+      var tgCfgCorr = readTelegramConfigGS(ss);
+      if (data.sendTelegram && tgCfgCorr.notifyOnVideoCorrection !== false) {
         var tgUsers = getTelegramUsersSheet(ss).getDataRange().getValues();
+        var normSid = normRegDigitsGS(sId);
         for (var u = 1; u < tgUsers.length; u++) {
-          var uId = String(tgUsers[u][0] || "").trim();
+          var uId = normRegDigitsGS(tgUsers[u][0]);
           var uName = String(tgUsers[u][1] || "").trim();
           var uChatId = String(tgUsers[u][2] || "").trim();
           var uEnabled = String(tgUsers[u][5] || "true") !== "false";
-          if (uEnabled && uChatId && ((sId && uId === sId) || (sName && uName === sName))) {
+          if (uEnabled && uChatId && ((normSid && uId === normSid) || (sName && uName === sName))) {
             var summaryMsg = "<b>تم تصحيح واجبك في درس: " + lTitle + "</b>";
             if (data.imageScore) summaryMsg += "\\nدرجة الصورة: " + data.imageScore;
             if (data.imageNotes) summaryMsg += "\\nملاحظة المعلم: " + data.imageNotes;
             if (data.audioScore) summaryMsg += "\\nدرجة الصوت: " + data.audioScore;
             if (data.audioNotes) summaryMsg += "\\nتوجيه صوتي: " + data.audioNotes;
+            if (tgCfgCorr.customFooter) summaryMsg += "\\n\\n" + tgCfgCorr.customFooter;
             telegramSent = sendTelegramBotMessageGS(ss, uChatId, summaryMsg, correctedImage || "");
             break;
           }
@@ -5232,7 +5667,7 @@ function doPost(e) {
       for (var u = 1; u < rows.length; u++) {
         if (!rows[u][0] && !rows[u][2]) continue;
         usersList.push({
-          studentId: String(rows[u][0] || "").trim(),
+          studentId: normRegDigitsGS(rows[u][0]),
           studentName: String(rows[u][1] || "").trim(),
           chatId: String(rows[u][2] || "").trim(),
           telegramUsername: String(rows[u][3] || "").trim(),
@@ -5240,25 +5675,122 @@ function doPost(e) {
           notificationsEnabled: String(rows[u][5] || "true") !== "false"
         });
       }
-      return ContentService.createTextOutput(JSON.stringify({ success: true, users: usersList }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        supportsTelegramV2: true,
+        users: usersList
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "link_telegram_user") {
+      var uSheet = getTelegramUsersSheet(ss);
+      var sIdLink = normRegDigitsGS(data.studentId || "");
+      var sNameLink = String(data.studentName || "").trim();
+      var chatIdLink = String(data.chatId || "").trim();
+      var tgUserLink = String(data.telegramUsername || "").trim();
+      var enabledLink = data.notificationsEnabled === false ? "false" : "true";
+      if (!sIdLink || !chatIdLink) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          telegramHandled: true,
+          error: "يرجى إدخال رقم الطالب (ID) ورقم Chat ID."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var uRows = uSheet.getDataRange().getValues();
+      var matchRow = -1;
+      for (var u = 1; u < uRows.length; u++) {
+        if (normRegDigitsGS(uRows[u][0]) === sIdLink || String(uRows[u][2] || "").trim() === chatIdLink) {
+          matchRow = u + 1;
+          break;
+        }
+      }
+      var nowTg = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy/MM/dd HH:mm");
+      var rowVals = [sIdLink, sNameLink || ("طالب #" + sIdLink), chatIdLink, tgUserLink, nowTg, enabledLink];
+      if (matchRow !== -1) {
+        uSheet.getRange(matchRow, 1, 1, 6).setValues([rowVals]);
+      } else {
+        uSheet.appendRow(rowVals);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        telegramHandled: true,
+        message: "تم حفظ وربط حساب الطالب في ورقة تيليغرام_الطلاب بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "toggle_telegram_user") {
+      var uSheet = getTelegramUsersSheet(ss);
+      var uRows = uSheet.getDataRange().getValues();
+      var tChat = String(data.chatId || "").trim();
+      var tId = normRegDigitsGS(data.studentId || "");
+      var nextFlag = data.notificationsEnabled === false ? "false" : "true";
+      for (var u = 1; u < uRows.length; u++) {
+        if ((tChat && String(uRows[u][2] || "").trim() === tChat) || (tId && normRegDigitsGS(uRows[u][0]) === tId)) {
+          uSheet.getRange(u + 1, 6).setValue(nextFlag);
+          return ContentService.createTextOutput(JSON.stringify({
+            success: true,
+            telegramHandled: true,
+            message: "تم تحديث حالة الإشعارات للطالب بنجاح"
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        telegramHandled: true,
+        error: "لم يتم العثور على الطالب في ورقة تيليغرام_الطلاب."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_telegram_user") {
+      var uSheet = getTelegramUsersSheet(ss);
+      var uRows = uSheet.getDataRange().getValues();
+      var dChat = String(data.chatId || "").trim();
+      var dId = normRegDigitsGS(data.studentId || "");
+      for (var u = uRows.length - 1; u >= 1; u--) {
+        if ((dChat && String(uRows[u][2] || "").trim() === dChat) || (dId && normRegDigitsGS(uRows[u][0]) === dId)) {
+          uSheet.deleteRow(u + 1);
+          return ContentService.createTextOutput(JSON.stringify({
+            success: true,
+            telegramHandled: true,
+            message: "تم إلغاء ربط الطالب وحذفه من ورقة تيليغرام_الطلاب"
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        telegramHandled: true,
+        error: "لم يتم العثور على السجل."
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     if (data.action === "send_telegram_notification") {
+      var tgCfgSend = readTelegramConfigGS(ss);
       var msg = String(data.message || "").trim();
+      if (tgCfgSend.customFooter) {
+        msg = msg + "\\n\\n" + tgCfgSend.customFooter;
+      }
       var photo = String(data.photoUrl || "").trim();
       var sentCount = 0;
       if (data.chatId) {
         if (sendTelegramBotMessageGS(ss, String(data.chatId), msg, photo)) sentCount++;
       } else {
+        var targetIdsMap = {};
+        var hasTargetIds = Array.isArray(data.studentIds) && data.studentIds.length > 0;
+        if (hasTargetIds) {
+          for (var ti = 0; ti < data.studentIds.length; ti++) {
+            targetIdsMap[normRegDigitsGS(data.studentIds[ti])] = true;
+          }
+        }
         var uRows = getTelegramUsersSheet(ss).getDataRange().getValues();
         for (var u = 1; u < uRows.length; u++) {
-          var uId = String(uRows[u][0] || "").trim();
+          var uId = normRegDigitsGS(uRows[u][0]);
           var uName = String(uRows[u][1] || "").trim();
           var uChatId = String(uRows[u][2] || "").trim();
           var uEnabled = String(uRows[u][5] || "true") !== "false";
           if (!uEnabled || !uChatId) continue;
-          if (data.broadcastAll || (data.studentId && uId === data.studentId) || (data.studentName && uName === data.studentName)) {
+          var matchedGroup = hasTargetIds && targetIdsMap[uId];
+          var matchedSingle = (data.studentId && uId === normRegDigitsGS(data.studentId)) || (data.studentName && uName === data.studentName);
+          if (data.broadcastAll || matchedGroup || matchedSingle) {
             if (sendTelegramBotMessageGS(ss, uChatId, msg, photo)) sentCount++;
           }
         }
@@ -5297,33 +5829,223 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0) جلب أو التحقق من ورقة "ID registrants" للمشتركين
+    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة
     if (data.action === "get_registrants" || data.action === "verify_student") {
       var regSheet = getIDRegistrantsSheet(ss);
-      var lastR = regSheet.getLastRow();
-      var registrants = [];
-      if (lastR > 1) {
-        var vals = regSheet.getRange(2, 1, lastR - 1, 2).getValues();
-        for (var i = 0; i < vals.length; i++) {
-          var rId = String(vals[i][0] || "").trim();
-          var rName = String(vals[i][1] || "").trim();
-          if (rId && rName && rId !== "ID") {
-            registrants.push({ id: rId, name: rName });
+      var rows = readAllRegistrantsGS(regSheet).map(function(r) {
+        return { id: r.id, name: r.name, status: r.status, maxDevices: r.maxDevices, devices: r.devices };
+      });
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        supportsDeviceSecurity: true,
+        registrants: rows
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-أ) التحقق الآمن من دخول الطالب مع تفعيل الحالة والحد الأقصى للأجهزة والموقع الجغرافي
+    if (data.action === "verify_student_login") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      var allRegs = readAllRegistrantsGS(regSheet);
+      var cleanInId = normRegDigitsGS(data.studentId || data.id || "");
+      var normInName = normRegArabicGS(data.studentName || data.name || "");
+      var deviceId = String(data.deviceId || "").trim();
+
+      var matchedRow = null;
+      var idOnlyMatch = null;
+      var nameOnlyMatch = null;
+      for (var ri = 0; ri < allRegs.length; ri++) {
+        var item = allRegs[ri];
+        var sameId = item.id === cleanInId;
+        var sameName = normRegArabicGS(item.name) === normInName;
+        if (sameId && sameName) {
+          matchedRow = item;
+          break;
+        }
+        if (sameId && !idOnlyMatch) idOnlyMatch = item;
+        if (sameName && !nameOnlyMatch) nameOnlyMatch = item;
+      }
+
+      if (!matchedRow) {
+        var errMsg = "عفواً، لم يتم العثور على هذا الاسم والرقم في ورقة (ID registrants). تأكد من صحة البيانات.";
+        if (idOnlyMatch) {
+          errMsg = "رقم ID موجود ولكن الاسم غير مطابق للاسم المسجل في ورقة ID registrants (" + idOnlyMatch.name + ").";
+        } else if (nameOnlyMatch) {
+          errMsg = "الاسم مسجل ولكن رقم ID غير مطابق للرقم المسجل له في ورقة (ID registrants).";
+        }
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          loginCheckHandled: true,
+          errorCode: "INVALID_CREDENTIALS",
+          error: errMsg
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      if (isRegistrantDisabledGS(matchedRow.status)) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          loginCheckHandled: true,
+          errorCode: "ACCOUNT_DISABLED",
+          error: "تم تعطيل هذا الحساب. يرجى التواصل مع الإدارة."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var maxDev = Math.max(1, Number(matchedRow.maxDevices) || 2);
+      var devList = Array.isArray(matchedRow.devices) ? matchedRow.devices.slice() : [];
+      if (deviceId) {
+        var locLabel = reverseGeocodeLocGS(data.lat, data.lng);
+        var nowStamp = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Riyadh", "yyyy-MM-dd HH:mm");
+        var devIdx = -1;
+        for (var di = 0; di < devList.length; di++) {
+          if (String(devList[di].deviceId || "") === deviceId) {
+            devIdx = di;
+            break;
           }
         }
+        if (devIdx !== -1) {
+          devList[devIdx].lastLogin = nowStamp;
+          if (locLabel && locLabel !== "غير متاح") {
+            devList[devIdx].location = locLabel;
+          } else if (!devList[devIdx].location) {
+            devList[devIdx].location = "غير متاح";
+          }
+        } else {
+          if (devList.length >= maxDev) {
+            return ContentService.createTextOutput(JSON.stringify({
+              success: false,
+              loginCheckHandled: true,
+              errorCode: "DEVICE_LIMIT_EXCEEDED",
+              error: "تم تجاوز الحد الأقصى لعدد الأجهزة المسموحة (" + maxDev + " أجهزة). يرجى التواصل مع المعلم لتصفير الأجهزة."
+            })).setMimeType(ContentService.MimeType.JSON);
+          }
+          devList.push({
+            deviceId: deviceId,
+            location: locLabel,
+            lastLogin: nowStamp
+          });
+        }
+        regSheet.getRange(matchedRow.rowNumber, 5).setValue(JSON.stringify(devList));
       }
-      return ContentService.createTextOutput(JSON.stringify({ success: true, registrants: registrants }))
-        .setMimeType(ContentService.MimeType.JSON);
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        loginCheckHandled: true,
+        student: {
+          id: matchedRow.id,
+          name: matchedRow.name,
+          status: matchedRow.status,
+          maxDevices: maxDev,
+          devices: devList
+        }
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (0-ب) إنشاء وتجهيز ورقة "ID registrants" أو إضافة مشترك
     if (data.action === "init_registrants_sheet" || data.action === "add_registrant") {
       var regSheet = getIDRegistrantsSheet(ss);
       if (data.id && data.name) {
-        regSheet.appendRow([String(data.id).trim(), String(data.name).trim()]);
+        var newId = normRegDigitsGS(data.id);
+        var newName = String(data.name).trim();
+        var newStatus = String(data.status || "مفعّل").trim() || "مفعّل";
+        var newMax = Math.max(1, Math.min(10, Number(data.maxDevices) || 2));
+        var existingRows = readAllRegistrantsGS(regSheet);
+        var existingRow = null;
+        for (var k = 0; k < existingRows.length; k++) {
+          if (existingRows[k].id === newId) {
+            existingRow = existingRows[k];
+            break;
+          }
+        }
+        if (existingRow) {
+          regSheet.getRange(existingRow.rowNumber, 1, 1, 4).setValues([[newId, newName, newStatus, newMax]]);
+        } else {
+          regSheet.appendRow([newId, newName, newStatus, newMax, "[]"]);
+        }
       }
-      return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم إعداد ورقة ID registrants بنجاح" }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        registrantHandled: true,
+        message: "تم إعداد وحفظ ورقة ID registrants بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة)
+    if (data.action === "update_registrant") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      var rows = readAllRegistrantsGS(regSheet);
+      var origId = normRegDigitsGS(data.originalId || data.id || "");
+      var targetRow = null;
+      for (var k = 0; k < rows.length; k++) {
+        if (rows[k].id === origId) {
+          targetRow = rows[k];
+          break;
+        }
+      }
+      if (!targetRow) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          registrantHandled: true,
+          error: "لم يتم العثور على المشترك لتعديله."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var nextId = normRegDigitsGS(data.id || targetRow.id);
+      var nextName = String(data.name || targetRow.name).trim();
+      var nextStatus = String(data.status || targetRow.status || "مفعّل").trim();
+      var nextMax = Math.max(1, Math.min(10, Number(data.maxDevices) || targetRow.maxDevices || 2));
+      regSheet.getRange(targetRow.rowNumber, 1, 1, 4).setValues([[nextId, nextName, nextStatus, nextMax]]);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        registrantHandled: true,
+        message: "تم تحديث بيانات المشترك بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-هـ) تصفير الأجهزة المسجلة لمشترك
+    if (data.action === "reset_registrant_devices") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      var rows = readAllRegistrantsGS(regSheet);
+      var targetId = normRegDigitsGS(data.id || "");
+      var targetRow = null;
+      for (var k = 0; k < rows.length; k++) {
+        if (rows[k].id === targetId) {
+          targetRow = rows[k];
+          break;
+        }
+      }
+      if (!targetRow) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          registrantHandled: true,
+          error: "لم يتم العثور على المشترك."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      regSheet.getRange(targetRow.rowNumber, 5).setValue("[]");
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        registrantHandled: true,
+        message: "تم تصفير جميع الأجهزة المسجلة للطالب بنجاح"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (0-و) حذف مشترك من ورقة "ID registrants"
+    if (data.action === "delete_registrant") {
+      var regSheet = getIDRegistrantsSheet(ss);
+      var rows = readAllRegistrantsGS(regSheet);
+      var targetId = normRegDigitsGS(data.id || "");
+      for (var k = rows.length - 1; k >= 0; k--) {
+        if (rows[k].id === targetId) {
+          regSheet.deleteRow(rows[k].rowNumber);
+          return ContentService.createTextOutput(JSON.stringify({
+            success: true,
+            registrantHandled: true,
+            message: "تم حذف المشترك من الشيت بنجاح"
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        registrantHandled: true,
+        error: "لم يتم العثور على المشترك لحذفه."
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (0-ج) حفظ الترجمات في ورقة "الترجمة" وتحديث النصوص في ورقة "الرئيسية"

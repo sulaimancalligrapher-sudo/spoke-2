@@ -115,10 +115,19 @@ export interface StudentSubmissionRecord {
   syncedToSheets: boolean;
 }
 
+export interface StudentDeviceInfo {
+  deviceId: string;
+  location?: string;
+  lastLogin?: string;
+}
+
 export interface StudentRegistrant {
   id: string; // رقم المشترك ID
   name: string; // اسم المشترك
   registeredAt?: number;
+  status?: 'مفعّل' | 'معطّل' | string; // حالة الحساب
+  maxDevices?: number; // الحد الأقصى للأجهزة المسموحة (افتراضي 2)
+  devices?: StudentDeviceInfo[]; // الأجهزة المسجلة مع الموقع وتاريخ آخر دخول
 }
 
 export interface SocialLinkItem {

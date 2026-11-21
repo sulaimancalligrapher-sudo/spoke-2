@@ -106,6 +106,11 @@ export interface TelegramConfig {
   enabled: boolean;
   welcomeMessage?: string;
   webhookUrl?: string;
+  adminChatId?: string;
+  notifyOnVideoCorrection?: boolean;
+  notifyAdminOnHomework?: boolean;
+  dailyReminderEnabled?: boolean;
+  customFooter?: string;
 }
 
 export interface TelegramStudentLink {
@@ -1253,6 +1258,11 @@ export function getLocalTelegramConfig(): TelegramConfig {
             'مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.'
         ),
         webhookUrl: parsed.webhookUrl ? String(parsed.webhookUrl) : undefined,
+        adminChatId: String(parsed.adminChatId || ''),
+        notifyOnVideoCorrection: parsed.notifyOnVideoCorrection !== false,
+        notifyAdminOnHomework: Boolean(parsed.notifyAdminOnHomework),
+        dailyReminderEnabled: Boolean(parsed.dailyReminderEnabled),
+        customFooter: String(parsed.customFooter || ''),
       };
     }
   } catch {}
@@ -1261,6 +1271,11 @@ export function getLocalTelegramConfig(): TelegramConfig {
     botUsername: '',
     enabled: false,
     welcomeMessage: 'مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.',
+    adminChatId: '',
+    notifyOnVideoCorrection: true,
+    notifyAdminOnHomework: false,
+    dailyReminderEnabled: false,
+    customFooter: '',
   };
 }
 
@@ -1279,12 +1294,18 @@ export async function fetchTelegramConfig(webhookUrl: string): Promise<TelegramC
       sheetName: VIDEO_SHEETS.TELEGRAM_CONFIG,
     });
     if (res.success && res.data?.config) {
+      const c = res.data.config;
       const cfg: TelegramConfig = {
-        botToken: String(res.data.config.botToken || ''),
-        botUsername: String(res.data.config.botUsername || ''),
-        enabled: Boolean(res.data.config.enabled),
-        welcomeMessage: String(res.data.config.welcomeMessage || local.welcomeMessage || ''),
-        webhookUrl: res.data.config.webhookUrl ? String(res.data.config.webhookUrl) : undefined,
+        botToken: String(c.botToken || ''),
+        botUsername: String(c.botUsername || ''),
+        enabled: Boolean(c.enabled),
+        welcomeMessage: String(c.welcomeMessage || local.welcomeMessage || ''),
+        webhookUrl: c.webhookUrl ? String(c.webhookUrl) : undefined,
+        adminChatId: String(c.adminChatId || ''),
+        notifyOnVideoCorrection: c.notifyOnVideoCorrection !== false,
+        notifyAdminOnHomework: Boolean(c.notifyAdminOnHomework),
+        dailyReminderEnabled: Boolean(c.dailyReminderEnabled),
+        customFooter: String(c.customFooter || ''),
       };
       saveLocalTelegramConfig(cfg);
       return cfg;
@@ -1345,10 +1366,92 @@ export async function fetchTelegramUsers(webhookUrl: string): Promise<TelegramSt
   return [];
 }
 
+export async function linkTelegramUserInSheet(
+  webhookUrl: string,
+  payload: {
+    studentId: string;
+    studentName: string;
+    chatId: string;
+    telegramUsername?: string;
+    notificationsEnabled?: boolean;
+  }
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'يرجى ربط Google Sheets Webhook أولاً.' };
+  }
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'link_telegram_user',
+    sheetName: VIDEO_SHEETS.TELEGRAM_USERS,
+    ...payload,
+  });
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر ربط الطالب في ورقة تيليغرام' };
+  }
+  if (res.data?.telegramHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل الربط اليدوي.',
+    };
+  }
+  return { success: true, message: res.message || 'تم ربط الطالب ببوت تيليغرام بنجاح' };
+}
+
+export async function toggleTelegramUserNotificationsInSheet(
+  webhookUrl: string,
+  params: { studentId?: string; chatId: string; notificationsEnabled: boolean }
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'يرجى ربط Google Sheets Webhook أولاً.' };
+  }
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'toggle_telegram_user',
+    sheetName: VIDEO_SHEETS.TELEGRAM_USERS,
+    ...params,
+  });
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر تحديث حالة الإشعارات' };
+  }
+  if (res.data?.telegramHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تبديل حالة الإشعارات.',
+    };
+  }
+  return { success: true, message: res.message || 'تم تحديث حالة الإشعارات بنجاح' };
+}
+
+export async function deleteTelegramUserInSheet(
+  webhookUrl: string,
+  params: { studentId?: string; chatId: string }
+): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'يرجى ربط Google Sheets Webhook أولاً.' };
+  }
+  const res = await callGoogleSheetsPost(webhookUrl, {
+    action: 'delete_telegram_user',
+    sheetName: VIDEO_SHEETS.TELEGRAM_USERS,
+    ...params,
+  });
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر إلغاء ربط الطالب' };
+  }
+  if (res.data?.telegramHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل حذف ربط الطالب.',
+    };
+  }
+  return { success: true, message: res.message || 'تم إلغاء ربط الطالب بنجاح' };
+}
+
 export async function sendTelegramNotification(
   webhookUrl: string,
   params: {
     studentId?: string;
+    studentIds?: string[];
     studentName?: string;
     chatId?: string;
     message: string;
