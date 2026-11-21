@@ -21,6 +21,9 @@ import {
   ZoomIn,
   X,
   MessageSquare,
+  Bot,
+  Users,
+  Link2,
   Volume2,
   Languages,
   Sparkles,
@@ -36,17 +39,24 @@ import {
   saveTranslationsToSheets,
 } from '../../utils/googleSheets';
 import {
+  TelegramConfig,
+  TelegramStudentLink,
   VideoLesson,
   VideoStudentSubmissionRow,
   VideoTimestampQuestion,
   buildVideoVariableTranslationItems,
   deleteVideoLessonFromSheets,
   fetchAllVideoSubmissionsForAdmin,
+  fetchTelegramConfig,
+  fetchTelegramUsers,
   fetchVideoLessonsFromSheets,
+  getLocalTelegramConfig,
   resolveVideoAudioAlternatives,
   resolveVideoQuestionImage,
   saveTeacherVideoCorrection,
+  saveTelegramConfig,
   saveVideoLessonToSheets,
+  sendTelegramNotification,
   syncAllVideoLessonsToSheets,
 } from '../videoSheets';
 
@@ -59,7 +69,7 @@ interface VideoAdminManagerProps {
   geminiApiKey?: string;
 }
 
-type AdminSubTab = 'lessons' | 'corrections' | 'translations';
+type AdminSubTab = 'lessons' | 'corrections' | 'telegram' | 'translations';
 
 function createEmptyLesson(): VideoLesson {
   return {
@@ -366,6 +376,8 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
   useEffect(() => {
     if (subTab === 'corrections') {
       loadSubmissions();
+    } else if (subTab === 'telegram') {
+      loadTelegramData();
     }
   }, [subTab]);
 
@@ -495,6 +507,106 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
     });
   }, [submissions, subSearch, subFilter]);
 
+  // =========================================================================
+  // 3. TELEGRAM BOT CONFIG & LINKED STUDENTS STATE
+  // =========================================================================
+  const [tgConfig, setTgConfig] = useState<TelegramConfig>(() => getLocalTelegramConfig());
+  const [tgUsers, setTgUsers] = useState<TelegramStudentLink[]>([]);
+  const [loadingTg, setLoadingTg] = useState(false);
+  const [savingTg, setSavingTg] = useState(false);
+  const [tgTestResult, setTgTestResult] = useState<string | null>(null);
+  const [broadcastMsg, setBroadcastMsg] = useState('');
+  const [targetChatId, setTargetChatId] = useState<string>('ALL');
+  const [sendingMsg, setSendingMsg] = useState(false);
+
+  const loadTelegramData = async () => {
+    setLoadingTg(true);
+    try {
+      const [cfg, users] = await Promise.all([
+        fetchTelegramConfig(webhookUrl),
+        fetchTelegramUsers(webhookUrl),
+      ]);
+      setTgConfig(cfg);
+      setTgUsers(users);
+    } finally {
+      setLoadingTg(false);
+    }
+  };
+
+  const handleSaveTelegram = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingTg(true);
+    setStatusBanner(null);
+    try {
+      const res = await saveTelegramConfig(webhookUrl, tgConfig);
+      setStatusBanner({ success: res.success, message: res.message });
+    } finally {
+      setSavingTg(false);
+    }
+  };
+
+  const handleTestTelegramBot = async () => {
+    if (!tgConfig.botToken.trim()) {
+      setTgTestResult('يرجى إدخال Bot Token أولاً.');
+      return;
+    }
+    setTgTestResult('جاري فحص البوت...');
+    try {
+      const resp = await fetch(
+        `https://api.telegram.org/bot${encodeURIComponent(tgConfig.botToken.trim())}/getMe`
+      );
+      const data = await resp.json();
+      if (data.ok && data.result) {
+        const uname = data.result.username || '';
+        if (uname) setTgConfig((prev) => ({ ...prev, botUsername: uname }));
+        setTgTestResult(`تم التحقق بنجاح! اسم البوت: ${data.result.first_name} (@${uname})`);
+      } else {
+        setTgTestResult(`فشل التحقق: ${data.description || 'تأكد من التوكن'}`);
+      }
+    } catch {
+      setTgTestResult('تعذر الاتصال بخوادم تيليغرام من المتصفح.');
+    }
+  };
+
+  const handleRegisterTelegramWebhook = async () => {
+    if (!tgConfig.botToken.trim() || !webhookUrl.trim().startsWith('http')) {
+      setTgTestResult('يجب توفر كل من Bot Token ورابط Google Apps Script Webhook أولاً.');
+      return;
+    }
+    setTgTestResult('جاري ربط Webhook البوت مع Google Apps Script...');
+    try {
+      const apiUrl = `https://api.telegram.org/bot${encodeURIComponent(
+        tgConfig.botToken.trim()
+      )}/setWebhook?url=${encodeURIComponent(webhookUrl.trim())}`;
+      const resp = await fetch(apiUrl);
+      const data = await resp.json();
+      if (data.ok) {
+        setTgTestResult('تم ربط Webhook تيليغرام مع Google Apps Script بنجاح!');
+      } else {
+        setTgTestResult(`تعذر ضبط Webhook: ${data.description || 'خطأ غير معروف'}`);
+      }
+    } catch {
+      setTgTestResult('حدث خطأ أثناء ضبط Webhook.');
+    }
+  };
+
+  const handleSendTelegramMessage = async () => {
+    if (!broadcastMsg.trim()) return;
+    setSendingMsg(true);
+    setStatusBanner(null);
+    try {
+      const res = await sendTelegramNotification(webhookUrl, {
+        message: broadcastMsg.trim(),
+        chatId: targetChatId === 'ALL' ? undefined : targetChatId,
+        broadcastAll: targetChatId === 'ALL',
+      });
+      setStatusBanner({ success: res.success, message: res.message });
+      if (res.success) setBroadcastMsg('');
+    } finally {
+      setSendingMsg(false);
+    }
+  };
+
   return (
     <div className="space-y-6 font-cairo">
       {/* Header Card */}
@@ -506,10 +618,10 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-extrabold text-slate-900">
-                إدارة الفيديو التفاعلي والتصحيح
+                إدارة الفيديو التفاعلي والتصحيح وإشعارات تيليغرام
               </h2>
               <p className="text-xs text-slate-500">
-                إدارة أوراق (فيديو_الأسئلة · فيديو_الإجابات · فيديو_التصحيح)
+                إدارة أوراق (فيديو_الأسئلة · فيديو_الإجابات · فيديو_التصحيح · تيليغرام_الإعدادات)
               </p>
             </div>
           </div>
@@ -537,7 +649,7 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
         </div>
 
         {/* Sub-Tabs Navigation */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 bg-slate-100 p-1 rounded-2xl">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-100 p-1 rounded-2xl">
           <button
             type="button"
             onClick={() => setSubTab('lessons')}
@@ -575,6 +687,19 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
           >
             <Languages className="w-4 h-4 shrink-0" />
             <span className="truncate">ترجمة المتغيرات ({varItems.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('telegram')}
+            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              subTab === 'telegram'
+                ? 'bg-white text-indigo-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Bot className="w-4 h-4 shrink-0" />
+            <span className="truncate">بوت تيليغرام والإشعارات</span>
           </button>
         </div>
 
@@ -1256,6 +1381,194 @@ export const VideoAdminManager: React.FC<VideoAdminManagerProps> = ({
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* =====================================================================
+          SUB-TAB 3: TELEGRAM BOT & STUDENT NOTIFICATIONS
+         ===================================================================== */}
+      {subTab === 'telegram' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Bot Settings Card */}
+          <form
+            onSubmit={handleSaveTelegram}
+            className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Bot className="w-5 h-5 text-sky-600" />
+                <span>إعدادات بوت تيليغرام (تيليغرام_الإعدادات)</span>
+              </h3>
+              {loadingTg && <Loader2 className="w-4 h-4 animate-spin text-sky-600" />}
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">Bot Token (من BotFather)</label>
+                <input
+                  type="text"
+                  value={tgConfig.botToken}
+                  onChange={(e) => setTgConfig({ ...tgConfig, botToken: e.target.value })}
+                  placeholder="123456789:ABCdefGHIjklMNO..."
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">معرف البوت (Username بدون @)</label>
+                <input
+                  type="text"
+                  value={tgConfig.botUsername}
+                  onChange={(e) =>
+                    setTgConfig({ ...tgConfig, botUsername: e.target.value.replace('@', '') })
+                  }
+                  placeholder="FaseehVideoBot"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs font-mono"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">رسالة الترحيب عند ربط الطالب للبوت</label>
+                <textarea
+                  rows={2}
+                  value={tgConfig.welcomeMessage || ''}
+                  onChange={(e) => setTgConfig({ ...tgConfig, welcomeMessage: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={tgConfig.enabled}
+                  onChange={(e) => setTgConfig({ ...tgConfig, enabled: e.target.checked })}
+                  className="w-4 h-4 rounded accent-sky-600"
+                />
+                <span>تفعيل إشعارات البوت التلقائية</span>
+              </label>
+            </div>
+
+            {tgTestResult && (
+              <div className="p-3 rounded-xl bg-sky-50 border border-sky-200 text-xs font-bold text-sky-900">
+                {tgTestResult}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="submit"
+                disabled={savingTg}
+                className="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              >
+                {savingTg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>حفظ الإعدادات</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTestTelegramBot}
+                className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold cursor-pointer"
+              >
+                فحص البوت
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRegisterTelegramWebhook}
+                className="px-3.5 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span>ربط Webhook بالشيت</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Linked Users & Notification Sender Card */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Users className="w-5 h-5 text-emerald-600" />
+                <span>الطلاب المربوطون ({tgUsers.length})</span>
+              </h3>
+              <button
+                type="button"
+                onClick={loadTelegramData}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 cursor-pointer"
+              >
+                تحديث
+              </button>
+            </div>
+
+            {tgConfig.botUsername && (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700">
+                رابط ربط الطالب المباشر: يرسل الطالب رقم الـ ID الخاص به للبوت{' '}
+                <span className="font-mono font-bold text-sky-700" dir="ltr">
+                  @{tgConfig.botUsername}
+                </span>
+              </div>
+            )}
+
+            {/* Quick Notification Sender */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+              <div className="text-xs font-extrabold text-slate-800">إرسال إشعار فوري عبر تيليغرام</div>
+              <select
+                value={targetChatId}
+                onChange={(e) => setTargetChatId(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+              >
+                <option value="ALL">إرسال لجميع الطلاب المربوطين ({tgUsers.length})</option>
+                {tgUsers.map((u) => (
+                  <option key={u.chatId} value={u.chatId}>
+                    {u.studentName} (ID: {u.studentId})
+                  </option>
+                ))}
+              </select>
+
+              <textarea
+                rows={2}
+                value={broadcastMsg}
+                onChange={(e) => setBroadcastMsg(e.target.value)}
+                placeholder="اكتب نص الإشعار أو التنبيه للطالب..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+              />
+
+              <button
+                type="button"
+                disabled={sendingMsg || !broadcastMsg.trim()}
+                onClick={handleSendTelegramMessage}
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                {sendingMsg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                <span>إرسال الإشعار</span>
+              </button>
+            </div>
+
+            {/* Users List */}
+            {tgUsers.length === 0 ? (
+              <div className="py-6 text-center text-xs text-slate-500 font-bold">
+                لا يوجد طلاب مربوطون في ورقة «تيليغرام_الطلاب» بعد.
+              </div>
+            ) : (
+              <div className="max-h-52 overflow-y-auto space-y-1.5">
+                {tgUsers.map((u) => (
+                  <div
+                    key={`${u.studentId}-${u.chatId}`}
+                    className="p-2.5 rounded-xl border border-slate-200 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="font-extrabold text-slate-900">{u.studentName}</div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        ID: {u.studentId} · {u.telegramUsername || u.chatId}
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-emerald-700 font-bold">مربوط</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

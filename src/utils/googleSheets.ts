@@ -3914,11 +3914,6 @@ function getTelegramConfigSheet(ss) {
     sheet.appendRow(["botUsername", ""]);
     sheet.appendRow(["enabled", "false"]);
     sheet.appendRow(["welcomeMessage", "مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم."]);
-    sheet.appendRow(["adminChatId", ""]);
-    sheet.appendRow(["notifyOnVideoCorrection", "true"]);
-    sheet.appendRow(["notifyAdminOnHomework", "false"]);
-    sheet.appendRow(["dailyReminderEnabled", "false"]);
-    sheet.appendRow(["customFooter", ""]);
   }
   return sheet;
 }
@@ -3937,17 +3932,7 @@ function getTelegramUsersSheet(ss) {
 function readTelegramConfigGS(ss) {
   var sheet = getTelegramConfigSheet(ss);
   var rows = sheet.getDataRange().getValues();
-  var cfg = {
-    botToken: "",
-    botUsername: "",
-    enabled: false,
-    welcomeMessage: "مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.",
-    adminChatId: "",
-    notifyOnVideoCorrection: true,
-    notifyAdminOnHomework: false,
-    dailyReminderEnabled: false,
-    customFooter: ""
-  };
+  var cfg = { botToken: "", botUsername: "", enabled: false, welcomeMessage: "مرحباً بك! تم ربط حسابك بنجاح." };
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0] || "").trim();
     var v = String(rows[i][1] || "").trim();
@@ -3955,11 +3940,6 @@ function readTelegramConfigGS(ss) {
     else if (k === "botUsername") cfg.botUsername = v;
     else if (k === "enabled") cfg.enabled = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
     else if (k === "welcomeMessage" && v) cfg.welcomeMessage = v;
-    else if (k === "adminChatId") cfg.adminChatId = v;
-    else if (k === "notifyOnVideoCorrection") cfg.notifyOnVideoCorrection = (v.toLowerCase() !== "false" && v !== "لا" && v !== "0");
-    else if (k === "notifyAdminOnHomework") cfg.notifyAdminOnHomework = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
-    else if (k === "dailyReminderEnabled") cfg.dailyReminderEnabled = (v.toLowerCase() === "true" || v === "نعم" || v === "1");
-    else if (k === "customFooter") cfg.customFooter = v;
   }
   return cfg;
 }
@@ -3969,18 +3949,12 @@ function writeTelegramConfigGS(ss, cfg) {
   if (sheet.getLastRow() > 1) {
     sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
   }
-  var rows = [
+  sheet.getRange(2, 1, 4, 2).setValues([
     ["botToken", String(cfg.botToken || "").trim()],
     ["botUsername", String(cfg.botUsername || "").trim()],
     ["enabled", cfg.enabled ? "true" : "false"],
-    ["welcomeMessage", String(cfg.welcomeMessage || "مرحباً بك! تم ربط حسابك بنجاح.").trim()],
-    ["adminChatId", String(cfg.adminChatId || "").trim()],
-    ["notifyOnVideoCorrection", cfg.notifyOnVideoCorrection === false ? "false" : "true"],
-    ["notifyAdminOnHomework", cfg.notifyAdminOnHomework ? "true" : "false"],
-    ["dailyReminderEnabled", cfg.dailyReminderEnabled ? "true" : "false"],
-    ["customFooter", String(cfg.customFooter || "").trim()]
-  ];
-  sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+    ["welcomeMessage", String(cfg.welcomeMessage || "مرحباً بك! تم ربط حسابك بنجاح.").trim()]
+  ]);
 }
 
 function sendTelegramBotMessageGS(ss, chatId, text, photoUrl) {
@@ -5174,42 +5148,32 @@ function doPost(e) {
       var chatId = String(chat.id);
       var tgUser = chat.username ? ("@" + chat.username) : String(chat.first_name || "");
       var textMsg = String(data.message.text || "").trim();
-
-      // أمر معرفة رقم Chat ID للمشرف أو الطالب
-      if (/^(\/id|\/myid|id)$/i.test(textMsg)) {
-        sendTelegramBotMessageGS(ss, chatId, "رقم Chat ID الخاص بك هو:\\n<code>" + chatId + "</code>", "");
-        return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
-      }
-
       var candidateId = "";
       var startMatch = textMsg.match(/\\/start\\s+([^\\s]+)/i);
       if (startMatch) {
-        candidateId = normRegDigitsGS(startMatch[1]);
-      } else {
-        var normMsgId = normRegDigitsGS(textMsg);
-        if (/^[a-zA-Z0-9_-]{2,}$/.test(normMsgId)) {
-          candidateId = normMsgId;
-        }
+        candidateId = startMatch[1].trim();
+      } else if (/^[a-zA-Z0-9_-]{2,}$/.test(textMsg)) {
+        candidateId = textMsg;
       }
 
       if (candidateId) {
         var regSheetTg = getIDRegistrantsSheet(ss);
-        var allRegsTg = readAllRegistrantsGS(regSheetTg);
+        var regRowsTg = regSheetTg.getDataRange().getValues();
         var matchedStudent = null;
-        for (var rIdx = 0; rIdx < allRegsTg.length; rIdx++) {
-          if (allRegsTg[rIdx].id === candidateId) {
-            matchedStudent = allRegsTg[rIdx];
+        for (var rIdx = 1; rIdx < regRowsTg.length; rIdx++) {
+          var rowId = String(regRowsTg[rIdx][0] || "").trim();
+          var rowName = String(regRowsTg[rIdx][1] || "").trim();
+          if (rowId === candidateId) {
+            matchedStudent = { id: rowId, name: rowName };
             break;
           }
         }
-        if (matchedStudent && isRegistrantDisabledGS(matchedStudent.status)) {
-          sendTelegramBotMessageGS(ss, chatId, "هذا الحساب معطّل حالياً. يرجى التواصل مع الإدارة.", "");
-        } else if (matchedStudent) {
+        if (matchedStudent) {
           var uSheet = getTelegramUsersSheet(ss);
           var uRows = uSheet.getDataRange().getValues();
           var foundRow = -1;
           for (var u = 1; u < uRows.length; u++) {
-            if (normRegDigitsGS(uRows[u][0]) === matchedStudent.id) {
+            if (String(uRows[u][0] || "").trim() === matchedStudent.id) {
               foundRow = u + 1;
               break;
             }
@@ -5227,7 +5191,7 @@ function doPost(e) {
           sendTelegramBotMessageGS(ss, chatId, "لم يتم العثور على رقم المشترك (" + candidateId + "). أرسل رقم الـ ID الصحيح للربط.", "");
         }
       } else {
-        sendTelegramBotMessageGS(ss, chatId, "أهلاً بك! أرسل رقم المشترك (ID) الخاص بك لربط حسابك وتلقي الإشعارات وتصحيح المعلم.\\nأو أرسل /id لمعرفة Chat ID الخاص بك.", "");
+        sendTelegramBotMessageGS(ss, chatId, "أهلاً بك! أرسل رقم المشترك (ID) الخاص بك لربط حسابك وتلقي الإشعارات وتصحيح المعلم.", "");
       }
       return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -5603,22 +5567,19 @@ function doPost(e) {
       }
 
       var telegramSent = false;
-      var tgCfgCorr = readTelegramConfigGS(ss);
-      if (data.sendTelegram && tgCfgCorr.notifyOnVideoCorrection !== false) {
+      if (data.sendTelegram) {
         var tgUsers = getTelegramUsersSheet(ss).getDataRange().getValues();
-        var normSid = normRegDigitsGS(sId);
         for (var u = 1; u < tgUsers.length; u++) {
-          var uId = normRegDigitsGS(tgUsers[u][0]);
+          var uId = String(tgUsers[u][0] || "").trim();
           var uName = String(tgUsers[u][1] || "").trim();
           var uChatId = String(tgUsers[u][2] || "").trim();
           var uEnabled = String(tgUsers[u][5] || "true") !== "false";
-          if (uEnabled && uChatId && ((normSid && uId === normSid) || (sName && uName === sName))) {
+          if (uEnabled && uChatId && ((sId && uId === sId) || (sName && uName === sName))) {
             var summaryMsg = "<b>تم تصحيح واجبك في درس: " + lTitle + "</b>";
             if (data.imageScore) summaryMsg += "\\nدرجة الصورة: " + data.imageScore;
             if (data.imageNotes) summaryMsg += "\\nملاحظة المعلم: " + data.imageNotes;
             if (data.audioScore) summaryMsg += "\\nدرجة الصوت: " + data.audioScore;
             if (data.audioNotes) summaryMsg += "\\nتوجيه صوتي: " + data.audioNotes;
-            if (tgCfgCorr.customFooter) summaryMsg += "\\n\\n" + tgCfgCorr.customFooter;
             telegramSent = sendTelegramBotMessageGS(ss, uChatId, summaryMsg, correctedImage || "");
             break;
           }
@@ -5667,7 +5628,7 @@ function doPost(e) {
       for (var u = 1; u < rows.length; u++) {
         if (!rows[u][0] && !rows[u][2]) continue;
         usersList.push({
-          studentId: normRegDigitsGS(rows[u][0]),
+          studentId: String(rows[u][0] || "").trim(),
           studentName: String(rows[u][1] || "").trim(),
           chatId: String(rows[u][2] || "").trim(),
           telegramUsername: String(rows[u][3] || "").trim(),
@@ -5675,122 +5636,25 @@ function doPost(e) {
           notificationsEnabled: String(rows[u][5] || "true") !== "false"
         });
       }
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        supportsTelegramV2: true,
-        users: usersList
-      })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    if (data.action === "link_telegram_user") {
-      var uSheet = getTelegramUsersSheet(ss);
-      var sIdLink = normRegDigitsGS(data.studentId || "");
-      var sNameLink = String(data.studentName || "").trim();
-      var chatIdLink = String(data.chatId || "").trim();
-      var tgUserLink = String(data.telegramUsername || "").trim();
-      var enabledLink = data.notificationsEnabled === false ? "false" : "true";
-      if (!sIdLink || !chatIdLink) {
-        return ContentService.createTextOutput(JSON.stringify({
-          success: false,
-          telegramHandled: true,
-          error: "يرجى إدخال رقم الطالب (ID) ورقم Chat ID."
-        })).setMimeType(ContentService.MimeType.JSON);
-      }
-      var uRows = uSheet.getDataRange().getValues();
-      var matchRow = -1;
-      for (var u = 1; u < uRows.length; u++) {
-        if (normRegDigitsGS(uRows[u][0]) === sIdLink || String(uRows[u][2] || "").trim() === chatIdLink) {
-          matchRow = u + 1;
-          break;
-        }
-      }
-      var nowTg = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "GMT+3", "yyyy/MM/dd HH:mm");
-      var rowVals = [sIdLink, sNameLink || ("طالب #" + sIdLink), chatIdLink, tgUserLink, nowTg, enabledLink];
-      if (matchRow !== -1) {
-        uSheet.getRange(matchRow, 1, 1, 6).setValues([rowVals]);
-      } else {
-        uSheet.appendRow(rowVals);
-      }
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        telegramHandled: true,
-        message: "تم حفظ وربط حساب الطالب في ورقة تيليغرام_الطلاب بنجاح"
-      })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    if (data.action === "toggle_telegram_user") {
-      var uSheet = getTelegramUsersSheet(ss);
-      var uRows = uSheet.getDataRange().getValues();
-      var tChat = String(data.chatId || "").trim();
-      var tId = normRegDigitsGS(data.studentId || "");
-      var nextFlag = data.notificationsEnabled === false ? "false" : "true";
-      for (var u = 1; u < uRows.length; u++) {
-        if ((tChat && String(uRows[u][2] || "").trim() === tChat) || (tId && normRegDigitsGS(uRows[u][0]) === tId)) {
-          uSheet.getRange(u + 1, 6).setValue(nextFlag);
-          return ContentService.createTextOutput(JSON.stringify({
-            success: true,
-            telegramHandled: true,
-            message: "تم تحديث حالة الإشعارات للطالب بنجاح"
-          })).setMimeType(ContentService.MimeType.JSON);
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({
-        success: false,
-        telegramHandled: true,
-        error: "لم يتم العثور على الطالب في ورقة تيليغرام_الطلاب."
-      })).setMimeType(ContentService.MimeType.JSON);
-    }
-
-    if (data.action === "delete_telegram_user") {
-      var uSheet = getTelegramUsersSheet(ss);
-      var uRows = uSheet.getDataRange().getValues();
-      var dChat = String(data.chatId || "").trim();
-      var dId = normRegDigitsGS(data.studentId || "");
-      for (var u = uRows.length - 1; u >= 1; u--) {
-        if ((dChat && String(uRows[u][2] || "").trim() === dChat) || (dId && normRegDigitsGS(uRows[u][0]) === dId)) {
-          uSheet.deleteRow(u + 1);
-          return ContentService.createTextOutput(JSON.stringify({
-            success: true,
-            telegramHandled: true,
-            message: "تم إلغاء ربط الطالب وحذفه من ورقة تيليغرام_الطلاب"
-          })).setMimeType(ContentService.MimeType.JSON);
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({
-        success: false,
-        telegramHandled: true,
-        error: "لم يتم العثور على السجل."
-      })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({ success: true, users: usersList }))
+        .setMimeType(ContentService.MimeType.JSON);
     }
 
     if (data.action === "send_telegram_notification") {
-      var tgCfgSend = readTelegramConfigGS(ss);
       var msg = String(data.message || "").trim();
-      if (tgCfgSend.customFooter) {
-        msg = msg + "\\n\\n" + tgCfgSend.customFooter;
-      }
       var photo = String(data.photoUrl || "").trim();
       var sentCount = 0;
       if (data.chatId) {
         if (sendTelegramBotMessageGS(ss, String(data.chatId), msg, photo)) sentCount++;
       } else {
-        var targetIdsMap = {};
-        var hasTargetIds = Array.isArray(data.studentIds) && data.studentIds.length > 0;
-        if (hasTargetIds) {
-          for (var ti = 0; ti < data.studentIds.length; ti++) {
-            targetIdsMap[normRegDigitsGS(data.studentIds[ti])] = true;
-          }
-        }
         var uRows = getTelegramUsersSheet(ss).getDataRange().getValues();
         for (var u = 1; u < uRows.length; u++) {
-          var uId = normRegDigitsGS(uRows[u][0]);
+          var uId = String(uRows[u][0] || "").trim();
           var uName = String(uRows[u][1] || "").trim();
           var uChatId = String(uRows[u][2] || "").trim();
           var uEnabled = String(uRows[u][5] || "true") !== "false";
           if (!uEnabled || !uChatId) continue;
-          var matchedGroup = hasTargetIds && targetIdsMap[uId];
-          var matchedSingle = (data.studentId && uId === normRegDigitsGS(data.studentId)) || (data.studentName && uName === data.studentName);
-          if (data.broadcastAll || matchedGroup || matchedSingle) {
+          if (data.broadcastAll || (data.studentId && uId === data.studentId) || (data.studentName && uName === data.studentName)) {
             if (sendTelegramBotMessageGS(ss, uChatId, msg, photo)) sentCount++;
           }
         }

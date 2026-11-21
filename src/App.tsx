@@ -202,7 +202,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -1908,7 +1908,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
