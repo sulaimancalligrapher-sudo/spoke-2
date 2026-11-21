@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxblPMRHb7BLVpNnf3T3qcrETU8q2NR-o8f06G247P5kbDbht_njgr2Xje-3QaVeTwgoA/exec';
+  'https://script.google.com/macros/s/AKfycbzJJ7aw9AUbn980BcQGZZyKGdwTcF0308HSCiJ0Tkdc79mFoto-IxJPmcM7uNIyorKhIg/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -3425,7 +3425,7 @@ export const GOOGLE_APPS_SCRIPT_TEMPLATE = `/**
  * 1. افتح محرر السكربت من الشيت: Extensions -> Apps Script
  * 2. اختر دالة authorizePermissions من القائمة المنسدلة بالأعلى
  * 3. اضغط على زر "تشغيل / Run"
- * 4. ستفتح نافذة جوجل لمنح الإذن لـ Google Drive والشيت: اضغط Review Permissions ثم اضغط Allow.
+ * 4. ستفتح نافذة جوجل لمنح الإذن لـ Google Drive والشيت والاتصال الخارجي (UrlFetchApp / تيليغرام): اضغط Review Permissions ثم اضغط Allow.
  * 5. اضغط على Deploy -> Manage Deployments -> أيقونة القلم (Edit) -> اختر New Version -> ثم اضغط Deploy.
  * -----------------------------------------------------------------------
  */
@@ -3436,8 +3436,11 @@ function authorizePermissions() {
   var testFolder = DriveApp.createFolder("فصيح_أصوات_الدروس");
   var testFile = testFolder.createFile("test_auth.txt", "OK");
   testFile.setTrashed(true);
+  // تفويض الاتصال الخارجي لإرسال إشعارات بوت تيليغرام
+  var tgPing = UrlFetchApp.fetch("https://api.telegram.org", { muteHttpExceptions: true });
   Logger.log("تم تفويض Google Drive بنجاح: " + root.getName());
   Logger.log("تم تفويض Google Sheets بنجاح: " + ss.getName());
+  Logger.log("تم تفويض الاتصال الخارجي (UrlFetchApp / تيليغرام) بنجاح: HTTP " + tgPing.getResponseCode());
 }
 
 function getOrCreateAudioFolder(folderId) {
