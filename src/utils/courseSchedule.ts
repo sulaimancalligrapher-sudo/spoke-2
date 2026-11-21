@@ -66,9 +66,24 @@ export interface CourseScheduleData {
 export const COURSE_SCHEDULE_SHEETS = {
   GROUPS: 'مجموعات_الجدول',
   DAYS: 'الجدول_اليومي',
+  ATTENDANCE: 'سجل_الحضور',
 };
 
 export const STORAGE_KEY_COURSE_SCHEDULE = 'faseeh_course_schedule_v1';
+export const STORAGE_KEY_ATTENDANCE = 'faseeh_attendance_records_v1';
+
+export interface AttendanceRecord {
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  studentId: string;
+  studentName: string;
+  sessionTitle: string;
+  dayType?: string;
+  location?: string;
+  deviceId?: string;
+  createdAt?: string;
+  syncedToSheets?: boolean;
+}
 
 export const SCHEDULE_DAY_TYPE_META: Record<
   ScheduleDayType,
@@ -772,4 +787,373 @@ export function evaluateScheduledLessonStatus(
     totalCount: totalParts,
     detailTextAr: partsText.join(' · '),
   };
+}
+
+// =========================================================================
+// دوال تأكيد حضور الحصة اليومية وسجل الحضور (سجل_الحضور)
+// =========================================================================
+
+function normalizeAttDigits(raw: unknown): string {
+  return String(raw || '')
+    .trim()
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+}
+
+export interface TodayScheduleSummary {
+  todayISO: string;
+  day: CourseScheduleDay | null;
+  groups: CourseGroup[];
+  allLessonRefs: ScheduleLessonRef[];
+  totalLessons: number;
+  sessionTitle: string;
+  dayType: ScheduleDayType;
+}
+
+export function getTodayScheduleSummary(
+  schedule: CourseScheduleData,
+  targetDateISO?: string
+): TodayScheduleSummary {
+  const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO();
+  const day = schedule.days.find((d) => d.date === todayISO) || null;
+  const gIds = day
+    ? day.groupIds?.length
+      ? day.groupIds
+      : day.groupId
+      ? [day.groupId]
+      : []
+    : [];
+  const groups = gIds
+    .map((id) => schedule.groups.find((g) => g.id === id))
+    .filter((g): g is CourseGroup => Boolean(g));
+
+  const seenKeys = new Set<string>();
+  const allLessonRefs: ScheduleLessonRef[] = [];
+  for (const grp of groups) {
+    for (const ref of grp.lessons) {
+      if (!seenKeys.has(ref.key)) {
+        seenKeys.add(ref.key);
+        allLessonRefs.push(ref);
+      }
+    }
+  }
+
+  const dayType: ScheduleDayType = day?.dayType || 'lesson';
+  const sessionTitle =
+    (day?.customTitle || '').trim() ||
+    (groups.length > 0
+      ? groups.map((g) => g.name).join(' + ')
+      : day
+      ? SCHEDULE_DAY_TYPE_META[dayType].labelAr
+      : 'التدريب اليومي المفتوح');
+
+  return {
+    todayISO,
+    day,
+    groups,
+    allLessonRefs,
+    totalLessons: allLessonRefs.length,
+    sessionTitle,
+    dayType,
+  };
+}
+
+export function getLocalAttendanceRecords(): AttendanceRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_ATTENDANCE);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((r) => r && r.date && r.studentId)
+      .map((r) => ({
+        date: normalizeDateISO(r.date) || String(r.date),
+        time: String(r.time || ''),
+        studentId: normalizeAttDigits(r.studentId),
+        studentName: String(r.studentName || ''),
+        sessionTitle: String(r.sessionTitle || ''),
+        dayType: r.dayType ? String(r.dayType) : 'lesson',
+        location: r.location ? String(r.location) : undefined,
+        deviceId: r.deviceId ? String(r.deviceId) : undefined,
+        createdAt: r.createdAt ? String(r.createdAt) : undefined,
+        syncedToSheets: Boolean(r.syncedToSheets),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalAttendanceRecords(records: AttendanceRecord[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_ATTENDANCE, JSON.stringify(records));
+  } catch {}
+}
+
+export function mergeAttendanceRecords(
+  localList: AttendanceRecord[],
+  cloudList: AttendanceRecord[]
+): AttendanceRecord[] {
+  const map = new Map<string, AttendanceRecord>();
+  const keyOf = (r: AttendanceRecord) =>
+    `${normalizeDateISO(r.date) || r.date}::${normalizeAttDigits(r.studentId)}`;
+
+  for (const r of localList) {
+    map.set(keyOf(r), r);
+  }
+  for (const r of cloudList) {
+    map.set(keyOf(r), { ...r, syncedToSheets: true });
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const cmpDate = b.date.localeCompare(a.date);
+    if (cmpDate !== 0) return cmpDate;
+    return (b.time || '').localeCompare(a.time || '');
+  });
+}
+
+export async function fetchAttendanceRecordsFromSheets(
+  webhookUrl: string,
+  filter?: { studentId?: string; date?: string }
+): Promise<{ records: AttendanceRecord[]; scriptSupported: boolean }> {
+  const local = getLocalAttendanceRecords();
+  if (!webhookUrl) {
+    const filtered = local.filter((r) => {
+      if (filter?.studentId && normalizeAttDigits(r.studentId) !== normalizeAttDigits(filter.studentId)) {
+        return false;
+      }
+      if (filter?.date && r.date !== normalizeDateISO(filter.date)) {
+        return false;
+      }
+      return true;
+    });
+    return { records: filtered, scriptSupported: true };
+  }
+
+  try {
+    const sep = webhookUrl.includes('?') ? '&' : '?';
+    const params = new URLSearchParams({ action: 'get_attendance_records', t: String(Date.now()) });
+    if (filter?.studentId) params.set('studentId', normalizeAttDigits(filter.studentId));
+    if (filter?.date) params.set('date', normalizeDateISO(filter.date));
+    const res = await fetch(`${webhookUrl}${sep}${params.toString()}`, { method: 'GET' });
+    const json = await res.json();
+    if (json && json.attendanceHandled && Array.isArray(json.records)) {
+      const normalizedCloud: AttendanceRecord[] = json.records.map((r: any) => ({
+        date: normalizeDateISO(r.date) || String(r.date || ''),
+        time: String(r.time || ''),
+        studentId: normalizeAttDigits(r.studentId),
+        studentName: String(r.studentName || ''),
+        sessionTitle: String(r.sessionTitle || ''),
+        dayType: String(r.dayType || 'lesson'),
+        location: r.location ? String(r.location) : undefined,
+        deviceId: r.deviceId ? String(r.deviceId) : undefined,
+        createdAt: r.createdAt ? String(r.createdAt) : undefined,
+        syncedToSheets: true,
+      }));
+      const merged =
+        !filter?.studentId && !filter?.date
+          ? normalizedCloud
+          : mergeAttendanceRecords(local, normalizedCloud);
+      saveLocalAttendanceRecords(merged);
+      return {
+        records: filter?.studentId || filter?.date ? normalizedCloud : merged,
+        scriptSupported: true,
+      };
+    }
+    return { records: local, scriptSupported: false };
+  } catch {
+    return { records: local, scriptSupported: true };
+  }
+}
+
+export async function checkInAttendance(
+  webhookUrl: string,
+  payload: {
+    date?: string;
+    studentId: string;
+    studentName: string;
+    sessionTitle: string;
+    dayType?: string;
+    deviceId?: string;
+    lat?: number;
+    lng?: number;
+    location?: string;
+  }
+): Promise<{
+  success: boolean;
+  alreadyCheckedIn?: boolean;
+  cloudSaved: boolean;
+  needsScriptUpdate?: boolean;
+  record: AttendanceRecord;
+  message: string;
+}> {
+  const now = new Date();
+  const dateISO = normalizeDateISO(payload.date) || getTodayLocalISO();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const cleanId = normalizeAttDigits(payload.studentId);
+
+  const fallbackRecord: AttendanceRecord = {
+    date: dateISO,
+    time: timeStr,
+    studentId: cleanId,
+    studentName: payload.studentName.trim(),
+    sessionTitle: payload.sessionTitle.trim() || 'حصة اليوم',
+    dayType: payload.dayType || 'lesson',
+    location: payload.location || undefined,
+    deviceId: payload.deviceId || undefined,
+    createdAt: `${dateISO} ${timeStr}`,
+    syncedToSheets: false,
+  };
+
+  const localNow = getLocalAttendanceRecords();
+  const existingLocal = localNow.find(
+    (r) => r.date === dateISO && normalizeAttDigits(r.studentId) === cleanId
+  );
+  if (existingLocal && !webhookUrl) {
+    return {
+      success: true,
+      alreadyCheckedIn: true,
+      cloudSaved: false,
+      record: existingLocal,
+      message: 'تم تسجيل حضورك لهذا اليوم مسبقاً.',
+    };
+  }
+
+  if (!webhookUrl) {
+    const nextLocal = mergeAttendanceRecords(localNow, [fallbackRecord]);
+    saveLocalAttendanceRecords(nextLocal);
+    return {
+      success: true,
+      alreadyCheckedIn: false,
+      cloudSaved: false,
+      record: fallbackRecord,
+      message: 'تم تأكيد حضورك محلياً في المتصفح (لم يُضبط رابط Google Sheets بعد).',
+    };
+  }
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'check_in_attendance',
+        date: dateISO,
+        time: timeStr,
+        studentId: cleanId,
+        studentName: payload.studentName.trim(),
+        sessionTitle: payload.sessionTitle.trim() || 'حصة اليوم',
+        dayType: payload.dayType || 'lesson',
+        deviceId: payload.deviceId || '',
+        lat: payload.lat,
+        lng: payload.lng,
+        location: payload.location || '',
+      }),
+    });
+    const json = await res.json();
+    if (json && json.attendanceHandled) {
+      if (!json.success) {
+        return {
+          success: false,
+          cloudSaved: false,
+          record: fallbackRecord,
+          message: json.error || 'تعذر تأكيد الحضور.',
+        };
+      }
+      const cloudRec: AttendanceRecord = {
+        date: normalizeDateISO(json.record?.date) || dateISO,
+        time: String(json.record?.time || timeStr),
+        studentId: normalizeAttDigits(json.record?.studentId || cleanId),
+        studentName: String(json.record?.studentName || payload.studentName),
+        sessionTitle: String(json.record?.sessionTitle || payload.sessionTitle),
+        dayType: String(json.record?.dayType || payload.dayType || 'lesson'),
+        location: json.record?.location ? String(json.record.location) : undefined,
+        deviceId: json.record?.deviceId ? String(json.record.deviceId) : payload.deviceId,
+        createdAt: json.record?.createdAt ? String(json.record.createdAt) : fallbackRecord.createdAt,
+        syncedToSheets: true,
+      };
+      const nextLocal = mergeAttendanceRecords(localNow, [cloudRec]);
+      saveLocalAttendanceRecords(nextLocal);
+      return {
+        success: true,
+        alreadyCheckedIn: Boolean(json.alreadyCheckedIn),
+        cloudSaved: true,
+        record: cloudRec,
+        message: json.message || 'تم تأكيد حضورك في حصة اليوم وحفظه في الشيت بنجاح!',
+      };
+    }
+
+    // Script not redeployed yet: save locally and inform
+    const nextLocal = mergeAttendanceRecords(localNow, [fallbackRecord]);
+    saveLocalAttendanceRecords(nextLocal);
+    return {
+      success: true,
+      alreadyCheckedIn: Boolean(existingLocal),
+      cloudSaved: false,
+      needsScriptUpdate: true,
+      record: existingLocal || fallbackRecord,
+      message: 'تم تأكيد حضورك محلياً، يلزم تحديث ونشر كود Google Apps Script الجديد لحفظه في ورقة سجل_الحضور.',
+    };
+  } catch {
+    const nextLocal = mergeAttendanceRecords(localNow, [fallbackRecord]);
+    saveLocalAttendanceRecords(nextLocal);
+    return {
+      success: true,
+      alreadyCheckedIn: Boolean(existingLocal),
+      cloudSaved: false,
+      record: existingLocal || fallbackRecord,
+      message: 'تم تسجيل حضورك محلياً مؤقتاً (تعذر الاتصال بالسحابة الآن).',
+    };
+  }
+}
+
+export async function deleteAttendanceRecordFromSheets(
+  webhookUrl: string,
+  date: string,
+  studentId: string
+): Promise<{
+  success: boolean;
+  cloudDeleted: boolean;
+  needsScriptUpdate?: boolean;
+  message?: string;
+}> {
+  const cleanDate = normalizeDateISO(date) || date;
+  const cleanId = normalizeAttDigits(studentId);
+  const nextLocal = getLocalAttendanceRecords().filter(
+    (r) => !(r.date === cleanDate && normalizeAttDigits(r.studentId) === cleanId)
+  );
+  saveLocalAttendanceRecords(nextLocal);
+
+  if (!webhookUrl) {
+    return { success: true, cloudDeleted: false, message: 'تم الحذف من الذاكرة المحلية.' };
+  }
+
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'delete_attendance_record',
+        date: cleanDate,
+        studentId: cleanId,
+      }),
+    });
+    const json = await res.json();
+    if (json && json.attendanceHandled) {
+      return {
+        success: Boolean(json.success),
+        cloudDeleted: Boolean(json.success),
+        message: json.message || 'تم حذف سجل الحضور بنجاح.',
+      };
+    }
+    return {
+      success: true,
+      cloudDeleted: false,
+      needsScriptUpdate: true,
+      message: 'تم الحذف محلياً، يلزم تحديث كود Apps Script لحذفه من الشيت.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      cloudDeleted: false,
+      message: err?.message || 'تعذر الاتصال بالخادم.',
+    };
+  }
 }

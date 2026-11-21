@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   Plus,
@@ -16,6 +16,11 @@ import {
   Eraser,
   BookOpen,
   Sparkles,
+  UserCheck,
+  Search,
+  Download,
+  MapPin,
+  Clock,
 } from 'lucide-react';
 import {
   WordItem,
@@ -26,6 +31,7 @@ import {
 import { DrawingTemplate } from '../arWriting/types/drawing';
 import { VideoLesson } from '../video/videoSheets';
 import {
+  AttendanceRecord,
   CourseScheduleData,
   CourseGroup,
   CourseScheduleDay,
@@ -35,10 +41,13 @@ import {
   SCHEDULE_DAY_TYPE_META,
   SCHEDULE_EXERCISE_META,
   buildScheduleLessonKey,
+  deleteAttendanceRecordFromSheets,
   extractAllExerciseTopics,
+  fetchAttendanceRecordsFromSheets,
   fetchCourseScheduleFromSheets,
   formatScheduleDateLabel,
   generateCalendarDays,
+  getLocalAttendanceRecords,
   getTodayLocalISO,
   saveCourseScheduleToSheets,
 } from '../utils/courseSchedule';
@@ -89,7 +98,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   videoLessons,
   onOpenStudentPreview,
 }) => {
-  const [subTab, setSubTab] = useState<'groups' | 'days'>('groups');
+  const [subTab, setSubTab] = useState<'groups' | 'days' | 'attendance'>('groups');
   const [selectedGroupId, setSelectedGroupId] = useState<string>(
     schedule.groups[0]?.id || ''
   );
@@ -118,6 +127,99 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     type: 'success' | 'warn' | 'error';
     message: string;
   } | null>(null);
+
+  // Attendance log states (سجل_الحضور)
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() =>
+    getLocalAttendanceRecords()
+  );
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
+  const [attendanceScriptSupported, setAttendanceScriptSupported] = useState(true);
+  const [attDateFilter, setAttDateFilter] = useState<string>('');
+  const [attSearch, setAttSearch] = useState<string>('');
+  const [confirmDeleteAttKey, setConfirmDeleteAttKey] = useState<string | null>(null);
+
+  const loadAttendanceLog = async () => {
+    setIsLoadingAttendance(true);
+    try {
+      const res = await fetchAttendanceRecordsFromSheets(webhookUrl);
+      setAttendanceRecords(res.records);
+      setAttendanceScriptSupported(res.scriptSupported);
+    } finally {
+      setIsLoadingAttendance(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subTab === 'attendance') {
+      loadAttendanceLog();
+    }
+  }, [subTab, webhookUrl]);
+
+  const filteredAttendance = useMemo(() => {
+    const q = attSearch.trim().toLowerCase();
+    return attendanceRecords.filter((rec) => {
+      if (attDateFilter && rec.date !== attDateFilter) return false;
+      if (!q) return true;
+      return (
+        rec.studentId.toLowerCase().includes(q) ||
+        rec.studentName.toLowerCase().includes(q) ||
+        rec.sessionTitle.toLowerCase().includes(q) ||
+        (rec.location || '').toLowerCase().includes(q)
+      );
+    });
+  }, [attendanceRecords, attDateFilter, attSearch]);
+
+  const attendanceStats = useMemo(() => {
+    const todayCount = attendanceRecords.filter((r) => r.date === todayISO).length;
+    const uniqueStudents = new Set(attendanceRecords.map((r) => r.studentId)).size;
+    return {
+      todayCount,
+      totalCount: attendanceRecords.length,
+      uniqueStudents,
+    };
+  }, [attendanceRecords, todayISO]);
+
+  const handleDeleteAttendanceRow = async (date: string, studentId: string) => {
+    const res = await deleteAttendanceRecordFromSheets(webhookUrl, date, studentId);
+    setAttendanceRecords(getLocalAttendanceRecords());
+    setConfirmDeleteAttKey(null);
+    if (res.needsScriptUpdate) {
+      setAttendanceScriptSupported(false);
+    }
+    setStatusBanner({
+      type: res.cloudDeleted ? 'success' : res.needsScriptUpdate ? 'warn' : 'error',
+      message: res.message || 'تمت العملية.',
+    });
+  };
+
+  const handleExportAttendanceCsv = () => {
+    if (filteredAttendance.length === 0) return;
+    const headers = ['التاريخ', 'الوقت', 'ID المشترك', 'اسم المشترك', 'الحصة / المجموعات', 'نوع اليوم', 'الموقع'];
+    const esc = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
+    const rows = filteredAttendance.map((r) => [
+      esc(r.date),
+      esc(r.time),
+      esc(r.studentId),
+      esc(r.studentName),
+      esc(r.sessionTitle),
+      esc(
+        r.dayType === 'review'
+          ? 'مراجعة'
+          : r.dayType === 'exam'
+          ? 'امتحان'
+          : 'درس عادي'
+      ),
+      esc(r.location || 'غير متاح'),
+    ]);
+    const csv = '\uFEFF' + [headers.map(esc).join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance_${attDateFilter || todayISO}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const catalog = useMemo(
     () =>
@@ -606,7 +708,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
         )}
 
         {/* Sub-Tabs */}
-        <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-100 rounded-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1.5 bg-slate-100 rounded-2xl">
           <button
             type="button"
             onClick={() => setSubTab('groups')}
@@ -630,6 +732,18 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           >
             <Calendar className="w-4 h-4" />
             <span>2. التقويم والجدول اليومي ({schedule.days.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('attendance')}
+            className={`py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              subTab === 'attendance'
+                ? 'bg-white text-teal-700 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>3. سجل الحضور اليومي ({attendanceStats.todayCount})</span>
           </button>
         </div>
       </div>
@@ -1336,6 +1450,238 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          SUB-TAB 3: DAILY ATTENDANCE LOG (سجل_الحضور)
+         ============================================================ */}
+      {subTab === 'attendance' && (
+        <div className="space-y-5">
+          {!attendanceScriptSupported && (
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-bold flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                كود Google Apps Script المنشور حالياً لم يُحدَّث بعد لدعم ورقة «سجل_الحضور». انسخ الكود المحدّث من تبويب إعدادات Google Sheets ثم انشر إصداراً جديداً (New version).
+              </div>
+            </div>
+          )}
+
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-slate-500">حضور اليوم ({todayISO})</div>
+                <div className="text-2xl font-extrabold text-emerald-700 mt-0.5">
+                  {attendanceStats.todayCount}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <UserCheck className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-slate-500">إجمالي سجلات الحضور</div>
+                <div className="text-2xl font-extrabold text-indigo-700 mt-0.5">
+                  {attendanceStats.totalCount}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                <Calendar className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-4 border border-teal-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-slate-500">طلاب مسجلون بالحضور</div>
+                <div className="text-2xl font-extrabold text-teal-700 mt-0.5">
+                  {attendanceStats.uniqueStudents}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+                <Sparkles className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Filter & Actions Bar */}
+          <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAttDateFilter('')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border cursor-pointer ${
+                    attDateFilter === ''
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  كل التواريخ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttDateFilter(todayISO)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border cursor-pointer ${
+                    attDateFilter === todayISO
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  حضور اليوم فقط
+                </button>
+                <input
+                  type="date"
+                  value={attDateFilter}
+                  onChange={(e) => setAttDateFilter(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-mono font-bold"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportAttendanceCsv}
+                  disabled={filteredAttendance.length === 0}
+                  className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>تصدير CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={loadAttendanceLog}
+                  disabled={isLoadingAttendance}
+                  className="px-3.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAttendance ? 'animate-spin' : ''}`} />
+                  <span>تحديث السجل</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={attSearch}
+                onChange={(e) => setAttSearch(e.target.value)}
+                placeholder="ابحث باسم الطالب، رقم ID، اسم الحصة، أو المدينة..."
+                className="w-full pr-9 pl-3 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-bold text-slate-900"
+              />
+            </div>
+
+            {isLoadingAttendance && attendanceRecords.length === 0 ? (
+              <div className="py-12 text-center text-xs font-bold text-slate-400">
+                جاري تحميل سجل الحضور من ورقة سجل_الحضور...
+              </div>
+            ) : filteredAttendance.length === 0 ? (
+              <div className="py-12 text-center text-xs font-bold text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                لا توجد سجلات حضور مطابقة للبحث أو التاريخ المحدد.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <table className="w-full text-right border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white font-extrabold">
+                      <th className="py-3 px-3 whitespace-nowrap">التاريخ</th>
+                      <th className="py-3 px-3 whitespace-nowrap">الوقت</th>
+                      <th className="py-3 px-3 whitespace-nowrap">ID المشترك</th>
+                      <th className="py-3 px-3 whitespace-nowrap">اسم الطالب</th>
+                      <th className="py-3 px-3">الحصة / المجموعات</th>
+                      <th className="py-3 px-3 whitespace-nowrap">نوع اليوم</th>
+                      <th className="py-3 px-3 whitespace-nowrap">الموقع</th>
+                      <th className="py-3 px-3 text-center whitespace-nowrap">إجراء</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredAttendance.map((rec) => {
+                      const rowKey = `${rec.date}::${rec.studentId}`;
+                      const isConfirming = confirmDeleteAttKey === rowKey;
+                      const dMeta =
+                        SCHEDULE_DAY_TYPE_META[
+                          (rec.dayType === 'review' || rec.dayType === 'exam'
+                            ? rec.dayType
+                            : 'lesson') as ScheduleDayType
+                        ];
+                      return (
+                        <tr key={rowKey} className="hover:bg-slate-50/90 transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-800 whitespace-nowrap">
+                            {rec.date}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              {rec.time || '—'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-extrabold text-indigo-700 whitespace-nowrap">
+                            {rec.studentId}
+                          </td>
+                          <td className="py-2.5 px-3 font-extrabold text-slate-900 whitespace-nowrap">
+                            {rec.studentName}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-slate-700">
+                            {rec.sessionTitle || 'حصة اليوم'}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${dMeta.badgeBg} ${dMeta.badgeText} ${dMeta.badgeBorder}`}
+                            >
+                              {dMeta.labelAr}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">
+                            {rec.location && rec.location !== 'غير متاح' ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800">
+                                <MapPin className="w-3 h-3 text-emerald-600" />
+                                {rec.location}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                            {isConfirming ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleDeleteAttendanceRow(rec.date, rec.studentId)
+                                  }
+                                  className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
+                                >
+                                  تأكيد الحذف
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteAttKey(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
+                                >
+                                  إلغاء
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteAttKey(rowKey)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 cursor-pointer"
+                                title="حذف سجل الحضور"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

@@ -16,6 +16,7 @@ import {
   CatchLessonSubject,
   CatchHistoryItem,
   WritingHistoryItem,
+  HomeContentBlock,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -47,12 +48,21 @@ import { InteractiveVideoArena } from './video/components/InteractiveVideoArena'
 import { VideoLessonsModal } from './video/components/VideoLessonsModal';
 import { VideoCorrectionModal } from './video/components/VideoCorrectionModal';
 import { CourseScheduleModal } from './components/CourseScheduleModal';
+import { HomeContentShowcase } from './components/HomeContentManager';
 import {
+  AttendanceRecord,
   CourseScheduleData,
+  SCHEDULE_DAY_TYPE_META,
+  SCHEDULE_EXERCISE_META,
   ScheduleLessonRef,
+  checkInAttendance,
+  fetchAttendanceRecordsFromSheets,
   fetchCourseScheduleFromSheets,
+  formatScheduleDateLabel,
+  getLocalAttendanceRecords,
   getLocalCourseSchedule,
   getTodayLocalISO,
+  getTodayScheduleSummary,
   saveLocalCourseSchedule,
 } from './utils/courseSchedule';
 import {
@@ -82,6 +92,9 @@ import {
 import {
   fetchCurriculumFromSheets,
   fetchHomeConfigFromSheets,
+  fetchHomeContentFromSheets,
+  getLocalHomeContentBlocks,
+  saveLocalHomeContentBlocks,
   fetchStudentSubmissionsFromSheet,
   fetchStudentMatchingHistory,
   fetchStudentDictationHistory,
@@ -150,6 +163,11 @@ import {
   Target,
   Film,
   Calendar,
+  UserCheck,
+  Clock,
+  MapPin,
+  LogIn,
+  Loader2,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -202,7 +220,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -308,6 +326,21 @@ export default function App() {
     );
   }, [courseSchedule.days]);
 
+  // Daily Class Attendance Check-in State (سجل_الحضور)
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() =>
+    getLocalAttendanceRecords()
+  );
+  const [isCheckingInAttendance, setIsCheckingInAttendance] = useState(false);
+  const [attendanceFeedback, setAttendanceFeedback] = useState<{
+    type: 'success' | 'warn' | 'error';
+    text: string;
+  } | null>(null);
+
+  const todayScheduleSummary = useMemo(
+    () => getTodayScheduleSummary(courseSchedule),
+    [courseSchedule]
+  );
+
   useEffect(() => {
     const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (landingLessonsMenuRef.current && !landingLessonsMenuRef.current.contains(e.target as Node)) {
@@ -342,6 +375,11 @@ export default function App() {
       return null;
     }
   });
+
+  // Dynamic Home Page Content Blocks (Sheet: "محتوى_الرئيسية")
+  const [homeContentBlocks, setHomeContentBlocks] = useState<HomeContentBlock[]>(() =>
+    getLocalHomeContentBlocks()
+  );
 
   // Dedicated Student Evaluation History (from sheet "answers 1")
   const [studentHistory, setStudentHistory] = useState<PracticeHistoryItem[]>([]);
@@ -502,10 +540,11 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes] =
+    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
+        fetchHomeContentFromSheets(url).catch(() => null),
         fetchTranslationsFromSheets(url),
         fetchMatchingExercisesFromSheets(url),
         fetchDictationExercisesFromSheets(url),
@@ -531,10 +570,18 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(currRes.curriculum));
     }
 
-    // 2. Update homeConfig from sheet "الرئيسية"
+    // 2. Update homeConfig from sheet "الرئيسية" & dynamic blocks from "محتوى_الرئيسية"
     if (homeCfg) {
       setHomeConfig(homeCfg);
       localStorage.setItem('faseeh_cached_home_config', JSON.stringify(homeCfg));
+      if (Array.isArray(homeCfg.contentBlocks)) {
+        setHomeContentBlocks(homeCfg.contentBlocks);
+        saveLocalHomeContentBlocks(homeCfg.contentBlocks);
+      }
+    }
+    if (homeContentRes && Array.isArray(homeContentRes)) {
+      setHomeContentBlocks(homeContentRes);
+      saveLocalHomeContentBlocks(homeContentRes);
     }
 
     // 3. Update translations from sheet "الترجمة"
@@ -874,7 +921,7 @@ export default function App() {
           });
       }
 
-      // Fetch Home tab configuration in parallel immediately (branding & dynamic social media channels)
+      // Fetch Home tab configuration in parallel immediately (branding, dynamic social links & content blocks)
       if (activeConfig.webhookUrl) {
         fetchHomeConfigFromSheets(activeConfig.webhookUrl)
           .then((cfg) => {
@@ -883,6 +930,19 @@ export default function App() {
               try {
                 localStorage.setItem('faseeh_cached_home_config', JSON.stringify(cfg));
               } catch {}
+              if (Array.isArray(cfg.contentBlocks)) {
+                setHomeContentBlocks(cfg.contentBlocks);
+                saveLocalHomeContentBlocks(cfg.contentBlocks);
+              } else {
+                fetchHomeContentFromSheets(activeConfig.webhookUrl)
+                  .then((blocks) => {
+                    if (blocks && Array.isArray(blocks)) {
+                      setHomeContentBlocks(blocks);
+                      saveLocalHomeContentBlocks(blocks);
+                    }
+                  })
+                  .catch(() => {});
+              }
 
               // Sync sheet "الرئيسية" Arabic source texts into translations dictionary
               setTranslations((prev) => {
@@ -1129,6 +1189,11 @@ export default function App() {
               })
               .catch(() => {});
             syncStudentRetriesFromSheets(activeConfig.webhookUrl, parsed).catch(() => {});
+            fetchAttendanceRecordsFromSheets(activeConfig.webhookUrl, { studentId: parsed.id })
+              .then((attRes) => {
+                if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
+              })
+              .catch(() => {});
           }
         } catch (e) {}
       } else {
@@ -1231,6 +1296,13 @@ export default function App() {
                       if (vp) setVideoProgressMap(vp);
                     })
                     .catch(() => {});
+                  fetchAttendanceRecordsFromSheets(activeConfig.webhookUrl, {
+                    studentId: check.student.id,
+                  })
+                    .then((attRes) => {
+                      if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
+                    })
+                    .catch(() => {});
                 }
               } else if (check.error) {
                 setSyncNotice(check.error);
@@ -1326,8 +1398,68 @@ export default function App() {
         .catch(() => {});
 
       syncStudentRetriesFromSheets(sheetsConfig.webhookUrl, student).catch(() => {});
+      fetchAttendanceRecordsFromSheets(sheetsConfig.webhookUrl, { studentId: student.id })
+        .then((attRes) => {
+          if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
+        })
+        .catch(() => {});
+    }
+    setAttendanceFeedback(null);
+  };
+
+  const handleConfirmTodayAttendance = async () => {
+    if (!currentStudent) {
+      setIsLoginModalOpen(true);
+      return;
+    }
+    if (isCheckingInAttendance) return;
+    setIsCheckingInAttendance(true);
+    setAttendanceFeedback(null);
+    try {
+      const deviceId = getOrCreateDeviceId();
+      const geo = await getFastOptionalGeolocation(250);
+      const res = await checkInAttendance(sheetsConfig.webhookUrl, {
+        date: todayScheduleSummary.todayISO,
+        studentId: currentStudent.id,
+        studentName: currentStudent.name,
+        sessionTitle: todayScheduleSummary.sessionTitle,
+        dayType: todayScheduleSummary.dayType,
+        deviceId,
+        lat: geo.lat ?? undefined,
+        lng: geo.lng ?? undefined,
+      });
+      setAttendanceRecords(getLocalAttendanceRecords());
+      if (res.success) {
+        setAttendanceFeedback({
+          type: res.needsScriptUpdate ? 'warn' : 'success',
+          text: res.message,
+        });
+      } else {
+        setAttendanceFeedback({
+          type: 'error',
+          text: res.message,
+        });
+      }
+    } finally {
+      setIsCheckingInAttendance(false);
     }
   };
+
+  const todayStudentAttendance = useMemo(() => {
+    if (!currentStudent?.id) return null;
+    const cleanId = normalizeDigits(currentStudent.id);
+    return (
+      attendanceRecords.find(
+        (r) => r.date === todayScheduleSummary.todayISO && normalizeDigits(r.studentId) === cleanId
+      ) || null
+    );
+  }, [attendanceRecords, currentStudent, todayScheduleSummary.todayISO]);
+
+  const studentAttendanceCount = useMemo(() => {
+    if (!currentStudent?.id) return 0;
+    const cleanId = normalizeDigits(currentStudent.id);
+    return attendanceRecords.filter((r) => normalizeDigits(r.studentId) === cleanId).length;
+  }, [attendanceRecords, currentStudent]);
 
   const handleLogout = () => {
     setCurrentStudent(null);
@@ -1337,6 +1469,7 @@ export default function App() {
     setCatchHistory([]);
     setWritingHistory([]);
     setVideoProgressMap(getLocalVideoProgressMap(''));
+    setAttendanceFeedback(null);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
@@ -2076,6 +2209,11 @@ export default function App() {
             handleBackToStudent();
             setIsScheduleModalOpen(true);
           }}
+          homeContentBlocks={homeContentBlocks}
+          onUpdateHomeContentBlocks={(next) => {
+            setHomeContentBlocks(next);
+            saveLocalHomeContentBlocks(next);
+          }}
         />
 
         <SettingsModal
@@ -2221,7 +2359,7 @@ export default function App() {
           /* ========================================================
              1. INTRODUCTORY LANDING PAGE (الصفحة الرئيسية التعريفية)
              ======================================================== */
-          <div className="flex flex-col items-center justify-center animate-in fade-in duration-300 py-2 sm:py-6">
+          <div className="flex flex-col items-center justify-center animate-in fade-in duration-300 py-2 sm:py-6 gap-5">
             {/* Main Hero Card - Controlled exclusively by sheet 'الرئيسية' B21:B27 */}
             <div
               className="relative overflow-visible rounded-3xl text-white shadow-2xl border border-slate-800/80 max-w-4xl w-full mx-auto"
@@ -2421,6 +2559,226 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {/* Today's Class & Attendance Check-in Card (حصة اليوم وتأكيد الحضور - سجل_الحضور) */}
+            {(() => {
+              const dateMeta = formatScheduleDateLabel(todayScheduleSummary.todayISO, currentLang);
+              const dayTypeMeta = SCHEDULE_DAY_TYPE_META[todayScheduleSummary.dayType];
+              const dayTypeLabel =
+                todayScheduleSummary.dayType === 'review'
+                  ? t('schedule_type_review', dayTypeMeta.labelAr)
+                  : todayScheduleSummary.dayType === 'exam'
+                  ? t('schedule_type_exam', dayTypeMeta.labelAr)
+                  : t('schedule_type_lesson', dayTypeMeta.labelAr);
+
+              return (
+                <div className="max-w-4xl w-full mx-auto bg-white rounded-3xl border border-slate-200 shadow-lg p-5 sm:p-7 space-y-4">
+                  {/* Top Bar: Date + Session Type */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                        <UserCheck className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                          {t('attendance_home_title', 'حصة اليوم وتأكيد الحضور')}
+                        </h2>
+                        <div className="text-xs text-slate-500 font-bold flex items-center gap-2">
+                          <span>{dateMeta.weekday}</span>
+                          <span>•</span>
+                          <span className="font-mono">{dateMeta.formattedDate}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {todayScheduleSummary.day ? (
+                        <span
+                          className={`px-3 py-1 rounded-xl text-xs font-extrabold border ${dayTypeMeta.badgeBg} ${dayTypeMeta.badgeText} ${dayTypeMeta.badgeBorder}`}
+                        >
+                          {dayTypeLabel}
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 rounded-xl text-xs font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
+                          {t('attendance_open_session', 'حضور التدريب اليومي')}
+                        </span>
+                      )}
+
+                      {courseSchedule.days.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeAllLessonModals();
+                            setIsScheduleModalOpen(true);
+                          }}
+                          className="px-3 py-1 rounded-xl text-xs font-bold bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          <span>{t('attendance_view_schedule', 'عرض الجدول')}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Today's Groups / Lessons Summary */}
+                  <div className="space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-sm font-extrabold text-slate-800">
+                        {todayScheduleSummary.sessionTitle}
+                      </div>
+                      {todayScheduleSummary.totalLessons > 0 && (
+                        <span className="text-[11px] font-bold text-slate-500">
+                          {todayScheduleSummary.totalLessons} دروس مخصصة لليوم
+                        </span>
+                      )}
+                    </div>
+
+                    {todayScheduleSummary.day?.notes && (
+                      <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 font-semibold">
+                        {todayScheduleSummary.day.notes}
+                      </p>
+                    )}
+
+                    {todayScheduleSummary.allLessonRefs.length > 0 && (
+                      <div className="flex flex-wrap gap-2 pt-0.5">
+                        {todayScheduleSummary.allLessonRefs.slice(0, 6).map((ref) => {
+                          const exMeta = SCHEDULE_EXERCISE_META[ref.exerciseType];
+                          return (
+                            <button
+                              key={ref.key}
+                              type="button"
+                              onClick={() => handleOpenScheduledLesson(ref)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-transform hover:scale-[1.02] cursor-pointer ${exMeta.badgeBg} ${exMeta.badgeText} ${exMeta.badgeBorder}`}
+                            >
+                              <span className="px-1.5 py-0.5 rounded-md bg-white/80 text-[10px] font-extrabold">
+                                {exMeta.shortAr}
+                              </span>
+                              <span>{ref.topicName}</span>
+                            </button>
+                          );
+                        })}
+                        {todayScheduleSummary.allLessonRefs.length > 6 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeAllLessonModals();
+                              setIsScheduleModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-extrabold cursor-pointer"
+                          >
+                            +{todayScheduleSummary.allLessonRefs.length - 6} أخرى...
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Check-in Action Box */}
+                  <div className="pt-2">
+                    {!currentStudent ? (
+                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="text-xs sm:text-sm font-bold text-slate-700">
+                          {t(
+                            'attendance_login_prompt',
+                            'سجّل دخولك برقم المشترك لتأكيد حضورك في حصة اليوم وحفظ سجل المواظبة.'
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsLoginModalOpen(true)}
+                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer shrink-0"
+                        >
+                          <LogIn className="w-4 h-4" />
+                          <span>{t('attendance_login_btn', 'تسجيل الدخول وتأكيد الحضور')}</span>
+                        </button>
+                      </div>
+                    ) : todayStudentAttendance ? (
+                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start sm:items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-extrabold text-emerald-950">
+                              {t('attendance_checked_in_title', 'تم تأكيد حضورك في حصة اليوم ✓')}
+                            </div>
+                            <div className="text-xs text-emerald-800 font-semibold flex flex-wrap items-center gap-2.5 mt-0.5">
+                              <span>{currentStudent.name}</span>
+                              {todayStudentAttendance.time && (
+                                <span className="inline-flex items-center gap-1 font-mono">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {todayStudentAttendance.time}
+                                </span>
+                              )}
+                              {todayStudentAttendance.location &&
+                                todayStudentAttendance.location !== 'غير متاح' && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <MapPin className="w-3.5 h-3.5" />
+                                    {todayStudentAttendance.location}
+                                  </span>
+                                )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-center">
+                          <span className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-xs font-extrabold">
+                            مجموع حضورك: {studentAttendanceCount} يوم
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-extrabold text-slate-900">
+                            مرحباً {currentStudent.name}
+                          </div>
+                          <div className="text-xs text-slate-600 font-semibold">
+                            {studentAttendanceCount > 0
+                              ? `سجل حضورك حتى الآن: ${studentAttendanceCount} يوم — لم تؤكد حضور اليوم بعد`
+                              : 'اضغط على الزر لتسجيل حضورك لحصة اليوم في السجل'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleConfirmTodayAttendance}
+                          disabled={isCheckingInAttendance}
+                          className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-60 shrink-0"
+                        >
+                          {isCheckingInAttendance ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <UserCheck className="w-4 h-4" />
+                          )}
+                          <span>
+                            {isCheckingInAttendance
+                              ? t('attendance_saving', 'جاري تأكيد الحضور...')
+                              : t('attendance_checkin_btn', 'تأكيد حضور الحصة الآن')}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
+                    {attendanceFeedback && (
+                      <div
+                        className={`mt-2.5 px-3.5 py-2 rounded-xl text-xs font-bold border ${
+                          attendanceFeedback.type === 'success'
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                            : attendanceFeedback.type === 'warn'
+                            ? 'bg-amber-50 border-amber-200 text-amber-900'
+                            : 'bg-rose-50 border-rose-200 text-rose-900'
+                        }`}
+                      >
+                        {attendanceFeedback.text}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Dynamic Home Content Showcase (announcements, slideshows, intro videos, quick links) */}
+            <HomeContentShowcase blocks={homeContentBlocks} />
           </div>
         ) : appMode === 'matching' ? (
           /* ========================================================

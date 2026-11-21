@@ -171,6 +171,29 @@ export interface Answers1SubmissionRow {
   exercises: Answers1ExerciseDetail[];
 }
 
+export type HomeBlockType = 'announcement' | 'slideshow' | 'video' | 'link';
+
+export interface HomeSlideItem {
+  imageUrl: string;
+  caption?: string;
+  linkUrl?: string;
+}
+
+export interface HomeContentBlock {
+  id: string;
+  type: HomeBlockType;
+  title: string;
+  body?: string;
+  mediaUrl?: string;
+  linkUrl?: string;
+  buttonLabel?: string;
+  badgeText?: string;
+  accentColor?: 'emerald' | 'indigo' | 'amber' | 'rose' | 'sky';
+  slides?: HomeSlideItem[];
+  enabled: boolean;
+  sortOrder: number;
+}
+
 export interface HomeBrandConfig {
   logoUrl?: string; // B2: شعار الشريط العلوي
   title?: string; // B3: عنوان المنصة في الشريط العلوي
@@ -178,6 +201,7 @@ export interface HomeBrandConfig {
   socialLinks: SocialLinkItem[]; // B8:C17
   card?: HomeCardConfig; // B21:B27: بطاقة الصفحة الرئيسية
   adminUsers?: AdminUserRecord[]; // D2:F31: أسماء الإداريين وأرقام الدخول وحالة المنع
+  contentBlocks?: HomeContentBlock[]; // من ورقة "محتوى_الرئيسية"
 }
 
 export interface MatchingPair {

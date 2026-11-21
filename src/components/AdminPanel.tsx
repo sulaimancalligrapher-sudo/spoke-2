@@ -72,6 +72,7 @@ import {
   Calendar,
   Users,
   Bot,
+  LayoutGrid,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
@@ -87,11 +88,12 @@ import { VideoLesson } from '../video/videoSheets';
 import { CourseScheduleAdmin } from './CourseScheduleAdmin';
 import { SubscribersAdminManager } from './SubscribersAdminManager';
 import { TelegramAdminManager } from './TelegramAdminManager';
+import { HomeContentAdminManager } from './HomeContentManager';
 import { CourseScheduleData, createEmptyCourseSchedule } from '../utils/courseSchedule';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
-import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject } from '../types';
+import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -177,7 +179,9 @@ interface AdminPanelProps {
   courseSchedule?: CourseScheduleData;
   onUpdateCourseSchedule?: (next: CourseScheduleData) => void;
   onOpenSchedulePreview?: () => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  homeContentBlocks?: HomeContentBlock[];
+  onUpdateHomeContentBlocks?: (blocks: HomeContentBlock[]) => void;
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -253,9 +257,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   courseSchedule,
   onUpdateCourseSchedule,
   onOpenSchedulePreview,
+  homeContentBlocks = [],
+  onUpdateHomeContentBlocks,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1252,6 +1258,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Bot className={`w-4 h-4 ${activeTab === 'telegram' ? 'text-white' : 'text-sky-600'}`} />
             <span>بوت تيليغرام والإشعارات</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('homeContent')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'homeContent'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <LayoutGrid className={`w-4 h-4 ${activeTab === 'homeContent' ? 'text-white' : 'text-emerald-600'}`} />
+            <span>محتوى الصفحة الرئيسية</span>
           </button>
 
           <button
@@ -2982,6 +3000,15 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           <TelegramAdminManager
             webhookUrl={sheetsConfig.webhookUrl}
             courseSchedule={courseSchedule}
+          />
+        )}
+
+        {/* TAB 13: DYNAMIC HOME CONTENT BLOCKS (محتوى الصفحة الرئيسية) */}
+        {activeTab === 'homeContent' && (
+          <HomeContentAdminManager
+            blocks={homeContentBlocks}
+            onUpdateBlocks={(next) => onUpdateHomeContentBlocks?.(next)}
+            webhookUrl={sheetsConfig.webhookUrl}
           />
         )}
 

@@ -3,6 +3,9 @@ import {
   StudentSubmissionRecord,
   StudentRegistrant,
   HomeBrandConfig,
+  HomeContentBlock,
+  HomeBlockType,
+  HomeSlideItem,
   SocialLinkItem,
   PracticeHistoryItem,
   Answers1SubmissionRow,
@@ -47,7 +50,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxpOZFT1T4lWwuDmK8WYrJ0At10Fj8v4UeWUQCQun9sb90J7PoH2_C8sQNGaN4hbOqslQ/exec';
+  'https://script.google.com/macros/s/AKfycbyZo_MnJCj_c6WOD0JZ8a9IrRugXoc-fgv96H6WTLAbVsl1qkCUi5GVtHUrI3nDXOUm6w/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1093,6 +1096,16 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
       extraText3: rawCard.extraText3 || '',
     };
 
+    const rawBlocks = Array.isArray(data.contentBlocks)
+      ? data.contentBlocks
+      : Array.isArray(data.homeConfig.contentBlocks)
+      ? data.homeConfig.contentBlocks
+      : null;
+    const normalizedBlocks = rawBlocks ? normalizeHomeContentBlocks(rawBlocks) : undefined;
+    if (normalizedBlocks) {
+      saveLocalHomeContentBlocks(normalizedBlocks);
+    }
+
     const cfg: HomeBrandConfig = {
       logoUrl: data.homeConfig.logoUrl ? normalizeDriveImageUrl(data.homeConfig.logoUrl) : '',
       title: data.homeConfig.title || '',
@@ -1102,6 +1115,7 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
         : [],
       card: cardConfig,
       adminUsers: Array.isArray(data.homeConfig.adminUsers) ? data.homeConfig.adminUsers : [],
+      contentBlocks: normalizedBlocks,
     };
 
     try {
@@ -1118,6 +1132,149 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
   } catch {}
 
   return null;
+}
+
+export const STORAGE_KEY_HOME_CONTENT = 'faseeh_home_content_blocks_v1';
+
+export function sanitizeExternalUrl(raw?: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith('/')) return s;
+  return '';
+}
+
+export function normalizeHomeContentBlocks(rawList: any[]): HomeContentBlock[] {
+  if (!Array.isArray(rawList)) return [];
+  return rawList
+    .filter((b) => b && (b.title || b.body || b.mediaUrl || b.linkUrl || (Array.isArray(b.slides) && b.slides.length > 0)))
+    .map((b, idx) => {
+      const rawType = String(b.type || 'announcement').trim().toLowerCase();
+      const type: HomeBlockType =
+        rawType === 'slideshow' || rawType === 'video' || rawType === 'link'
+          ? (rawType as HomeBlockType)
+          : 'announcement';
+      const rawColor = String(b.accentColor || 'emerald').trim();
+      const accentColor: HomeContentBlock['accentColor'] =
+        rawColor === 'indigo' || rawColor === 'amber' || rawColor === 'rose' || rawColor === 'sky'
+          ? rawColor
+          : 'emerald';
+      const slides: HomeSlideItem[] = Array.isArray(b.slides)
+        ? b.slides
+            .filter((sl: any) => sl && sl.imageUrl)
+            .map((sl: any) => ({
+              imageUrl: String(sl.imageUrl || '').trim(),
+              caption: sl.caption ? String(sl.caption).trim() : '',
+              linkUrl: sl.linkUrl ? String(sl.linkUrl).trim() : '',
+            }))
+        : [];
+      return {
+        id: String(b.id || `home_blk_${idx + 1}`).trim(),
+        type,
+        title: String(b.title || '').trim(),
+        body: b.body ? String(b.body).trim() : '',
+        mediaUrl: b.mediaUrl ? String(b.mediaUrl).trim() : '',
+        linkUrl: b.linkUrl ? String(b.linkUrl).trim() : '',
+        buttonLabel: b.buttonLabel ? String(b.buttonLabel).trim() : '',
+        badgeText: b.badgeText ? String(b.badgeText).trim() : '',
+        accentColor,
+        slides,
+        enabled: b.enabled === false || String(b.enabled).toLowerCase() === 'false' || String(b.enabled) === '0' ? false : true,
+        sortOrder: Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : idx + 1,
+      };
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function getLocalHomeContentBlocks(): HomeContentBlock[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_HOME_CONTENT);
+    if (!raw) return [];
+    return normalizeHomeContentBlocks(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalHomeContentBlocks(blocks: HomeContentBlock[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_HOME_CONTENT, JSON.stringify(blocks));
+  } catch {}
+}
+
+export async function fetchHomeContentFromSheets(
+  webhookUrl: string
+): Promise<{ blocks: HomeContentBlock[]; scriptSupported: boolean }> {
+  const local = getLocalHomeContentBlocks();
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { blocks: local, scriptSupported: true };
+  }
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const targetUrl = cleanUrl.includes('?')
+      ? `${cleanUrl}&action=get_home_content&_t=${Date.now()}`
+      : `${cleanUrl}?action=get_home_content&_t=${Date.now()}`;
+    const res = await fetch(targetUrl, { method: 'GET', headers: { Accept: 'application/json' } });
+    const json = await res.json();
+    if (json && json.homeContentHandled && Array.isArray(json.blocks)) {
+      const normalized = normalizeHomeContentBlocks(json.blocks);
+      saveLocalHomeContentBlocks(normalized);
+      return { blocks: normalized, scriptSupported: true };
+    }
+    return { blocks: local, scriptSupported: false };
+  } catch {
+    return { blocks: local, scriptSupported: true };
+  }
+}
+
+export async function saveHomeContentToSheets(
+  webhookUrl: string,
+  blocks: HomeContentBlock[]
+): Promise<{
+  success: boolean;
+  cloudSaved: boolean;
+  needsScriptUpdate?: boolean;
+  message: string;
+}> {
+  const ordered = blocks.map((b, idx) => ({ ...b, sortOrder: idx + 1 }));
+  saveLocalHomeContentBlocks(ordered);
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return {
+      success: true,
+      cloudSaved: false,
+      message: 'تم الحفظ محلياً في المتصفح فقط (لم يتم ضبط رابط Google Sheets Webhook).',
+    };
+  }
+  try {
+    const res = await fetch(webhookUrl.trim(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'save_home_content',
+        blocks: ordered,
+      }),
+    });
+    const json = await res.json();
+    if (json && json.homeContentSaved) {
+      return {
+        success: true,
+        cloudSaved: true,
+        message: json.message || 'تم حفظ ومزامنة محتوى الصفحة الرئيسية في ورقة محتوى_الرئيسية بنجاح!',
+      };
+    }
+    return {
+      success: true,
+      cloudSaved: false,
+      needsScriptUpdate: true,
+      message: 'تم الحفظ محلياً، لكن كود Google Apps Script المنشور قديم. انسخ الكود المحدّث وانشر إصداراً جديداً (New version) لحفظ ورقة محتوى_الرئيسية.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      cloudSaved: false,
+      message: err?.message || 'حدث خطأ أثناء الاتصال بـ Google Sheets.',
+    };
+  }
 }
 
 /**
@@ -3469,7 +3626,7 @@ function normRegArabicGS(str) {
     .replace(/[إأآا]/g, "ا")
     .replace(/[ىي]/g, "ي")
     .replace(/ة/g, "ه")
-    .replace(/\s+/g, " ")
+    .replace(/\\s+/g, " ")
     .trim();
 }
 
@@ -3854,6 +4011,8 @@ var TELEGRAM_CONFIG_SHEET_NAME = "تيليغرام_الإعدادات";
 var TELEGRAM_USERS_SHEET_NAME = "تيليغرام_الطلاب";
 var SCHEDULE_GROUPS_SHEET_NAME = "مجموعات_الجدول";
 var SCHEDULE_DAYS_SHEET_NAME = "الجدول_اليومي";
+var ATTENDANCE_SHEET_NAME = "سجل_الحضور";
+var HOME_CONTENT_SHEET_NAME = "محتوى_الرئيسية";
 
 function getVideoQuestionsSheet(ss) {
   var sheet = ss.getSheetByName(VIDEO_QUESTIONS_SHEET_NAME);
@@ -4161,7 +4320,7 @@ function parseRetryLimitSettingGS(rawStr) {
   if (s.indexOf("غير محدود") !== -1 || s.indexOf("مفتوح") !== -1 || s.indexOf("unlimited") !== -1) {
     return { allowRetry: true, maxRetries: -1 };
   }
-  var m = s.match(/(?:إعادة|اعادة|محاولات|retry)\s*[:=]?\s*(\d+)/);
+  var m = s.match(/(?:إعادة|اعادة|محاولات|retry)\\s*[:=]?\\s*(\\d+)/);
   if (m) {
     var n = parseInt(m[1], 10);
     if (!isNaN(n)) return { allowRetry: n > 0, maxRetries: Math.max(0, n) };
@@ -4202,7 +4361,7 @@ function formatSheetDateISO(val) {
     return Utilities.formatDate(val, Session.getScriptTimeZone() || "GMT+3", "yyyy-MM-dd");
   }
   var s = String(val).trim();
-  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  var m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
   if (m) return m[1] + "-" + m[2] + "-" + m[3];
   return s;
 }
@@ -4331,17 +4490,167 @@ function writeCourseScheduleGS(ss, payload) {
   dSheet.getRange(2, 1, dValues.length, 7).setValues(dValues);
 }
 
+// =========================================================================
+// دوال مساعدة لقسم تأكيد حضور الحصة (ورقة مستقلة تماماً: سجل_الحضور)
+// =========================================================================
+function getAttendanceSheetGS(ss) {
+  var sheet = ss.getSheetByName(ATTENDANCE_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ATTENDANCE_SHEET_NAME);
+    var headers = ["التاريخ", "الوقت", "ID المشترك", "اسم المشترك", "الحصة / المجموعات", "نوع اليوم", "الموقع", "معرف الجهاز", "وقت التسجيل"];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readAttendanceRecordsGS(ss, filterStudentId, filterDate) {
+  var sheet = getAttendanceSheetGS(ss);
+  var lastR = sheet.getLastRow();
+  var list = [];
+  if (lastR <= 1) return list;
+  var colCount = Math.max(9, sheet.getLastColumn());
+  var rows = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
+  var cleanFilterId = filterStudentId ? normRegDigitsGS(filterStudentId) : "";
+  var cleanFilterDate = filterDate ? formatSheetDateISO(filterDate) : "";
+
+  for (var i = rows.length - 1; i >= 0; i--) {
+    var r = rows[i];
+    var rDate = formatSheetDateISO(r[0]);
+    var rId = normRegDigitsGS(r[2]);
+    if (!rDate && !rId) continue;
+    if (cleanFilterId && rId !== cleanFilterId) continue;
+    if (cleanFilterDate && rDate !== cleanFilterDate) continue;
+    var rawTime = r[1];
+    var rTime = "";
+    if (Object.prototype.toString.call(rawTime) === "[object Date]" && !isNaN(rawTime.getTime())) {
+      rTime = Utilities.formatDate(rawTime, Session.getScriptTimeZone() || "GMT+3", "HH:mm");
+    } else {
+      rTime = String(rawTime || "").trim();
+    }
+    list.push({
+      rowNumber: i + 2,
+      date: rDate,
+      time: rTime,
+      studentId: rId,
+      studentName: String(r[3] || "").trim(),
+      sessionTitle: String(r[4] || "").trim(),
+      dayType: String(r[5] || "lesson").trim(),
+      location: String(r[6] || "").trim(),
+      deviceId: String(r[7] || "").trim(),
+      createdAt: String(r[8] || "").trim(),
+      syncedToSheets: true
+    });
+  }
+  return list;
+}
+
+// =========================================================================
+// دوال مساعدة لقسم محتوى الصفحة الرئيسية الديناميكي (ورقة محتوى_الرئيسية)
+// =========================================================================
+function getHomeContentSheetGS(ss) {
+  var sheet = ss.getSheetByName(HOME_CONTENT_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(HOME_CONTENT_SHEET_NAME);
+    var headers = [
+      "ID", "النوع (announcement/slideshow/video/link)", "العنوان", "النص / الوصف",
+      "رابط الوسائط / الفيديو", "الرابط التفاعلي", "نص الزر", "الوسم", "اللون",
+      "مفعّل", "الترتيب", "الشرائح JSON"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#312e81").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readHomeContentBlocksGS(ss) {
+  var sheet = ss.getSheetByName(HOME_CONTENT_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+  var colCount = Math.max(12, sheet.getLastColumn());
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, colCount).getValues();
+  var list = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var bId = String(r[0] || "").trim();
+    var bTitle = String(r[2] || "").trim();
+    var bBody = String(r[3] || "").trim();
+    var bMedia = String(r[4] || "").trim();
+    var bLink = String(r[5] || "").trim();
+    var slidesArr = [];
+    try { if (r[11]) slidesArr = JSON.parse(String(r[11])); } catch (e) {}
+    if (!bId && !bTitle && !bBody && !bMedia && !bLink && slidesArr.length === 0) continue;
+    var rawEnabled = String(r[9] === undefined || r[9] === null || r[9] === "" ? "true" : r[9]).trim().toLowerCase();
+    var isEnabled = rawEnabled !== "false" && rawEnabled !== "0" && rawEnabled !== "لا" && rawEnabled !== "no";
+    list.push({
+      id: bId || ("home_blk_" + (i + 1)),
+      type: String(r[1] || "announcement").trim() || "announcement",
+      title: bTitle,
+      body: bBody,
+      mediaUrl: bMedia,
+      linkUrl: bLink,
+      buttonLabel: String(r[6] || "").trim(),
+      badgeText: String(r[7] || "").trim(),
+      accentColor: String(r[8] || "emerald").trim() || "emerald",
+      enabled: isEnabled,
+      sortOrder: Number(r[10]) || (i + 1),
+      slides: Array.isArray(slidesArr) ? slidesArr : []
+    });
+  }
+  list.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+  return list;
+}
+
+function writeHomeContentBlocksGS(ss, blocks) {
+  var sheet = getHomeContentSheetGS(ss);
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(12, sheet.getLastColumn())).clearContent();
+  }
+  if (!Array.isArray(blocks) || blocks.length === 0) return;
+  var rows = [];
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    rows.push([
+      String(b.id || ("home_blk_" + (i + 1))),
+      String(b.type || "announcement"),
+      String(b.title || ""),
+      String(b.body || ""),
+      String(b.mediaUrl || ""),
+      String(b.linkUrl || ""),
+      String(b.buttonLabel || ""),
+      String(b.badgeText || ""),
+      String(b.accentColor || "emerald"),
+      b.enabled === false ? "false" : "true",
+      Number(b.sortOrder) || (i + 1),
+      JSON.stringify(Array.isArray(b.slides) ? b.slides : [])
+    ]);
+  }
+  sheet.getRange(2, 1, rows.length, 12).setValues(rows);
+}
+
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
-    // (أ) إذا كان الطلب جلب بيانات ورقة "الرئيسية" (الشعار والعنوان والوصف وحسابات التواصل)
+    // (أ) إذا كان الطلب جلب بيانات ورقة "الرئيسية" ومحتوى الصفحة الرئيسية
     if (e && e.parameter && e.parameter.action === "get_home_config") {
       var hConfig = readHomeConfig(ss);
+      var hContentBlocks = readHomeContentBlocksGS(ss);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
-        homeConfig: hConfig
+        homeConfig: hConfig,
+        contentBlocks: hContentBlocks
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (أ-2) جلب كتل محتوى الصفحة الرئيسية فقط من ورقة "محتوى_الرئيسية"
+    if (e && e.parameter && e.parameter.action === "get_home_content") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        homeContentHandled: true,
+        blocks: readHomeContentBlocksGS(ss)
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -5069,6 +5378,20 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (ج-13) جلب سجلات حضور الحصص اليومية من ورقة "سجل_الحضور" (GET)
+    if (e && e.parameter && e.parameter.action === "get_attendance_records") {
+      var attListGet = readAttendanceRecordsGS(
+        ss,
+        String(e.parameter.studentId || "").trim(),
+        String(e.parameter.date || "").trim()
+      );
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        attendanceHandled: true,
+        records: attListGet
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
@@ -5152,7 +5475,8 @@ function doGet(e) {
       spreadsheetName: ss.getName(),
       spreadsheetUrl: ss.getUrl(),
       curriculum: curriculum,
-      homeConfig: readHomeConfig(ss)
+      homeConfig: readHomeConfig(ss),
+      contentBlocks: readHomeContentBlocksGS(ss)
     })).setMimeType(ContentService.MimeType.JSON);
     
   } catch (err) {
@@ -5176,7 +5500,8 @@ function doPost(e) {
       var textMsg = String(data.message.text || "").trim();
 
       // أمر معرفة رقم Chat ID للمشرف أو الطالب
-      if (/^(\/id|\/myid|id)$/i.test(textMsg)) {
+      var lowerTgCmd = textMsg.toLowerCase();
+      if (lowerTgCmd === "/id" || lowerTgCmd === "/myid" || lowerTgCmd === "id") {
         sendTelegramBotMessageGS(ss, chatId, "رقم Chat ID الخاص بك هو:\\n<code>" + chatId + "</code>", "");
         return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
       }
@@ -5822,11 +6147,132 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (S-2) نقاط نهاية سجل حضور الحصص اليومية (ورقة سجل_الحضور)
+    if (data.action === "check_in_attendance") {
+      var tzAtt = ss.getSpreadsheetTimeZone() || Session.getScriptTimeZone() || "GMT+3";
+      var nowObjAtt = new Date();
+      var attDate = formatSheetDateISO(data.date) || Utilities.formatDate(nowObjAtt, tzAtt, "yyyy-MM-dd");
+      var attTime = String(data.time || Utilities.formatDate(nowObjAtt, tzAtt, "HH:mm")).trim();
+      var attCreated = Utilities.formatDate(nowObjAtt, tzAtt, "yyyy/MM/dd HH:mm:ss");
+      var attSid = normRegDigitsGS(data.studentId || "");
+      var attSname = String(data.studentName || "").trim();
+      var attSession = String(data.sessionTitle || "حصة اليوم").trim();
+      var attDayType = String(data.dayType || "lesson").trim();
+      var attDevId = String(data.deviceId || "").trim();
+
+      if (!attSid) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          attendanceHandled: true,
+          error: "يرجى تسجيل الدخول برقم المشترك أولاً."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var existingAtt = readAttendanceRecordsGS(ss, attSid, attDate);
+      if (existingAtt.length > 0) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: true,
+          attendanceHandled: true,
+          alreadyCheckedIn: true,
+          record: existingAtt[0],
+          message: "تم تسجيل حضورك لهذا اليوم مسبقاً."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var attLoc = String(data.location || "").trim();
+      if (!attLoc || attLoc === "غير متاح") {
+        attLoc = reverseGeocodeLocGS(data.lat, data.lng);
+      }
+      var attSheet = getAttendanceSheetGS(ss);
+      attSheet.appendRow([attDate, attTime, attSid, attSname || ("طالب #" + attSid), attSession, attDayType, attLoc, attDevId, attCreated]);
+
+      var savedRec = {
+        date: attDate,
+        time: attTime,
+        studentId: attSid,
+        studentName: attSname || ("طالب #" + attSid),
+        sessionTitle: attSession,
+        dayType: attDayType,
+        location: attLoc,
+        deviceId: attDevId,
+        createdAt: attCreated,
+        syncedToSheets: true
+      };
+
+      var tgCfgAtt = readTelegramConfigGS(ss);
+      if (tgCfgAtt.enabled && tgCfgAtt.notifyAdminOnHomework && tgCfgAtt.adminChatId) {
+        var tgMsgAtt = "✅ <b>تأكيد حضور حصة</b>\\n"
+          + "الطالب: " + savedRec.studentName + " (ID: " + savedRec.studentId + ")\\n"
+          + "التاريخ: " + attDate + " — " + attTime + "\\n"
+          + "الحصة: " + attSession
+          + (attLoc && attLoc !== "غير متاح" ? ("\\nالموقع: " + attLoc) : "");
+        sendTelegramBotMessageGS(ss, tgCfgAtt.adminChatId, tgMsgAtt, "");
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        attendanceHandled: true,
+        alreadyCheckedIn: false,
+        record: savedRec,
+        message: "تم تأكيد حضورك في حصة اليوم بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_attendance_records") {
+      var attListPost = readAttendanceRecordsGS(ss, data.studentId || "", data.date || "");
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        attendanceHandled: true,
+        records: attListPost
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_attendance_record") {
+      var delAttSheet = getAttendanceSheetGS(ss);
+      var delRows = delAttSheet.getDataRange().getValues();
+      var targetDelDate = formatSheetDateISO(data.date || "");
+      var targetDelId = normRegDigitsGS(data.studentId || "");
+      var deletedAny = false;
+      for (var dIdx = delRows.length - 1; dIdx >= 1; dIdx--) {
+        var rowDate = formatSheetDateISO(delRows[dIdx][0]);
+        var rowId = normRegDigitsGS(delRows[dIdx][2]);
+        if (rowDate === targetDelDate && rowId === targetDelId) {
+          delAttSheet.deleteRow(dIdx + 1);
+          deletedAny = true;
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: deletedAny,
+        attendanceHandled: true,
+        message: deletedAny ? "تم حذف سجل الحضور من ورقة سجل_الحضور بنجاح." : "لم يتم العثور على سجل الحضور المطلوب."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (-1) تهيئة ورقة "الرئيسية"
     if (data.action === "init_home_sheet") {
       getHomeSheet(ss);
       return ContentService.createTextOutput(JSON.stringify({ success: true, message: "تم تهيئة ورقة الرئيسية بنجاح" }))
         .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (-1-ب) جلب وحفظ كتل محتوى الصفحة الرئيسية الديناميكي في ورقة "محتوى_الرئيسية"
+    if (data.action === "get_home_content") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        homeContentHandled: true,
+        blocks: readHomeContentBlocksGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_home_content") {
+      var hcBlocks = Array.isArray(data.blocks) ? data.blocks : [];
+      writeHomeContentBlocksGS(ss, hcBlocks);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        homeContentSaved: true,
+        blocks: readHomeContentBlocksGS(ss),
+        message: "تم حفظ ومزامنة محتوى الصفحة الرئيسية في ورقة محتوى_الرئيسية بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة
