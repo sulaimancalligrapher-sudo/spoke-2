@@ -53,6 +53,7 @@ import { HomeContentShowcase } from './components/HomeContentManager';
 import {
   AttendanceRecord,
   CourseScheduleData,
+  PROGRAM_COLOR_META,
   SCHEDULE_DAY_TYPE_META,
   SCHEDULE_EXERCISE_META,
   ScheduleLessonRef,
@@ -63,8 +64,10 @@ import {
   formatScheduleDateLabel,
   getLocalAttendanceRecords,
   getLocalCourseSchedule,
+  getScheduleForProgram,
   getTodayLocalISO,
   getTodayScheduleSummary,
+  normalizeCourseScheduleData,
   saveLocalCourseSchedule,
 } from './utils/courseSchedule';
 import {
@@ -319,34 +322,7 @@ export default function App() {
   const [isVideoLessonsModalOpen, setIsVideoLessonsModalOpen] = useState(false);
   const [isVideoCorrectionModalOpen, setIsVideoCorrectionModalOpen] = useState(false);
 
-  // Course Groups & Daily Schedule State (مجموعات_الجدول / الجدول_اليومي)
-  const [courseSchedule, setCourseSchedule] = useState<CourseScheduleData>(() =>
-    getLocalCourseSchedule()
-  );
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const hasTodayScheduleLesson = useMemo(() => {
-    const tIso = getTodayLocalISO();
-    return courseSchedule.days.some(
-      (d) => d.date === tIso && ((d.groupIds && d.groupIds.length > 0) || Boolean(d.groupId))
-    );
-  }, [courseSchedule.days]);
-
-  // Daily Class Attendance Check-in State (سجل_الحضور)
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() =>
-    getLocalAttendanceRecords()
-  );
-  const [isCheckingInAttendance, setIsCheckingInAttendance] = useState(false);
-  const [attendanceFeedback, setAttendanceFeedback] = useState<{
-    type: 'success' | 'warn' | 'error';
-    text: string;
-  } | null>(null);
-
-  const todayScheduleSummary = useMemo(
-    () => getTodayScheduleSummary(courseSchedule),
-    [courseSchedule]
-  );
-
-  // Modals & Registration
+  // Modals & Registration (declared before schedule memos so currentStudent is in scope)
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -364,6 +340,46 @@ export default function App() {
       return null;
     }
   });
+
+  // Course Groups & Daily Schedule State (مجموعات_الجدول / الجدول_اليومي)
+  const [courseSchedule, setCourseSchedule] = useState<CourseScheduleData>(() =>
+    getLocalCourseSchedule()
+  );
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [schedulePreviewProgramId, setSchedulePreviewProgramId] = useState<string | undefined>(
+    undefined
+  );
+
+  const activeStudentProgramId = isAdminAuthenticated
+    ? schedulePreviewProgramId
+    : currentStudent?.programId;
+
+  const activeScopedSchedule = useMemo(
+    () => getScheduleForProgram(courseSchedule, activeStudentProgramId),
+    [courseSchedule, activeStudentProgramId]
+  );
+
+  const hasTodayScheduleLesson = useMemo(() => {
+    const tIso = getTodayLocalISO();
+    return activeScopedSchedule.scopedSchedule.days.some(
+      (d) => d.date === tIso && ((d.groupIds && d.groupIds.length > 0) || Boolean(d.groupId))
+    );
+  }, [activeScopedSchedule.scopedSchedule.days]);
+
+  // Daily Class Attendance Check-in State (سجل_الحضور)
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() =>
+    getLocalAttendanceRecords()
+  );
+  const [isCheckingInAttendance, setIsCheckingInAttendance] = useState(false);
+  const [attendanceFeedback, setAttendanceFeedback] = useState<{
+    type: 'success' | 'warn' | 'error';
+    text: string;
+  } | null>(null);
+
+  const todayScheduleSummary = useMemo(
+    () => getTodayScheduleSummary(courseSchedule, undefined, activeStudentProgramId),
+    [courseSchedule, activeStudentProgramId]
+  );
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -1214,6 +1230,31 @@ export default function App() {
                 if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
               })
               .catch(() => {});
+            // Silent refresh of student profile (programId / status / name) from ID registrants
+            fetchIDRegistrants(activeConfig.webhookUrl)
+              .then((regs) => {
+                const match = regs.find(
+                  (r) => normalizeDigits(r.id) === normalizeDigits(parsed.id)
+                );
+                if (
+                  match &&
+                  (match.programId !== parsed.programId ||
+                    match.name !== parsed.name ||
+                    match.status !== parsed.status)
+                ) {
+                  const updated = {
+                    ...parsed,
+                    name: match.name || parsed.name,
+                    status: match.status || parsed.status,
+                    programId: match.programId,
+                  };
+                  setCurrentStudent(updated);
+                  try {
+                    localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(updated));
+                  } catch {}
+                }
+              })
+              .catch(() => {});
           }
         } catch (e) {}
       } else {
@@ -1473,11 +1514,16 @@ export default function App() {
     try {
       const deviceId = getOrCreateDeviceId();
       const geo = await getFastOptionalGeolocation(250);
+      const progCount = normalizeCourseScheduleData(courseSchedule).programs?.length || 0;
+      const fullSessionTitle =
+        progCount > 1
+          ? `[${todayScheduleSummary.programName}] ${todayScheduleSummary.sessionTitle}`
+          : todayScheduleSummary.sessionTitle;
       const res = await checkInAttendance(sheetsConfig.webhookUrl, {
         date: todayScheduleSummary.todayISO,
         studentId: currentStudent.id,
         studentName: currentStudent.name,
-        sessionTitle: todayScheduleSummary.sessionTitle,
+        sessionTitle: fullSessionTitle,
         dayType: todayScheduleSummary.dayType,
         deviceId,
         lat: geo.lat ?? undefined,
@@ -1740,6 +1786,7 @@ export default function App() {
         writingTemplates,
         catchSubjects,
         videoLessons,
+        programId: activeStudentProgramId,
       }),
     [
       courseSchedule,
@@ -1751,6 +1798,7 @@ export default function App() {
       writingTemplates,
       catchSubjects,
       videoLessons,
+      activeStudentProgramId,
     ]
   );
 
@@ -2381,7 +2429,8 @@ export default function App() {
             setCourseSchedule(next);
             saveLocalCourseSchedule(next);
           }}
-          onOpenSchedulePreview={() => {
+          onOpenSchedulePreview={(progId) => {
+            setSchedulePreviewProgramId(progId);
             handleBackToStudent();
             setIsScheduleModalOpen(true);
           }}
@@ -2513,7 +2562,7 @@ export default function App() {
           closeAllLessonModals();
           setIsScheduleModalOpen(true);
         }}
-        hasCourseSchedule={courseSchedule.days.length > 0}
+        hasCourseSchedule={activeScopedSchedule.scopedSchedule.days.length > 0}
         hasTodayScheduleLesson={hasTodayScheduleLesson}
         showLessonsBtn={homeNavbarControls.showLessons}
         showVideoBtn={homeNavbarControls.showVideo}
@@ -2676,7 +2725,7 @@ export default function App() {
                         </span>
                       )}
 
-                      {courseSchedule.days.length > 0 && (
+                      {activeScopedSchedule.scopedSchedule.days.length > 0 && (
                         <button
                           type="button"
                           onClick={() => {
@@ -2695,8 +2744,20 @@ export default function App() {
                   {/* Today's Groups / Lessons Summary */}
                   <div className="space-y-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-extrabold text-slate-800">
-                        {todayScheduleSummary.sessionTitle}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(activeScopedSchedule.programs?.length || 0) > 1 && (() => {
+                          const pMeta = PROGRAM_COLOR_META[activeScopedSchedule.activeProgram.color || 'emerald'];
+                          return (
+                            <span
+                              className={`px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border ${pMeta.pillBg} ${pMeta.pillText} ${pMeta.pillBorder}`}
+                            >
+                              {todayScheduleSummary.programName}
+                            </span>
+                          );
+                        })()}
+                        <div className="text-sm font-extrabold text-slate-800">
+                          {todayScheduleSummary.sessionTitle}
+                        </div>
                       </div>
                       {todayScheduleSummary.totalLessons > 0 && (
                         <span className="text-[11px] font-bold text-slate-500">
@@ -3438,7 +3499,7 @@ export default function App() {
                 )}
               </p>
               <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-                {courseSchedule.days.length > 0 && (
+                {activeScopedSchedule.scopedSchedule.days.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -3953,6 +4014,8 @@ export default function App() {
         onClose={() => setIsScheduleModalOpen(false)}
         schedule={courseSchedule}
         currentStudent={currentStudent}
+        isAdminAuthenticated={isAdminAuthenticated}
+        initialProgramId={schedulePreviewProgramId}
         currentLang={currentLang}
         translations={translations}
         t={t}

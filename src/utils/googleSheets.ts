@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzJJ7aw9AUbn980BcQGZZyKGdwTcF0308HSCiJ0Tkdc79mFoto-IxJPmcM7uNIyorKhIg/exec';
+  'https://script.google.com/macros/s/AKfycbymTUtML5ukQ-ng57VOQvYQ5-7OESZZMPudLSLQxW1mq8djXAVABS9ZGZOsjZT94Zzi4w/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -654,6 +654,7 @@ function normalizeRegistrantRow(r: any): StudentRegistrant {
     requireLocation: parseRequireLocationFlag(r?.requireLocation),
     directLoginUrl: r?.directLoginUrl ? String(r.directLoginUrl).trim() : undefined,
     qrImageUrl: r?.qrImageUrl ? String(r.qrImageUrl).trim() : undefined,
+    programId: r?.programId ? String(r.programId).trim() : undefined,
   };
 }
 
@@ -746,7 +747,7 @@ export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentReg
  */
 export async function addIDRegistrantToSheet(
   webhookUrl: string,
-  payload: { id: string; name: string; status?: string; maxDevices?: number; requireLocation?: boolean }
+  payload: { id: string; name: string; status?: string; maxDevices?: number; requireLocation?: boolean; programId?: string }
 ): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
   const cleanId = normalizeDigits(payload.id);
   const cleanName = payload.name.trim();
@@ -764,6 +765,7 @@ export async function addIDRegistrantToSheet(
     status: payload.status || 'مفعّل',
     maxDevices: payload.maxDevices ?? 1,
     requireLocation: Boolean(payload.requireLocation),
+    programId: payload.programId ? String(payload.programId).trim() : '',
     appBaseUrl: getAppOriginBaseUrl(),
   });
 
@@ -778,7 +780,7 @@ export async function addIDRegistrantToSheet(
 }
 
 /**
- * Update an existing registrant (ID, Name, Status, MaxDevices, RequireLocation) in sheet "ID registrants"
+ * Update an existing registrant (ID, Name, Status, MaxDevices, RequireLocation, ProgramId) in sheet "ID registrants"
  */
 export async function updateIDRegistrantInSheet(
   webhookUrl: string,
@@ -789,6 +791,7 @@ export async function updateIDRegistrantInSheet(
     status: string;
     maxDevices: number;
     requireLocation?: boolean;
+    programId?: string;
   }
 ): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -802,6 +805,7 @@ export async function updateIDRegistrantInSheet(
     status: payload.status || 'مفعّل',
     maxDevices: Math.max(1, Math.min(10, Number(payload.maxDevices) || 1)),
     requireLocation: Boolean(payload.requireLocation),
+    programId: payload.programId !== undefined ? String(payload.programId || '').trim() : undefined,
     appBaseUrl: getAppOriginBaseUrl(),
   });
   if (!res.success) {
@@ -811,7 +815,7 @@ export async function updateIDRegistrantInSheet(
     return {
       success: false,
       needsScriptUpdate: true,
-      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب والأجهزة وإجبار الموقع.',
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب والأجهزة وإجبار الموقع والبرنامج.',
     };
   }
   return { success: true, message: res.message || 'تم تحديث بيانات المشترك بنجاح' };
@@ -3740,17 +3744,17 @@ function getLessonsSheet(ss) {
   return sheet;
 }
 
-// دالة مساعدة لضمان ترويسة الأعمدة الثمانية لورقة المشتركين "ID registrants"
+// دالة مساعدة لضمان ترويسة الأعمدة التسعة لورقة المشتركين "ID registrants"
 function ensureIDRegistrantsHeadersGS(sheet) {
-  var expected = ["ID", "اسم المشترك", "الحالة", "الحد الأقصى للأجهزة", "الأجهزة المسجلة JSON", "إجبار الموقع", "رابط الدخول المباشر", "صورة QR"];
+  var expected = ["ID", "اسم المشترك", "الحالة", "الحد الأقصى للأجهزة", "الأجهزة المسجلة JSON", "إجبار الموقع", "رابط الدخول المباشر", "صورة QR", "البرنامج التدريبي"];
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, 8).setValues([expected])
+    sheet.getRange(1, 1, 1, 9).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
     return;
   }
   var existingCols = Math.max(2, sheet.getLastColumn());
-  if (existingCols < 8) {
-    sheet.getRange(1, 1, 1, 8).setValues([expected])
+  if (existingCols < 9) {
+    sheet.getRange(1, 1, 1, 9).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
   }
 }
@@ -3869,7 +3873,7 @@ function readAllRegistrantsGS(sheet) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var colCount = Math.max(8, sheet.getLastColumn());
+  var colCount = Math.max(9, sheet.getLastColumn());
   var vals = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
   var baseUrl = getAppBaseUrlGS();
   for (var i = 0; i < vals.length; i++) {
@@ -3883,6 +3887,7 @@ function readAllRegistrantsGS(sheet) {
       var reqLoc = isLocationRequiredGS(vals[i][5]);
       var directUrl = String(vals[i][6] || "").trim() || buildDirectLoginUrlGS(baseUrl, rId, rName);
       var qrUrl = buildQrImageUrlGS(directUrl);
+      var progId = String(vals[i][8] || "").trim();
       list.push({
         rowNumber: i + 2,
         id: rId,
@@ -3892,7 +3897,8 @@ function readAllRegistrantsGS(sheet) {
         devices: rDevices,
         requireLocation: reqLoc,
         directLoginUrl: directUrl,
-        qrImageUrl: qrUrl
+        qrImageUrl: qrUrl,
+        programId: progId
       });
     }
   }
@@ -3905,7 +3911,7 @@ function getIDRegistrantsSheet(ss) {
   if (!sheet) {
     sheet = ss.insertSheet("ID registrants");
     ensureIDRegistrantsHeadersGS(sheet);
-    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", ""]);
+    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", "", ""]);
   } else {
     ensureIDRegistrantsHeadersGS(sheet);
   }
@@ -4539,10 +4545,12 @@ function getScheduleGroupsSheet(ss) {
   var sheet = ss.getSheetByName(SCHEDULE_GROUPS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SCHEDULE_GROUPS_SHEET_NAME);
-    var headers = ["ID المجموعة", "اسم المجموعة", "الوصف", "الدروس المختارة JSON", "تاريخ الإنشاء"];
+    var headers = ["ID المجموعة", "اسم المجموعة", "الوصف", "الدروس المختارة JSON", "تاريخ الإنشاء", "ID البرنامج"];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastColumn() < 6) {
+    sheet.getRange(1, 6).setValue("ID البرنامج").setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
   }
   return sheet;
 }
@@ -4551,10 +4559,12 @@ function getScheduleDaysSheet(ss) {
   var sheet = ss.getSheetByName(SCHEDULE_DAYS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SCHEDULE_DAYS_SHEET_NAME);
-    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON"];
+    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON", "ID البرنامج"];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastColumn() < 8) {
+    sheet.getRange(1, 8).setValue("ID البرنامج").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
   }
   return sheet;
 }
@@ -4593,9 +4603,10 @@ function readCourseScheduleGS(ss) {
   var groups = [];
   var days = [];
   var settings = { lockFutureDays: true, courseTitle: "جدول الدورة اليومي" };
+  var programs = [];
 
   if (gSheet && gSheet.getLastRow() > 1) {
-    var gRows = gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(5, gSheet.getLastColumn())).getValues();
+    var gRows = gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(6, gSheet.getLastColumn())).getValues();
     for (var i = 0; i < gRows.length; i++) {
       var r = gRows[i];
       var gid = String(r[0] || "").trim();
@@ -4608,13 +4619,14 @@ function readCourseScheduleGS(ss) {
         name: gname || ("مجموعة " + (i + 1)),
         description: String(r[2] || "").trim(),
         lessons: Array.isArray(lessonsArr) ? lessonsArr : [],
-        createdAt: String(r[4] || "").trim()
+        createdAt: String(r[4] || "").trim(),
+        programId: String(r[5] || "").trim() || "prog_default"
       });
     }
   }
 
   if (dSheet && dSheet.getLastRow() > 1) {
-    var dRows = dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(7, dSheet.getLastColumn())).getValues();
+    var dRows = dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(8, dSheet.getLastColumn())).getValues();
     for (var j = 0; j < dRows.length; j++) {
       var dr = dRows[j];
       if (j === 0 && dr[6]) {
@@ -4622,6 +4634,9 @@ function readCourseScheduleGS(ss) {
           var parsedSettings = JSON.parse(String(dr[6]));
           if (parsedSettings && typeof parsedSettings === "object") {
             settings = parsedSettings;
+            if (Array.isArray(parsedSettings.programs)) {
+              programs = parsedSettings.programs;
+            }
           }
         } catch (se) {}
       }
@@ -4637,12 +4652,13 @@ function readCourseScheduleGS(ss) {
         groupIds: gIds,
         groupId: gIds[0] || "",
         customTitle: String(dr[4] || "").trim(),
-        notes: String(dr[5] || "").trim()
+        notes: String(dr[5] || "").trim(),
+        programId: String(dr[7] || "").trim() || "prog_default"
       });
     }
   }
 
-  return { groups: groups, days: days, settings: settings };
+  return { groups: groups, days: days, settings: settings, programs: programs };
 }
 
 function writeCourseScheduleGS(ss, payload) {
@@ -4650,10 +4666,16 @@ function writeCourseScheduleGS(ss, payload) {
   var dSheet = getScheduleDaysSheet(ss);
   var groups = Array.isArray(payload.groups) ? payload.groups : [];
   var days = Array.isArray(payload.days) ? payload.days : [];
+  var programs = Array.isArray(payload.programs) ? payload.programs : (payload.settings && Array.isArray(payload.settings.programs) ? payload.settings.programs : []);
   var settings = payload.settings || { lockFutureDays: true, courseTitle: "جدول الدورة اليومي" };
+  var settingsPayload = {
+    lockFutureDays: settings.lockFutureDays !== undefined ? Boolean(settings.lockFutureDays) : true,
+    courseTitle: String(settings.courseTitle || "جدول الدورة اليومي"),
+    programs: programs
+  };
 
   if (gSheet.getLastRow() > 1) {
-    gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(5, gSheet.getLastColumn())).clearContent();
+    gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(6, gSheet.getLastColumn())).clearContent();
   }
   if (groups.length > 0) {
     var gValues = [];
@@ -4664,14 +4686,15 @@ function writeCourseScheduleGS(ss, payload) {
         String(g.name || ""),
         String(g.description || ""),
         JSON.stringify(Array.isArray(g.lessons) ? g.lessons : []),
-        String(g.createdAt || "")
+        String(g.createdAt || ""),
+        String(g.programId || "prog_default")
       ]);
     }
-    gSheet.getRange(2, 1, gValues.length, 5).setValues(gValues);
+    gSheet.getRange(2, 1, gValues.length, 6).setValues(gValues);
   }
 
   if (dSheet.getLastRow() > 1) {
-    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(7, dSheet.getLastColumn())).clearContent();
+    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(8, dSheet.getLastColumn())).clearContent();
   }
   var dValues = [];
   if (days.length > 0) {
@@ -4685,13 +4708,14 @@ function writeCourseScheduleGS(ss, payload) {
         dayGIds.length > 0 ? JSON.stringify(dayGIds) : "",
         String(d.customTitle || ""),
         String(d.notes || ""),
-        j === 0 ? JSON.stringify(settings) : ""
+        j === 0 ? JSON.stringify(settingsPayload) : "",
+        String(d.programId || "prog_default")
       ]);
     }
   } else {
-    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settings)]);
+    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settingsPayload), ""]);
   }
-  dSheet.getRange(2, 1, dValues.length, 7).setValues(dValues);
+  dSheet.getRange(2, 1, dValues.length, 8).setValues(dValues);
 }
 
 // =========================================================================
@@ -5571,11 +5595,12 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (ج-12) جلب بيانات المجموعات والجدول اليومي للدورة (GET)
+    // (ج-12) جلب بيانات المجموعات والجدول اليومي للدورة والبرامج التدريبية (GET)
     if (e && e.parameter && e.parameter.action === "get_course_schedule") {
       var schedData = readCourseScheduleGS(ss);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
+        programs: schedData.programs || [],
         groups: schedData.groups,
         days: schedData.days,
         settings: schedData.settings
@@ -6368,11 +6393,12 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    // (S) نقاط نهاية قسم المجموعات والجدول اليومي للدورة (POST)
+    // (S) نقاط نهاية قسم المجموعات والجدول اليومي للدورة والبرامج التدريبية (POST)
     if (data.action === "get_course_schedule") {
       var schedRes = readCourseScheduleGS(ss);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
+        programs: schedRes.programs || [],
         groups: schedRes.groups,
         days: schedRes.days,
         settings: schedRes.settings
@@ -6516,7 +6542,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة وإجبار الموقع ورابط الدخول
+    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة وإجبار الموقع والبرنامج ورابط الدخول
     if (data.action === "get_registrants" || data.action === "verify_student") {
       var regSheet = getIDRegistrantsSheet(ss);
       var rows = readAllRegistrantsGS(regSheet).map(function(r) {
@@ -6528,7 +6554,8 @@ function doPost(e) {
           devices: r.devices,
           requireLocation: Boolean(r.requireLocation),
           directLoginUrl: r.directLoginUrl || "",
-          qrImageUrl: r.qrImageUrl || ""
+          qrImageUrl: r.qrImageUrl || "",
+          programId: r.programId || ""
         };
       });
       return ContentService.createTextOutput(JSON.stringify({
@@ -6646,7 +6673,8 @@ function doPost(e) {
           devices: devList,
           requireLocation: Boolean(matchedRow.requireLocation),
           directLoginUrl: matchedRow.directLoginUrl || "",
-          qrImageUrl: matchedRow.qrImageUrl || ""
+          qrImageUrl: matchedRow.qrImageUrl || "",
+          programId: matchedRow.programId || ""
         }
       })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -6663,6 +6691,7 @@ function doPost(e) {
         var newStatus = String(data.status || "مفعّل").trim() || "مفعّل";
         var newMax = Math.max(1, Math.min(10, Number(data.maxDevices) || 1));
         var newReqLoc = isLocationRequiredGS(data.requireLocation) ? "إجبار" : "مسموح";
+        var newProgId = String(data.programId || "").trim();
         var existingRows = readAllRegistrantsGS(regSheet);
         var existingRow = null;
         for (var k = 0; k < existingRows.length; k++) {
@@ -6676,8 +6705,9 @@ function doPost(e) {
           targetRowNum = existingRow.rowNumber;
           regSheet.getRange(targetRowNum, 1, 1, 4).setValues([[newId, newName, newStatus, newMax]]);
           regSheet.getRange(targetRowNum, 6).setValue(newReqLoc);
+          regSheet.getRange(targetRowNum, 9).setValue(newProgId);
         } else {
-          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", ""]);
+          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", "", newProgId]);
           targetRowNum = regSheet.getLastRow();
         }
         syncRegistrantLinkAndQrCellsGS(regSheet, targetRowNum, newId, newName, activeBaseUrl);
@@ -6698,11 +6728,11 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         registrantHandled: true,
-        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة الثمانية بنجاح"
+        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة التسعة بنجاح"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة، إجبار الموقع، الرابط وQR)
+    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة، إجبار الموقع، البرنامج، الرابط وQR)
     if (data.action === "update_registrant") {
       if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
       var regSheet = getIDRegistrantsSheet(ss);
@@ -6729,8 +6759,12 @@ function doPost(e) {
       var nextReqLoc = data.requireLocation !== undefined
         ? (isLocationRequiredGS(data.requireLocation) ? "إجبار" : "مسموح")
         : (targetRow.requireLocation ? "إجبار" : "مسموح");
+      var nextProgId = data.programId !== undefined
+        ? String(data.programId || "").trim()
+        : (targetRow.programId || "");
       regSheet.getRange(targetRow.rowNumber, 1, 1, 4).setValues([[nextId, nextName, nextStatus, nextMax]]);
       regSheet.getRange(targetRow.rowNumber, 6).setValue(nextReqLoc);
+      regSheet.getRange(targetRow.rowNumber, 9).setValue(nextProgId);
       var activeBaseUrlUpd = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
       syncRegistrantLinkAndQrCellsGS(regSheet, targetRow.rowNumber, nextId, nextName, activeBaseUrlUpd);
       return ContentService.createTextOutput(JSON.stringify({

@@ -25,8 +25,14 @@ import {
   Ban,
   Download,
   Link2,
+  Layers,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
+import {
+  CourseProgram,
+  PROGRAM_COLOR_META,
+  createDefaultCourseProgram,
+} from '../utils/courseSchedule';
 import {
   fetchIDRegistrantsDetailed,
   ensureIDRegistrantsSheet,
@@ -39,9 +45,23 @@ import {
 
 interface SubscribersAdminManagerProps {
   webhookUrl: string;
+  coursePrograms?: CourseProgram[];
 }
 
-export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = ({ webhookUrl }) => {
+export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = ({
+  webhookUrl,
+  coursePrograms,
+}) => {
+  const programsList = useMemo(() => {
+    if (Array.isArray(coursePrograms) && coursePrograms.length > 0) {
+      return coursePrograms;
+    }
+    return [createDefaultCourseProgram()];
+  }, [coursePrograms]);
+  const defaultProgram = useMemo(
+    () => programsList.find((p) => p.isDefault) || programsList[0],
+    [programsList]
+  );
   const [registrants, setRegistrants] = useState<StudentRegistrant[]>([]);
   const [loading, setLoading] = useState(false);
   const [supportsDeviceSecurity, setSupportsDeviceSecurity] = useState<boolean>(true);
@@ -60,6 +80,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
   const [newMaxDevices, setNewMaxDevices] = useState<number>(1);
   const [newStatus, setNewStatus] = useState<'مفعّل' | 'معطّل'>('مفعّل');
   const [newRequireLocation, setNewRequireLocation] = useState<boolean>(false); // افتراضي مسموح (غير إجباري)
+  const [newProgramId, setNewProgramId] = useState<string>('');
   const [isAdding, setIsAdding] = useState(false);
 
   // Row-level busy state
@@ -76,6 +97,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
     status: 'مفعّل' | 'معطّل';
     maxDevices: number;
     requireLocation: boolean;
+    programId: string;
   } | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -141,8 +163,8 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       setStatusBanner({
         type: res.supportsDeviceSecurity ? 'success' : 'warning',
         text: res.supportsDeviceSecurity
-          ? 'تم تجهيز وترقية أعمدة ورقة ID registrants (8 أعمدة تشمل الموقع والرابط المباشر وQR) بنجاح!'
-          : 'تم إرسال الطلب، ولكن يرجى نشر النسخة الجديدة من Google Apps Script (New Version) لتفعيل الأعمدة الثمانية.',
+          ? 'تم تجهيز وترقية أعمدة ورقة ID registrants (9 أعمدة تشمل البرنامج التدريبي والموقع والرابط المباشر وQR) بنجاح!'
+          : 'تم إرسال الطلب، ولكن يرجى نشر النسخة الجديدة من Google Apps Script (New Version) لتفعيل الأعمدة التسعة.',
       });
       await loadRegistrants();
     } else {
@@ -165,6 +187,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       status: newStatus,
       maxDevices: newMaxDevices,
       requireLocation: newRequireLocation,
+      programId: newProgramId,
     });
 
     if (res.success) {
@@ -173,10 +196,11 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       setNewMaxDevices(1);
       setNewStatus('مفعّل');
       setNewRequireLocation(false);
+      setNewProgramId('');
       setStatusBanner({
         type: res.needsScriptUpdate ? 'warning' : 'success',
         text: res.needsScriptUpdate
-          ? 'تمت إضافة المشترك بالصيغة الأساسية. لتفعيل الأعمدة الثمانية يرجى نشر New Version من Apps Script.'
+          ? 'تمت إضافة المشترك بالصيغة الأساسية. لتفعيل الأعمدة التسعة يرجى نشر New Version من Apps Script.'
           : `تمت إضافة/تحديث المشترك (${cleanName}) مع رابط الدخول وQR في ورقة ID registrants بنجاح.`,
       });
       await loadRegistrants();
@@ -197,6 +221,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       status: nextStatus,
       maxDevices: student.maxDevices || 1,
       requireLocation: Boolean(student.requireLocation),
+      programId: student.programId || '',
     });
     if (res.success) {
       setRegistrants((prev) =>
@@ -225,6 +250,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       status: student.status || 'مفعّل',
       maxDevices: nextMax,
       requireLocation: Boolean(student.requireLocation),
+      programId: student.programId || '',
     });
     if (res.success) {
       setRegistrants((prev) =>
@@ -233,6 +259,37 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       setStatusBanner({
         type: 'success',
         text: `تم ضبط الحد الأقصى للأجهزة للطالب (${student.name}) إلى ${nextMax}`,
+      });
+    } else {
+      setStatusBanner({
+        type: res.needsScriptUpdate ? 'warning' : 'error',
+        text: res.message,
+      });
+    }
+    setBusyRowId(null);
+  };
+
+  const handleChangeProgram = async (student: StudentRegistrant, nextProgramId: string) => {
+    setBusyRowId(student.id);
+    setStatusBanner(null);
+    const res = await updateIDRegistrantInSheet(webhookUrl, {
+      originalId: student.id,
+      id: student.id,
+      name: student.name,
+      status: student.status || 'مفعّل',
+      maxDevices: student.maxDevices || 1,
+      requireLocation: Boolean(student.requireLocation),
+      programId: nextProgramId,
+    });
+    const assignedProg =
+      programsList.find((p) => p.id === nextProgramId) || defaultProgram;
+    if (res.success) {
+      setRegistrants((prev) =>
+        prev.map((r) => (r.id === student.id ? { ...r, programId: nextProgramId } : r))
+      );
+      setStatusBanner({
+        type: 'success',
+        text: `تم تخصيص برنامج «${assignedProg?.name || 'الافتراضي'}» للطالب (${student.name}) بنجاح.`,
       });
     } else {
       setStatusBanner({
@@ -543,6 +600,27 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                البرنامج التدريبي المخصص — العمود I
+              </label>
+              <select
+                value={newProgramId}
+                onChange={(e) => setNewProgramId(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="">
+                  البرنامج الافتراضي ({defaultProgram?.name})
+                </option>
+                {programsList.map((prog) => (
+                  <option key={prog.id} value={prog.id}>
+                    {prog.name}
+                    {prog.isDefault ? ' (افتراضي)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               type="submit"
               disabled={isAdding}
@@ -677,6 +755,22 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                               <MapPin className="w-3 h-3" />
                               <span>{student.requireLocation ? 'الموقع إجباري' : 'الموقع مسموح'}</span>
                             </span>
+
+                            {(() => {
+                              const stuProg =
+                                (student.programId &&
+                                  programsList.find((p) => p.id === student.programId)) ||
+                                defaultProgram;
+                              const pCol = PROGRAM_COLOR_META[stuProg?.color || 'emerald'];
+                              return (
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${pCol.pillBg} ${pCol.pillText} ${pCol.pillBorder}`}
+                                >
+                                  <Layers className="w-3 h-3" />
+                                  <span>{stuProg?.name || 'البرنامج الافتراضي'}</span>
+                                </span>
+                              );
+                            })()}
                           </div>
 
                           {/* Devices summary */}
@@ -706,6 +800,29 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
 
                       {/* Controls */}
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {programsList.length > 1 && (
+                          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-xl border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-500">البرنامج:</span>
+                            <select
+                              disabled={isBusy}
+                              value={student.programId || ''}
+                              onChange={(e) =>
+                                handleChangeProgram(student, e.target.value)
+                              }
+                              className="text-[11px] font-extrabold text-indigo-800 bg-transparent focus:outline-none cursor-pointer max-w-[130px]"
+                            >
+                              <option value="">
+                                افتراضي ({defaultProgram?.name})
+                              </option>
+                              {programsList.map((prog) => (
+                                <option key={prog.id} value={prog.id}>
+                                  {prog.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
                         <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-xl border border-slate-200">
                           <span className="text-[10px] font-bold text-slate-500">الحد:</span>
                           <select
@@ -786,6 +903,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                               status: disabled ? 'معطّل' : 'مفعّل',
                               maxDevices: maxDev,
                               requireLocation: Boolean(student.requireLocation),
+                              programId: student.programId || '',
                             })
                           }
                           title="تعديل البيانات"
@@ -977,6 +1095,29 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                     إجبار تحديد الموقع
                   </button>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  البرنامج التدريبي المخصص
+                </label>
+                <select
+                  value={editingRow.programId}
+                  onChange={(e) =>
+                    setEditingRow({ ...editingRow, programId: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-slate-50"
+                >
+                  <option value="">
+                    البرنامج الافتراضي ({defaultProgram?.name})
+                  </option>
+                  {programsList.map((prog) => (
+                    <option key={prog.id} value={prog.id}>
+                      {prog.name}
+                      {prog.isDefault ? ' (افتراضي)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

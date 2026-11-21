@@ -89,7 +89,11 @@ import { CourseScheduleAdmin } from './CourseScheduleAdmin';
 import { SubscribersAdminManager } from './SubscribersAdminManager';
 import { TelegramAdminManager } from './TelegramAdminManager';
 import { HomeContentAdminManager } from './HomeContentManager';
-import { CourseScheduleData, createEmptyCourseSchedule } from '../utils/courseSchedule';
+import {
+  CourseScheduleData,
+  createEmptyCourseSchedule,
+  normalizeCourseScheduleData,
+} from '../utils/courseSchedule';
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
@@ -178,7 +182,7 @@ interface AdminPanelProps {
   onUpdateVideoLessons?: (lessons: VideoLesson[]) => void;
   courseSchedule?: CourseScheduleData;
   onUpdateCourseSchedule?: (next: CourseScheduleData) => void;
-  onOpenSchedulePreview?: () => void;
+  onOpenSchedulePreview?: (programId?: string) => void;
   homeContentBlocks?: HomeContentBlock[];
   onUpdateHomeContentBlocks?: (blocks: HomeContentBlock[]) => void;
   homeNavbarControls?: HomeNavbarControls;
@@ -2990,13 +2994,22 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             writingTemplates={writingTemplates || []}
             catchSubjects={catchSubjects || []}
             videoLessons={videoLessons || []}
-            onOpenStudentPreview={onOpenSchedulePreview || onBackToApp}
+            onOpenStudentPreview={(progId) =>
+              onOpenSchedulePreview ? onOpenSchedulePreview(progId) : onBackToApp()
+            }
           />
         )}
 
         {/* TAB 11: SUBSCRIBERS & DEVICES SECURITY (المشتركون والأجهزة) */}
         {activeTab === 'subscribers' && (
-          <SubscribersAdminManager webhookUrl={sheetsConfig.webhookUrl} />
+          <SubscribersAdminManager
+            webhookUrl={sheetsConfig.webhookUrl}
+            coursePrograms={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).programs
+            }
+          />
         )}
 
         {/* TAB 12: TELEGRAM BOT & NOTIFICATIONS (بوت تيليغرام والإشعارات) */}

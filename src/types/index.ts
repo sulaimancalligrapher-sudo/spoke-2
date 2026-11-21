@@ -131,6 +131,7 @@ export interface StudentRegistrant {
   requireLocation?: boolean; // إجبار تحديد الموقع عند الدخول (افتراضي false = مسموح)
   directLoginUrl?: string; // رابط الدخول المباشر
   qrImageUrl?: string; // رابط/صيغة صورة QR
+  programId?: string; // معرف البرنامج التدريبي المخصص للطالب
 }
 
 export interface SocialLinkItem {

@@ -42,13 +42,16 @@ import {
   CourseGroup,
   CourseScheduleData,
   CourseScheduleDay,
+  PROGRAM_COLOR_META,
   SCHEDULE_DAY_TYPE_META,
   SCHEDULE_EXERCISE_META,
   ScheduleLessonRef,
   ScheduledLessonProgressStatus,
   evaluateScheduledLessonStatus,
   formatScheduleDateLabel,
+  getScheduleForProgram,
   getTodayLocalISO,
+  normalizeCourseScheduleData,
 } from '../utils/courseSchedule';
 
 interface CourseScheduleModalProps {
@@ -56,6 +59,8 @@ interface CourseScheduleModalProps {
   onClose: () => void;
   schedule: CourseScheduleData;
   currentStudent: StudentRegistrant | null;
+  isAdminAuthenticated?: boolean;
+  initialProgramId?: string;
   currentLang: SupportedLang;
   translations: TranslationItem[];
   t: (id: string, fallback?: string) => string;
@@ -126,6 +131,8 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   onClose,
   schedule,
   currentStudent,
+  isAdminAuthenticated = false,
+  initialProgramId,
   currentLang,
   translations,
   t,
@@ -145,7 +152,30 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<ScheduleTab>('calendar');
   const [expandedDayId, setExpandedDayId] = useState<string | null>(null);
+  const [adminSelectedProgramId, setAdminSelectedProgramId] = useState<string>(
+    initialProgramId || ''
+  );
   const todayISO = getTodayLocalISO();
+
+  useEffect(() => {
+    if (isOpen && isAdminAuthenticated) {
+      setAdminSelectedProgramId(initialProgramId || '');
+    }
+  }, [isOpen, isAdminAuthenticated, initialProgramId]);
+
+  const normalizedSchedule = useMemo(
+    () => normalizeCourseScheduleData(schedule),
+    [schedule]
+  );
+
+  const effectiveProgramId = isAdminAuthenticated
+    ? adminSelectedProgramId || initialProgramId
+    : currentStudent?.programId;
+
+  const { programs, activeProgram, scopedSchedule } = useMemo(
+    () => getScheduleForProgram(normalizedSchedule, effectiveProgramId),
+    [normalizedSchedule, effectiveProgramId]
+  );
 
   const tr = (id: string, fallback: string) => t(id, fallback) || fallback;
 
@@ -181,14 +211,14 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   );
 
   const enrichedDays: EnrichedDayItem[] = useMemo(() => {
-    return schedule.days.map((day) => {
+    return scopedSchedule.days.map((day) => {
       const gIds = day.groupIds?.length
         ? day.groupIds
         : day.groupId
         ? [day.groupId]
         : [];
       const groups = gIds
-        .map((gid) => schedule.groups.find((g) => g.id === gid))
+        .map((gid) => scopedSchedule.groups.find((g) => g.id === gid))
         .filter((g): g is CourseGroup => Boolean(g));
 
       const groupedLessons: EnrichedGroupLessons[] = groups.map((group) => ({
@@ -212,7 +242,7 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
           (l) => l.status.completed || l.status.partial
         );
       const isLocked = Boolean(
-        schedule.settings.lockFutureDays && day.date > todayISO
+        !isAdminAuthenticated && scopedSchedule.settings.lockFutureDays && day.date > todayISO
       );
 
       return {
@@ -228,7 +258,7 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
         isToday: day.date === todayISO,
       };
     });
-  }, [schedule, evalCtx, todayISO]);
+  }, [scopedSchedule, evalCtx, todayISO, isAdminAuthenticated]);
 
   const enrichedByDate = useMemo(() => {
     const map = new Map<string, EnrichedDayItem>();
@@ -559,10 +589,23 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
               <Calendar className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-extrabold truncate">
-                {schedule.settings.courseTitle ||
-                  tr('schedule_modal_title', 'جدول الدروس اليومي')}
-              </h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-extrabold truncate">
+                  {scopedSchedule.settings.courseTitle ||
+                    tr('schedule_modal_title', 'جدول الدروس اليومي')}
+                </h2>
+                {programs.length > 1 && (
+                  <span
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${
+                      PROGRAM_COLOR_META[activeProgram.color || 'emerald'].pillBg
+                    } ${PROGRAM_COLOR_META[activeProgram.color || 'emerald'].pillText} ${
+                      PROGRAM_COLOR_META[activeProgram.color || 'emerald'].pillBorder
+                    }`}
+                  >
+                    {activeProgram.name}
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-300 truncate">
                 {currentStudent
                   ? `${currentStudent.name} · ${tr(
@@ -585,6 +628,33 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Admin Preview Program Switcher when > 1 program exists */}
+        {isAdminAuthenticated && programs.length > 1 && (
+          <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
+            <span className="text-[11px] font-extrabold text-slate-600">
+              معاينة برنامج:
+            </span>
+            {programs.map((prog) => {
+              const isAct = prog.id === activeProgram.id;
+              const pCol = PROGRAM_COLOR_META[prog.color || 'emerald'];
+              return (
+                <button
+                  key={prog.id}
+                  type="button"
+                  onClick={() => setAdminSelectedProgramId(prog.id)}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                    isAct
+                      ? pCol.activeBtn
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  {prog.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Overall Progress & 3 Main Tabs */}
         <div className="p-4 bg-white border-b border-slate-200 space-y-3 shrink-0">

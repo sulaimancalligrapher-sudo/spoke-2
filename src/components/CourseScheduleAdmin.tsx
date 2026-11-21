@@ -21,6 +21,10 @@ import {
   Download,
   MapPin,
   Clock,
+  Undo2,
+  Edit3,
+  Star,
+  Shuffle,
 } from 'lucide-react';
 import {
   WordItem,
@@ -32,9 +36,13 @@ import { DrawingTemplate } from '../arWriting/types/drawing';
 import { VideoLesson } from '../video/videoSheets';
 import {
   AttendanceRecord,
+  CourseProgram,
   CourseScheduleData,
   CourseGroup,
   CourseScheduleDay,
+  DEFAULT_PROGRAM_ID,
+  PROGRAM_COLOR_META,
+  ProgramColorKey,
   ScheduleDayType,
   ScheduleExerciseType,
   ScheduleLessonRef,
@@ -49,6 +57,8 @@ import {
   generateCalendarDays,
   getLocalAttendanceRecords,
   getTodayLocalISO,
+  normalizeCourseScheduleData,
+  normalizeDateISO,
   saveCourseScheduleToSheets,
 } from '../utils/courseSchedule';
 
@@ -63,7 +73,7 @@ interface CourseScheduleAdminProps {
   writingTemplates: DrawingTemplate[];
   catchSubjects: CatchLessonSubject[];
   videoLessons: VideoLesson[];
-  onOpenStudentPreview: () => void;
+  onOpenStudentPreview: (programId?: string) => void;
 }
 
 const WEEKDAY_BUTTONS: { day: number; label: string }[] = [
@@ -85,6 +95,15 @@ const EXERCISE_TYPES_ORDER: ScheduleExerciseType[] = [
   'video',
 ];
 
+const PROGRAM_COLORS_LIST: ProgramColorKey[] = [
+  'emerald',
+  'indigo',
+  'amber',
+  'rose',
+  'sky',
+  'purple',
+];
+
 export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   schedule,
   onUpdateSchedule,
@@ -98,12 +117,37 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   videoLessons,
   onOpenStudentPreview,
 }) => {
-  const [subTab, setSubTab] = useState<'groups' | 'days' | 'attendance'>('groups');
-  const [selectedGroupId, setSelectedGroupId] = useState<string>(
-    schedule.groups[0]?.id || ''
+  const normalizedSchedule = useMemo(
+    () => normalizeCourseScheduleData(schedule),
+    [schedule]
   );
+  const programs = normalizedSchedule.programs || [];
+  const defaultProgram =
+    programs.find((p) => p.isDefault) || programs[0];
+  const defaultProgramId = defaultProgram?.id || DEFAULT_PROGRAM_ID;
+
+  const [activeProgramId, setActiveProgramId] = useState<string>(defaultProgramId);
+  const activeProgram: CourseProgram = useMemo(
+    () =>
+      programs.find((p) => p.id === activeProgramId) ||
+      defaultProgram,
+    [programs, activeProgramId, defaultProgram]
+  );
+
+  // Program creation / editing UI state
+  const [showNewProgramForm, setShowNewProgramForm] = useState(false);
+  const [newProgName, setNewProgName] = useState('');
+  const [newProgDesc, setNewProgDesc] = useState('');
+  const [newProgColor, setNewProgColor] = useState<ProgramColorKey>('indigo');
+  const [cloneFromProgramId, setCloneFromProgramId] = useState<string>('');
+  const [confirmDeleteProgramId, setConfirmDeleteProgramId] = useState<string | null>(null);
+  const [editingProgramMeta, setEditingProgramMeta] = useState(false);
+
+  const [subTab, setSubTab] = useState<'groups' | 'days' | 'attendance'>('groups');
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
 
   // Calendar generator states
   const todayISO = getTodayLocalISO();
@@ -118,7 +162,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   const [genWeekdays, setGenWeekdays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [genDayType, setGenDayType] = useState<ScheduleDayType>('lesson');
   const [genGroupsPerDay, setGenGroupsPerDay] = useState<number>(1);
+  const [genMode, setGenMode] = useState<'replace' | 'append'>('replace');
   const [singleDayDate, setSingleDayDate] = useState<string>(todayISO);
+  const [daysUndoSnapshot, setDaysUndoSnapshot] = useState<CourseScheduleDay[] | null>(null);
+  const [confirmDeleteAllDays, setConfirmDeleteAllDays] = useState(false);
 
   // Cloud sync status
   const [isSaving, setIsSaving] = useState(false);
@@ -243,18 +290,48 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     ]
   );
 
-  const activeGroup = useMemo(
+  // Scoped groups & days for the currently selected program
+  const activeProgramGroups = useMemo(
     () =>
-      schedule.groups.find((g) => g.id === selectedGroupId) ||
-      schedule.groups[0] ||
-      null,
-    [schedule.groups, selectedGroupId]
+      normalizedSchedule.groups.filter(
+        (g) => (g.programId || defaultProgramId) === activeProgram.id
+      ),
+    [normalizedSchedule.groups, defaultProgramId, activeProgram.id]
   );
 
-  // Map each lesson key -> list of group names containing that lesson (to mark & color dropdown options)
+  const activeProgramDays = useMemo(
+    () =>
+      normalizedSchedule.days
+        .filter((d) => (d.programId || defaultProgramId) === activeProgram.id)
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    [normalizedSchedule.days, defaultProgramId, activeProgram.id]
+  );
+
+  // Sync selectedGroupId when switching programs
+  useEffect(() => {
+    if (
+      activeProgramGroups.length > 0 &&
+      !activeProgramGroups.some((g) => g.id === selectedGroupId)
+    ) {
+      setSelectedGroupId(activeProgramGroups[0].id);
+    } else if (activeProgramGroups.length === 0 && selectedGroupId) {
+      setSelectedGroupId('');
+    }
+  }, [activeProgram.id, activeProgramGroups, selectedGroupId]);
+
+  const activeGroup = useMemo(
+    () =>
+      activeProgramGroups.find((g) => g.id === selectedGroupId) ||
+      activeProgramGroups[0] ||
+      null,
+    [activeProgramGroups, selectedGroupId]
+  );
+
+  // Per-program duplicate check: same topic cannot repeat across groups in the SAME program,
+  // but CAN be used in different programs (e.g., Beginner vs Advanced).
   const topicAssignmentMap = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const grp of schedule.groups) {
+    for (const grp of activeProgramGroups) {
       for (const l of grp.lessons) {
         const list = map.get(l.key) || [];
         if (!list.includes(grp.name)) {
@@ -264,34 +341,163 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       }
     }
     return map;
-  }, [schedule.groups]);
+  }, [activeProgramGroups]);
 
-  // Count how many days each group is assigned to across the schedule
+  // Count how many days each group is assigned to within the active program
   const groupDayUsageCount = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const d of schedule.days) {
+    for (const d of activeProgramDays) {
       const ids = d.groupIds?.length ? d.groupIds : d.groupId ? [d.groupId] : [];
       for (const gid of ids) {
         counts.set(gid, (counts.get(gid) || 0) + 1);
       }
     }
     return counts;
-  }, [schedule.days]);
+  }, [activeProgramDays]);
 
-  // Create a new group
+  // Helper to commit updated schedule preserving normalized structure
+  const commitScheduleUpdate = (next: CourseScheduleData) => {
+    onUpdateSchedule(normalizeCourseScheduleData(next));
+  };
+
+  // Program Management Handlers
+  const handleUpdateActiveProgram = (
+    patch: Partial<CourseProgram> & { settingsPatch?: Partial<CourseProgram['settings']> }
+  ) => {
+    const nextPrograms = programs.map((p) => {
+      if (p.id !== activeProgram.id) return p;
+      const nextSettings = patch.settingsPatch
+        ? { ...p.settings, ...patch.settingsPatch }
+        : patch.settings || p.settings;
+      return {
+        ...p,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.color !== undefined ? { color: patch.color } : {}),
+        settings: nextSettings,
+      };
+    });
+    const updatedDefault =
+      nextPrograms.find((p) => p.isDefault) || nextPrograms[0];
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      programs: nextPrograms,
+      settings: updatedDefault?.settings || normalizedSchedule.settings,
+    });
+  };
+
+  const handleSetDefaultProgram = (progId: string) => {
+    const nextPrograms = programs.map((p) => ({
+      ...p,
+      isDefault: p.id === progId,
+    }));
+    const nextDef = nextPrograms.find((p) => p.isDefault) || nextPrograms[0];
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      programs: nextPrograms,
+      settings: nextDef?.settings || normalizedSchedule.settings,
+    });
+    setStatusBanner({
+      type: 'success',
+      message: `تم تعيين «${nextDef?.name}» كبرنامج افتراضي للمنصة.`,
+    });
+  };
+
+  const handleCreateProgram = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newProgName.trim() || `برنامج تدريبي ${programs.length + 1}`;
+    const newId = `prog_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    const newProg: CourseProgram = {
+      id: newId,
+      name: cleanName,
+      description: newProgDesc.trim(),
+      color: newProgColor,
+      isDefault: false,
+      settings: {
+        lockFutureDays: true,
+        courseTitle: cleanName,
+      },
+      createdAt: todayISO,
+    };
+
+    let clonedGroups: CourseGroup[] = [];
+    if (cloneFromProgramId) {
+      const srcGroups = normalizedSchedule.groups.filter(
+        (g) => (g.programId || defaultProgramId) === cloneFromProgramId
+      );
+      clonedGroups = srcGroups.map((g, idx) => ({
+        ...g,
+        id: `grp_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 5)}`,
+        programId: newId,
+        lessons: g.lessons.map((l) => ({ ...l })),
+        createdAt: todayISO,
+      }));
+    }
+
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      programs: [...programs, newProg],
+      groups: [...normalizedSchedule.groups, ...clonedGroups],
+    });
+    setActiveProgramId(newId);
+    setSelectedGroupId(clonedGroups[0]?.id || '');
+    setNewProgName('');
+    setNewProgDesc('');
+    setCloneFromProgramId('');
+    setShowNewProgramForm(false);
+    setStatusBanner({
+      type: 'success',
+      message: clonedGroups.length > 0
+        ? `تم إنشاء برنامج «${cleanName}» مع نسخ ${clonedGroups.length} مجموعة بنجاح.`
+        : `تم إنشاء برنامج «${cleanName}» بنجاح. يمكنك الآن إضافة مجموعاته وتوليد جدوله.`,
+    });
+  };
+
+  const handleDeleteProgram = (progId: string) => {
+    if (programs.length <= 1) return;
+    const target = programs.find((p) => p.id === progId);
+    let nextPrograms = programs.filter((p) => p.id !== progId);
+    if (!nextPrograms.some((p) => p.isDefault) && nextPrograms[0]) {
+      nextPrograms = nextPrograms.map((p, idx) => ({ ...p, isDefault: idx === 0 }));
+    }
+    const nextGroups = normalizedSchedule.groups.filter(
+      (g) => (g.programId || defaultProgramId) !== progId
+    );
+    const nextDays = normalizedSchedule.days.filter(
+      (d) => (d.programId || defaultProgramId) !== progId
+    );
+    const nextDefault = nextPrograms.find((p) => p.isDefault) || nextPrograms[0];
+
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      programs: nextPrograms,
+      groups: nextGroups,
+      days: nextDays,
+      settings: nextDefault.settings,
+    });
+    setConfirmDeleteProgramId(null);
+    setActiveProgramId(nextDefault.id);
+    setStatusBanner({
+      type: 'warn',
+      message: `تم حذف برنامج «${target?.name || ''}» ومجموعاته وأيامه. اضغط «حفظ ومزامنة إلى الشيت» لتثبيت التغيير.`,
+    });
+  };
+
+  // Create a new group inside the active program
   const handleCreateGroup = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName =
-      newGroupName.trim() || `مجموعة ${schedule.groups.length + 1}`;
+      newGroupName.trim() || `مجموعة ${activeProgramGroups.length + 1}`;
     const newGrp: CourseGroup = {
       id: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
       name: cleanName,
       description: newGroupDesc.trim(),
       lessons: [],
       createdAt: new Date().toISOString().slice(0, 10),
+      programId: activeProgram.id,
     };
-    const nextGroups = [...schedule.groups, newGrp];
-    onUpdateSchedule({ ...schedule, groups: nextGroups });
+    const nextGroups = [...normalizedSchedule.groups, newGrp];
+    commitScheduleUpdate({ ...normalizedSchedule, groups: nextGroups });
     setSelectedGroupId(newGrp.id);
     setNewGroupName('');
     setNewGroupDesc('');
@@ -301,25 +507,17 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     groupId: string,
     patch: Partial<CourseGroup>
   ) => {
-    onUpdateSchedule({
-      ...schedule,
-      groups: schedule.groups.map((g) =>
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      groups: normalizedSchedule.groups.map((g) =>
         g.id === groupId ? { ...g, ...patch } : g
       ),
     });
   };
 
   const handleDeleteGroup = (groupId: string) => {
-    const grp = schedule.groups.find((g) => g.id === groupId);
-    if (
-      !confirm(
-        `هل تريد حذف "${grp?.name || 'المجموعة'}"؟ سيتم تفريغ ارتباطها من الأيام المجدولة.`
-      )
-    ) {
-      return;
-    }
-    const nextGroups = schedule.groups.filter((g) => g.id !== groupId);
-    const nextDays = schedule.days.map((d) => {
+    const nextGroups = normalizedSchedule.groups.filter((g) => g.id !== groupId);
+    const nextDays = normalizedSchedule.days.map((d) => {
       const filtered = (d.groupIds || (d.groupId ? [d.groupId] : [])).filter(
         (id) => id !== groupId
       );
@@ -329,9 +527,13 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
         groupId: filtered[0] || '',
       };
     });
-    onUpdateSchedule({ ...schedule, groups: nextGroups, days: nextDays });
+    commitScheduleUpdate({ ...normalizedSchedule, groups: nextGroups, days: nextDays });
+    setConfirmDeleteGroupId(null);
     if (selectedGroupId === groupId) {
-      setSelectedGroupId(nextGroups[0]?.id || '');
+      const remainingInProg = nextGroups.filter(
+        (g) => (g.programId || defaultProgramId) === activeProgram.id
+      );
+      setSelectedGroupId(remainingInProg[0]?.id || '');
     }
   };
 
@@ -339,17 +541,17 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     groupId: string,
     ref: ScheduleLessonRef
   ) => {
-    const grp = schedule.groups.find((g) => g.id === groupId);
+    const grp = activeProgramGroups.find((g) => g.id === groupId);
     if (!grp) return;
     const exists = grp.lessons.some((l) => l.key === ref.key);
     if (!exists) {
-      const otherOwner = schedule.groups.find(
+      const otherOwner = activeProgramGroups.find(
         (g) => g.id !== groupId && g.lessons.some((l) => l.key === ref.key)
       );
       if (otherOwner) {
         setStatusBanner({
           type: 'warn',
-          message: `الموضوع "${ref.topicName}" مختار مسبقاً في «${otherOwner.name}» ولا يمكن اختياره في مجموعة أخرى.`,
+          message: `الموضوع "${ref.topicName}" مختار مسبقاً في «${otherOwner.name}» ضمن برنامج «${activeProgram.name}».`,
         });
         return;
       }
@@ -361,7 +563,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   };
 
   const handleRemoveLessonFromGroup = (groupId: string, lessonKey: string) => {
-    const grp = schedule.groups.find((g) => g.id === groupId);
+    const grp = activeProgramGroups.find((g) => g.id === groupId);
     if (!grp) return;
     handleUpdateGroupField(groupId, {
       lessons: grp.lessons.filter((l) => l.key !== lessonKey),
@@ -392,34 +594,125 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       });
       return;
     }
+
     const perDay = Math.max(1, Math.floor(Number(genGroupsPerDay) || 1));
-    const generated = generateCalendarDays(
-      genStartDate,
-      genEndDate,
-      genWeekdays,
-      genDayType,
-      schedule.groups,
-      perDay
+    const otherProgramsDays = normalizedSchedule.days.filter(
+      (d) => (d.programId || defaultProgramId) !== activeProgram.id
     );
-    const existingDates = new Set(schedule.days.map((d) => d.date));
-    const additions = generated.filter((d) => !existingDates.has(d.date));
-    const merged = [...schedule.days, ...additions].sort((a, b) =>
+
+    // Save undo snapshot of all days before mutating
+    setDaysUndoSnapshot(normalizedSchedule.days);
+
+    if (genMode === 'replace') {
+      const generated = generateCalendarDays(
+        genStartDate,
+        genEndDate,
+        genWeekdays,
+        genDayType,
+        activeProgramGroups,
+        perDay,
+        { programId: activeProgram.id }
+      );
+      const nextDays = [...otherProgramsDays, ...generated].sort((a, b) =>
+        a.date.localeCompare(b.date)
+      );
+      commitScheduleUpdate({ ...normalizedSchedule, days: nextDays });
+      const withGroupsCount = generated.filter((d) => d.groupIds.length > 0).length;
+      setStatusBanner({
+        type: 'success',
+        message: `تم استبدال وتوليد ${generated.length} يوماً لبرنامج «${activeProgram.name}» وفق الأيام المختارة (توزيع ${withGroupsCount} يوماً بالمجموعات).`,
+      });
+    } else {
+      // Append mode: only new dates, distributing unassigned groups so nothing duplicates!
+      const usedGroupIds = new Set<string>();
+      for (const d of activeProgramDays) {
+        const ids = d.groupIds?.length ? d.groupIds : d.groupId ? [d.groupId] : [];
+        ids.forEach((id) => usedGroupIds.add(id));
+      }
+      const unassignedGroups = activeProgramGroups.filter(
+        (g) => !usedGroupIds.has(g.id)
+      );
+
+      const generated = generateCalendarDays(
+        genStartDate,
+        genEndDate,
+        genWeekdays,
+        genDayType,
+        unassignedGroups,
+        perDay,
+        { programId: activeProgram.id }
+      );
+      const existingDates = new Set(activeProgramDays.map((d) => d.date));
+      const additions = generated.filter((d) => !existingDates.has(d.date));
+      const nextDays = [
+        ...otherProgramsDays,
+        ...activeProgramDays,
+        ...additions,
+      ].sort((a, b) => a.date.localeCompare(b.date));
+      commitScheduleUpdate({ ...normalizedSchedule, days: nextDays });
+      const withGroupsCount = additions.filter((d) => d.groupIds.length > 0).length;
+      setStatusBanner({
+        type: 'success',
+        message: `تمت إضافة ${additions.length} يوماً جديداً لبرنامج «${activeProgram.name}» (استكمال توزيع ${withGroupsCount} يوماً من المجموعات المتبقية).`,
+      });
+    }
+  };
+
+  const handleRedistributeGroupsOnCurrentDays = () => {
+    if (activeProgramDays.length === 0) {
+      setStatusBanner({
+        type: 'warn',
+        message: 'لا توجد أيام حالية في هذا البرنامج لإعادة توزيع المجموعات عليها.',
+      });
+      return;
+    }
+    const perDay = Math.max(1, Math.floor(Number(genGroupsPerDay) || 1));
+    setDaysUndoSnapshot(normalizedSchedule.days);
+
+    let cursor = 0;
+    const sortedProgramDays = [...activeProgramDays].sort((a, b) =>
       a.date.localeCompare(b.date)
     );
-    onUpdateSchedule({ ...schedule, days: merged });
-    const withGroupsCount = additions.filter((d) => d.groupIds.length > 0).length;
+    const updatedProgramDaysMap = new Map<string, CourseScheduleDay>();
+    for (const day of sortedProgramDays) {
+      const assignedIds =
+        cursor < activeProgramGroups.length
+          ? activeProgramGroups.slice(cursor, cursor + perDay).map((g) => g.id)
+          : [];
+      cursor += perDay;
+      updatedProgramDaysMap.set(day.id, {
+        ...day,
+        groupIds: assignedIds,
+        groupId: assignedIds[0] || '',
+      });
+    }
+
+    const nextDays = normalizedSchedule.days.map(
+      (d) => updatedProgramDaysMap.get(d.id) || d
+    );
+    commitScheduleUpdate({ ...normalizedSchedule, days: nextDays });
     setStatusBanner({
       type: 'success',
-      message: `تمت إضافة ${additions.length} يوماً جديداً إلى الجدول (تم توزيع المجموعات تلقائياً على ${withGroupsCount} يوماً، بمعدل ${perDay} مجموعة/يوم).`,
+      message: `تمت إعادة توزيع ${activeProgramGroups.length} مجموعة بانتظام على ${sortedProgramDays.length} يوماً بمعدل ${perDay} مجموعة/يوم.`,
+    });
+  };
+
+  const handleUndoDaysChange = () => {
+    if (!daysUndoSnapshot) return;
+    commitScheduleUpdate({ ...normalizedSchedule, days: daysUndoSnapshot });
+    setDaysUndoSnapshot(null);
+    setStatusBanner({
+      type: 'success',
+      message: 'تم التراجع واستعادة الأيام السابقة بنجاح.',
     });
   };
 
   const handleAddSingleDay = () => {
     if (!singleDayDate) return;
-    if (schedule.days.some((d) => d.date === singleDayDate)) {
+    if (activeProgramDays.some((d) => d.date === singleDayDate)) {
       setStatusBanner({
         type: 'warn',
-        message: `التاريخ ${singleDayDate} موجود مسبقاً في الجدول.`,
+        message: `التاريخ ${singleDayDate} موجود مسبقاً في برنامج «${activeProgram.name}».`,
       });
       return;
     }
@@ -431,11 +724,32 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       groupId: '',
       customTitle: '',
       notes: '',
+      programId: activeProgram.id,
     };
-    const merged = [...schedule.days, nextDay].sort((a, b) =>
+    const merged = [...normalizedSchedule.days, nextDay].sort((a, b) =>
       a.date.localeCompare(b.date)
     );
-    onUpdateSchedule({ ...schedule, days: merged });
+    commitScheduleUpdate({ ...normalizedSchedule, days: merged });
+    setStatusBanner(null);
+  };
+
+  const handleChangeDayDate = (dayId: string, rawNextDate: string) => {
+    const cleanISO = normalizeDateISO(rawNextDate);
+    if (!cleanISO) return;
+    const duplicate = activeProgramDays.find(
+      (d) => d.id !== dayId && d.date === cleanISO
+    );
+    if (duplicate) {
+      setStatusBanner({
+        type: 'warn',
+        message: `التاريخ ${cleanISO} مستخدم بالفعل في يوم آخر ضمن برنامج «${activeProgram.name}».`,
+      });
+      return;
+    }
+    const nextDays = normalizedSchedule.days
+      .map((d) => (d.id === dayId ? { ...d, date: cleanISO } : d))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    commitScheduleUpdate({ ...normalizedSchedule, days: nextDays });
     setStatusBanner(null);
   };
 
@@ -443,15 +757,17 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     dayId: string,
     patch: Partial<CourseScheduleDay>
   ) => {
-    onUpdateSchedule({
-      ...schedule,
-      days: schedule.days.map((d) => (d.id === dayId ? { ...d, ...patch } : d)),
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      days: normalizedSchedule.days.map((d) =>
+        d.id === dayId ? { ...d, ...patch } : d
+      ),
     });
   };
 
   const handleAddGroupToDay = (dayId: string, groupId: string) => {
     if (!groupId) return;
-    const day = schedule.days.find((d) => d.id === dayId);
+    const day = activeProgramDays.find((d) => d.id === dayId);
     if (!day) return;
     const current = day.groupIds?.length ? day.groupIds : day.groupId ? [day.groupId] : [];
     if (current.includes(groupId)) return;
@@ -460,7 +776,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   };
 
   const handleRemoveGroupFromDay = (dayId: string, groupId: string) => {
-    const day = schedule.days.find((d) => d.id === dayId);
+    const day = activeProgramDays.find((d) => d.id === dayId);
     if (!day) return;
     const current = day.groupIds?.length ? day.groupIds : day.groupId ? [day.groupId] : [];
     const nextIds = current.filter((id) => id !== groupId);
@@ -477,28 +793,26 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   };
 
   const handleDeleteDay = (dayId: string) => {
-    onUpdateSchedule({
-      ...schedule,
-      days: schedule.days.filter((d) => d.id !== dayId),
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      days: normalizedSchedule.days.filter((d) => d.id !== dayId),
     });
   };
 
   const handleDeleteAllDays = () => {
-    if (schedule.days.length === 0) return;
-    if (
-      !confirm(
-        `هل تريد حذف جميع الأيام المجدولة بالكامل (${schedule.days.length} يوم)؟ لا يمكن التراجع قبل الحفظ إلا بإعادة الجلب.`
-      )
-    ) {
-      return;
-    }
-    onUpdateSchedule({
-      ...schedule,
-      days: [],
+    if (activeProgramDays.length === 0) return;
+    setDaysUndoSnapshot(normalizedSchedule.days);
+    const remainingOtherProgramDays = normalizedSchedule.days.filter(
+      (d) => (d.programId || defaultProgramId) !== activeProgram.id
+    );
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      days: remainingOtherProgramDays,
     });
+    setConfirmDeleteAllDays(false);
     setStatusBanner({
       type: 'warn',
-      message: 'تم حذف جميع الأيام من الجدول. اضغط «حفظ ومزامنة إلى الشيت» لتأكيد التغيير سحابياً.',
+      message: `تم حذف جميع أيام برنامج «${activeProgram.name}» (${activeProgramDays.length} يوم). يمكنك التراجع الآن أو الضغط على «حفظ ومزامنة إلى الشيت».`,
     });
   };
 
@@ -506,13 +820,13 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     setIsSaving(true);
     setStatusBanner(null);
     try {
-      const res = await saveCourseScheduleToSheets(webhookUrl, schedule);
+      const res = await saveCourseScheduleToSheets(webhookUrl, normalizedSchedule);
       if (res.cloudSaved) {
         setStatusBanner({
           type: 'success',
           message:
             res.message ||
-            'تم حفظ المجموعات والجدول اليومي في Google Sheets بنجاح!',
+            'تم حفظ البرامج والمجموعات والجدول اليومي في Google Sheets بنجاح!',
         });
       } else if (res.needsScriptUpdate) {
         setStatusBanner({
@@ -546,15 +860,16 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       const fetched = await fetchCourseScheduleFromSheets(webhookUrl);
       if (fetched) {
         onUpdateSchedule(fetched);
+        const fetchedPrograms = fetched.programs || [];
         if (
-          fetched.groups.length > 0 &&
-          !fetched.groups.some((g) => g.id === selectedGroupId)
+          fetchedPrograms.length > 0 &&
+          !fetchedPrograms.some((p) => p.id === activeProgramId)
         ) {
-          setSelectedGroupId(fetched.groups[0].id);
+          setActiveProgramId(fetchedPrograms[0].id);
         }
         setStatusBanner({
           type: 'success',
-          message: `تم جلب ${fetched.groups.length} مجموعة و ${fetched.days.length} يوماً من الشيت بنجاح!`,
+          message: `تم جلب ${fetchedPrograms.length} برنامج، ${fetched.groups.length} مجموعة و ${fetched.days.length} يوماً من الشيت بنجاح!`,
         });
       } else {
         setStatusBanner({
@@ -590,11 +905,11 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={onOpenStudentPreview}
+              onClick={() => onOpenStudentPreview(activeProgram.id)}
               className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
             >
               <Eye className="w-4 h-4 text-indigo-600" />
-              <span>معاينة جدول الطالب</span>
+              <span>معاينة جدول: {activeProgram.name}</span>
             </button>
 
             <button
@@ -623,22 +938,273 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           </div>
         </div>
 
-        {/* Course Settings Row */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-slate-100">
+        {/* Programs Switcher & Management Bar */}
+        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-extrabold text-slate-800">
+                البرامج التدريبية ({programs.length}):
+              </span>
+              <span className="text-[11px] text-slate-500 font-semibold">
+                اختر برنامجاً لتعديل مجموعاته وجدوله الخاص، وخصص لكل طالب برنامجه من قسم «المشتركون».
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowNewProgramForm((prev) => !prev)}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>إضافة برنامج جديد</span>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {programs.map((prog) => {
+              const isActive = prog.id === activeProgram.id;
+              const pColor = PROGRAM_COLOR_META[prog.color || 'emerald'];
+              const progGroupsCount = normalizedSchedule.groups.filter(
+                (g) => (g.programId || defaultProgramId) === prog.id
+              ).length;
+              const progDaysCount = normalizedSchedule.days.filter(
+                (d) => (d.programId || defaultProgramId) === prog.id
+              ).length;
+              return (
+                <button
+                  key={prog.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveProgramId(prog.id);
+                    setConfirmDeleteProgramId(null);
+                    setConfirmDeleteGroupId(null);
+                    setConfirmDeleteAllDays(false);
+                    setDaysUndoSnapshot(null);
+                  }}
+                  className={`px-3.5 py-2 rounded-2xl border text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
+                    isActive
+                      ? `${pColor.activeBtn} shadow-sm`
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
+                  }`}
+                >
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                      isActive ? 'bg-white' : pColor.dotBg
+                    }`}
+                  />
+                  <span>{prog.name}</span>
+                  {prog.isDefault && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                        isActive
+                          ? 'bg-white/20 text-white'
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}
+                    >
+                      افتراضي
+                    </span>
+                  )}
+                  <span
+                    className={`text-[10px] font-mono ${
+                      isActive ? 'text-white/90' : 'text-slate-400'
+                    }`}
+                  >
+                    ({progGroupsCount}م / {progDaysCount}ي)
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Inline Create New Program Form */}
+          {showNewProgramForm && (
+            <form
+              onSubmit={handleCreateProgram}
+              className="p-4 rounded-2xl bg-white border border-indigo-200 shadow-2xs space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-indigo-900">
+                  إنشاء برنامج تدريبي جديد (مثل: مبتدئ / متوسط / متقدم)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowNewProgramForm(false)}
+                  className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={newProgName}
+                  onChange={(e) => setNewProgName(e.target.value)}
+                  placeholder="اسم البرنامج (مثال: المستوى المتقدم)"
+                  className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                />
+                <input
+                  type="text"
+                  value={newProgDesc}
+                  onChange={(e) => setNewProgDesc(e.target.value)}
+                  placeholder="وصف مختصر (اختياري)"
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                />
+                <select
+                  value={cloneFromProgramId}
+                  onChange={(e) => setCloneFromProgramId(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-bold"
+                >
+                  <option value="">بدء البرنامج فارغاً (بدون نسخ)</option>
+                  {programs.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      نسخ مجموعات من: {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-600">اللون:</span>
+                  {PROGRAM_COLORS_LIST.map((ck) => (
+                    <button
+                      key={ck}
+                      type="button"
+                      onClick={() => setNewProgColor(ck)}
+                      className={`w-6 h-6 rounded-lg border-2 cursor-pointer transition-transform ${
+                        PROGRAM_COLOR_META[ck].dotBg
+                      } ${
+                        newProgColor === ck
+                          ? 'border-slate-900 scale-110'
+                          : 'border-white opacity-70 hover:opacity-100'
+                      }`}
+                      title={PROGRAM_COLOR_META[ck].labelAr}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إنشاء البرنامج</span>
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Active Program Metadata & Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingProgramMeta((v) => !v)}
+                className="px-2.5 py-1 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>{editingProgramMeta ? 'إخفاء تعديل البرنامج' : 'تعديل اسم ولون البرنامج'}</span>
+              </button>
+
+              {!activeProgram.isDefault && (
+                <button
+                  type="button"
+                  onClick={() => handleSetDefaultProgram(activeProgram.id)}
+                  className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Star className="w-3 h-3" />
+                  <span>تعيين كافتراضي</span>
+                </button>
+              )}
+            </div>
+
+            {programs.length > 1 && (
+              <div>
+                {confirmDeleteProgramId === activeProgram.id ? (
+                  <div className="flex items-center gap-1.5 bg-rose-100 px-2.5 py-1 rounded-xl border border-rose-300">
+                    <span className="text-[11px] font-extrabold text-rose-900">
+                      حذف «{activeProgram.name}» ومجموعاته؟
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteProgram(activeProgram.id)}
+                      className="px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
+                    >
+                      تأكيد
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteProgramId(null)}
+                      className="px-2 py-0.5 rounded-lg bg-white text-slate-700 text-[10px] font-bold cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteProgramId(activeProgram.id)}
+                    className="px-2.5 py-1 rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>حذف هذا البرنامج</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {editingProgramMeta && (
+            <div className="p-3 rounded-2xl bg-white border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
+              <input
+                type="text"
+                value={activeProgram.name}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({ name: e.target.value })
+                }
+                placeholder="اسم البرنامج"
+                className="px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-extrabold"
+              />
+              <input
+                type="text"
+                value={activeProgram.description || ''}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({ description: e.target.value })
+                }
+                placeholder="وصف البرنامج (اختياري)"
+                className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs"
+              />
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-slate-600">اللون:</span>
+                {PROGRAM_COLORS_LIST.map((ck) => (
+                  <button
+                    key={ck}
+                    type="button"
+                    onClick={() => handleUpdateActiveProgram({ color: ck })}
+                    className={`w-5 h-5 rounded-lg border-2 cursor-pointer ${
+                      PROGRAM_COLOR_META[ck].dotBg
+                    } ${
+                      (activeProgram.color || 'emerald') === ck
+                        ? 'border-slate-900 scale-110'
+                        : 'border-white opacity-70 hover:opacity-100'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Active Program Settings Row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-600">
-              عنوان جدول الدورة (يظهر للطالب):
+              عنوان الجدول لبرنامج «{activeProgram.name}» (يظهر للطالب):
             </label>
             <input
               type="text"
-              value={schedule.settings.courseTitle}
+              value={activeProgram.settings.courseTitle}
               onChange={(e) =>
-                onUpdateSchedule({
-                  ...schedule,
-                  settings: {
-                    ...schedule.settings,
-                    courseTitle: e.target.value,
-                  },
+                handleUpdateActiveProgram({
+                  settingsPatch: { courseTitle: e.target.value },
                 })
               }
               placeholder="جدول الدورة اليومي"
@@ -648,30 +1214,26 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
           <div className="flex items-center justify-between p-3 rounded-2xl border border-amber-200 bg-amber-50/70">
             <div className="flex items-center gap-2.5">
-              {schedule.settings.lockFutureDays ? (
+              {activeProgram.settings.lockFutureDays ? (
                 <Lock className="w-4 h-4 text-amber-700 shrink-0" />
               ) : (
                 <Unlock className="w-4 h-4 text-emerald-700 shrink-0" />
               )}
               <div>
                 <div className="text-xs font-extrabold text-slate-900">
-                  قفل دخول التمارين المستقبلية حتى يحين يومها
+                  قفل دخول التمارين المستقبلية في هذا البرنامج
                 </div>
                 <div className="text-[11px] text-slate-600">
-                  عند التفعيل: لا تظهر في «قائمة الدروس» بجميع التمارين إلا الدروس المفتوحة التي حلّ تاريخها، وتُخفى الدروس المستقبلية وغير المدرجة في الجدول عن الطالب (بينما تظهر كاملة للمعلم).
+                  عند التفعيل: لا تظهر في «قائمة الدروس» لطلاب هذا البرنامج إلا الدروس التي حلّ تاريخها، وتُخفى المستقبلية وغير المدرجة.
                 </div>
               </div>
             </div>
             <input
               type="checkbox"
-              checked={schedule.settings.lockFutureDays}
+              checked={activeProgram.settings.lockFutureDays}
               onChange={(e) =>
-                onUpdateSchedule({
-                  ...schedule,
-                  settings: {
-                    ...schedule.settings,
-                    lockFutureDays: e.target.checked,
-                  },
+                handleUpdateActiveProgram({
+                  settingsPatch: { lockFutureDays: e.target.checked },
                 })
               }
               className="w-5 h-5 text-amber-600 rounded cursor-pointer shrink-0"
@@ -719,7 +1281,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>1. إدارة المجموعات ({schedule.groups.length})</span>
+            <span>1. مجموعات البرنامج ({activeProgramGroups.length})</span>
           </button>
           <button
             type="button"
@@ -731,7 +1293,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             }`}
           >
             <Calendar className="w-4 h-4" />
-            <span>2. التقويم والجدول اليومي ({schedule.days.length})</span>
+            <span>2. التقويم والجدول اليومي ({activeProgramDays.length})</span>
           </button>
           <button
             type="button"
@@ -761,14 +1323,14 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             >
               <h3 className="text-xs sm:text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
                 <FolderPlus className="w-4 h-4 text-emerald-600" />
-                <span>إنشاء مجموعة جديدة</span>
+                <span>إنشاء مجموعة في «{activeProgram.name}»</span>
               </h3>
               <input
                 type="text"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
                 placeholder={`اسم المجموعة (مثال: مجموعة ${
-                  schedule.groups.length + 1
+                  activeProgramGroups.length + 1
                 })`}
                 className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold"
               />
@@ -790,15 +1352,16 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
             <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm space-y-2">
               <h4 className="text-xs font-extrabold text-slate-700 mb-2">
-                قائمة المجموعات ({schedule.groups.length})
+                مجموعات البرنامج ({activeProgramGroups.length})
               </h4>
-              {schedule.groups.length === 0 ? (
+              {activeProgramGroups.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-400 font-semibold">
-                  لا توجد مجموعات بعد. أضف أول مجموعة من الأعلى.
+                  لا توجد مجموعات في هذا البرنامج بعد. أضف أول مجموعة من الأعلى.
                 </div>
               ) : (
-                schedule.groups.map((grp) => {
+                activeProgramGroups.map((grp) => {
                   const isActive = activeGroup?.id === grp.id;
+                  const isConfirmingDel = confirmDeleteGroupId === grp.id;
                   return (
                     <div
                       key={grp.id}
@@ -817,17 +1380,39 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                           {grp.lessons.length} دروس مضافة
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteGroup(grp.id);
-                        }}
-                        className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100 cursor-pointer shrink-0"
-                        title="حذف المجموعة"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {isConfirmingDel ? (
+                        <div
+                          className="flex items-center gap-1 shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteGroup(grp.id)}
+                            className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
+                          >
+                            حذف؟
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteGroupId(null)}
+                            className="px-1.5 py-1 rounded-lg bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
+                          >
+                            لا
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setConfirmDeleteGroupId(grp.id);
+                          }}
+                          className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100 cursor-pointer shrink-0"
+                          title="حذف المجموعة"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   );
                 })
@@ -1202,15 +1787,92 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               </div>
             </div>
 
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+              <label className="text-[11px] font-bold text-slate-600 block">
+                طريقة التوليد وتوزيع المجموعات:
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGenMode('replace')}
+                  className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
+                    genMode === 'replace'
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-extrabold">
+                    استبدال وإعادة توليد جدول «{activeProgram.name}»
+                  </div>
+                  <div
+                    className={`text-[10px] mt-0.5 ${
+                      genMode === 'replace' ? 'text-indigo-100' : 'text-slate-500'
+                    }`}
+                  >
+                    يحذف الأيام السابقة غير المختارة ويعيد ترتيب المجموعات على الأيام الجديدة فقط (مثالي عند تعديل أيام الأسبوع)
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGenMode('append')}
+                  className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
+                    genMode === 'append'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-extrabold">
+                    إضافة الأيام الجديدة فقط دون حذف السابق
+                  </div>
+                  <div
+                    className={`text-[10px] mt-0.5 ${
+                      genMode === 'append' ? 'text-emerald-100' : 'text-slate-500'
+                    }`}
+                  >
+                    يُبقي الأيام الحالية كما هي، ويستكمل توزيع المجموعات المتبقية على التواريخ الجديدة فقط
+                  </div>
+                </button>
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={handleGenerateDays}
-                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>توليد وتوزيع المجموعات على الجدول</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleGenerateDays}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>
+                    {genMode === 'replace'
+                      ? 'توليد (استبدال وإعادة توزيع الجدول)'
+                      : 'إضافة التواريخ الجديدة وتوزيع المتبقي'}
+                  </span>
+                </button>
+
+                {activeProgramDays.length > 0 && activeProgramGroups.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleRedistributeGroupsOnCurrentDays}
+                    className="px-3.5 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                    title="إعادة توزيع المجموعات بالترتيب على الأيام الموجودة دون تغيير التواريخ"
+                  >
+                    <Shuffle className="w-4 h-4" />
+                    <span>إعادة توزيع المجموعات على الأيام الحالية</span>
+                  </button>
+                )}
+
+                {daysUndoSnapshot && (
+                  <button
+                    type="button"
+                    onClick={handleUndoDaysChange}
+                    className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Undo2 className="w-4 h-4" />
+                    <span>تراجع عن آخر تعديل</span>
+                  </button>
+                )}
+              </div>
 
               <div className="flex items-center gap-2">
                 <input
@@ -1236,7 +1898,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-3 flex-wrap">
                 <h3 className="text-sm font-extrabold text-slate-900">
-                  أيام الجدول اليومي ({schedule.days.length})
+                  أيام برنامج «{activeProgram.name}» ({activeProgramDays.length})
                 </h3>
                 {/* Distinct Color Legend */}
                 <div className="flex items-center gap-1.5 text-[10px] font-extrabold">
@@ -1252,25 +1914,49 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 </div>
               </div>
 
-              {schedule.days.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleDeleteAllDays}
-                  className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>حذف الكل</span>
-                </button>
+              {activeProgramDays.length > 0 && (
+                <div>
+                  {confirmDeleteAllDays ? (
+                    <div className="flex items-center gap-1.5 bg-rose-100 px-3 py-1.5 rounded-xl border border-rose-300">
+                      <span className="text-[11px] font-extrabold text-rose-900">
+                        تأكيد حذف ({activeProgramDays.length} يوم)؟
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleDeleteAllDays}
+                        className="px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
+                      >
+                        نعم، احذف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteAllDays(false)}
+                        className="px-2 py-0.5 rounded-lg bg-white text-slate-700 text-[10px] font-bold cursor-pointer"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteAllDays(true)}
+                      className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>حذف الكل</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
-            {schedule.days.length === 0 ? (
+            {activeProgramDays.length === 0 ? (
               <div className="text-center py-10 text-xs text-slate-400 font-bold bg-slate-50 rounded-2xl border border-slate-200">
-                لا توجد أيام في الجدول حالياً. استخدم المولّد بالأعلى أو أضف يوماً مفرداً.
+                لا توجد أيام في جدول «{activeProgram.name}» حالياً. استخدم المولّد بالأعلى أو أضف يوماً مفرداً.
               </div>
             ) : (
               <div className="space-y-3">
-                {schedule.days.map((day) => {
+                {activeProgramDays.map((day) => {
                   const dateInfo = formatScheduleDateLabel(day.date, 'ar');
                   const isToday = day.date === todayISO;
                   const typeMeta = SCHEDULE_DAY_TYPE_META[day.dayType];
@@ -1280,7 +1966,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                     ? [day.groupId]
                     : [];
                   const dayGroups = dayGroupIds
-                    .map((gid) => schedule.groups.find((g) => g.id === gid))
+                    .map((gid) => activeProgramGroups.find((g) => g.id === gid))
                     .filter((g): g is CourseGroup => Boolean(g));
 
                   return (
@@ -1291,21 +1977,29 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                       }`}
                     >
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-start">
-                        {/* Date & Weekday */}
-                        <div className="lg:col-span-3 flex items-center gap-2">
-                          <div className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 text-center min-w-[92px] shadow-2xs">
-                            <div className="text-[11px] font-extrabold text-indigo-700">
-                              {dateInfo.weekday}
+                        {/* Editable Date & Live Weekday */}
+                        <div className="lg:col-span-3 flex flex-wrap items-center gap-2">
+                          <div className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 shadow-2xs space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-extrabold text-indigo-700">
+                                {dateInfo.weekday}
+                              </span>
+                              {isToday && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-600 text-white text-[9px] font-extrabold">
+                                  اليوم
+                                </span>
+                              )}
                             </div>
-                            <div className="text-xs font-mono font-bold text-slate-800">
-                              {dateInfo.formattedDate}
-                            </div>
+                            <input
+                              type="date"
+                              value={day.date}
+                              onChange={(e) =>
+                                handleChangeDayDate(day.id, e.target.value)
+                              }
+                              className="text-xs font-mono font-bold text-slate-900 bg-slate-50 px-1.5 py-0.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer"
+                              title="انقر لتعديل تاريخ هذا اليوم"
+                            />
                           </div>
-                          {isToday && (
-                            <span className="px-2 py-0.5 rounded-lg bg-emerald-600 text-white text-[10px] font-extrabold">
-                              اليوم
-                            </span>
-                          )}
                         </div>
 
                         {/* Day Type with Distinct Color */}
@@ -1366,7 +2060,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                 ? '+ إضافة مجموعة لهذا اليوم (أو يترك يوماً حراً)...'
                                 : '+ إضافة مجموعة إضافية لهذا اليوم...'}
                             </option>
-                            {schedule.groups.map((grp) => {
+                            {activeProgramGroups.map((grp) => {
                               const alreadyOnThisDay = dayGroupIds.includes(grp.id);
                               const usedCount = groupDayUsageCount.get(grp.id) || 0;
                               const usedElsewhere =

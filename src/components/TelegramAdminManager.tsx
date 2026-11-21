@@ -37,7 +37,12 @@ import {
   toggleTelegramUserNotificationsInSheet,
   deleteTelegramUserInSheet,
 } from '../video/videoSheets';
-import { CourseScheduleData, getTodayLocalISO } from '../utils/courseSchedule';
+import {
+  CourseScheduleData,
+  DEFAULT_PROGRAM_ID,
+  getTodayLocalISO,
+  normalizeCourseScheduleData,
+} from '../utils/courseSchedule';
 import { normalizeDigits } from '../utils/googleSheets';
 
 interface TelegramAdminManagerProps {
@@ -125,14 +130,23 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
 
   const todayScheduleMessage = useMemo(() => {
     if (!courseSchedule) return '';
+    const norm = normalizeCourseScheduleData(courseSchedule);
     const todayIso = getTodayLocalISO();
-    const todayDays = courseSchedule.days.filter((d) => d.date === todayIso);
+    const todayDays = norm.days.filter((d) => d.date === todayIso);
     if (todayDays.length === 0) return '';
+    const programs = norm.programs || [];
+    const defaultProgId = programs.find((p) => p.isDefault)?.id || DEFAULT_PROGRAM_ID;
     const lines: string[] = [`<b>تذكير بجدول اليوم (${todayIso}):</b>`];
     todayDays.forEach((d) => {
+      const prog = programs.find(
+        (p) => p.id === (d.programId || defaultProgId)
+      );
+      if (programs.length > 1 && prog) {
+        lines.push(`\n📘 <b>[${prog.name}]</b>`);
+      }
       const gIds = d.groupIds?.length ? d.groupIds : d.groupId ? [d.groupId] : [];
       const groupNames = gIds
-        .map((gid) => courseSchedule.groups.find((g) => g.id === gid))
+        .map((gid) => norm.groups.find((g) => g.id === gid))
         .filter(Boolean);
       if (d.customTitle) lines.push(`• ${d.customTitle}`);
       groupNames.forEach((grp) => {

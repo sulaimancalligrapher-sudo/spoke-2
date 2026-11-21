@@ -32,12 +32,78 @@ export interface ScheduleLessonRef {
   lessonId?: string; // Used primarily for video lessons to open exact lesson
 }
 
+export const DEFAULT_PROGRAM_ID = 'prog_default';
+
+export type ProgramColorKey = 'emerald' | 'indigo' | 'amber' | 'rose' | 'sky' | 'purple';
+
+export const PROGRAM_COLOR_META: Record<
+  ProgramColorKey,
+  {
+    labelAr: string;
+    pillBg: string;
+    pillText: string;
+    pillBorder: string;
+    activeBtn: string;
+    dotBg: string;
+  }
+> = {
+  emerald: {
+    labelAr: 'أخضر زمردي',
+    pillBg: 'bg-emerald-50',
+    pillText: 'text-emerald-800',
+    pillBorder: 'border-emerald-300',
+    activeBtn: 'bg-emerald-600 text-white border-emerald-600',
+    dotBg: 'bg-emerald-500',
+  },
+  indigo: {
+    labelAr: 'أزرق نيلي',
+    pillBg: 'bg-indigo-50',
+    pillText: 'text-indigo-800',
+    pillBorder: 'border-indigo-300',
+    activeBtn: 'bg-indigo-600 text-white border-indigo-600',
+    dotBg: 'bg-indigo-500',
+  },
+  amber: {
+    labelAr: 'ذهبي كهرماني',
+    pillBg: 'bg-amber-50',
+    pillText: 'text-amber-900',
+    pillBorder: 'border-amber-300',
+    activeBtn: 'bg-amber-600 text-white border-amber-600',
+    dotBg: 'bg-amber-500',
+  },
+  rose: {
+    labelAr: 'وردي قرمزي',
+    pillBg: 'bg-rose-50',
+    pillText: 'text-rose-800',
+    pillBorder: 'border-rose-300',
+    activeBtn: 'bg-rose-600 text-white border-rose-600',
+    dotBg: 'bg-rose-500',
+  },
+  sky: {
+    labelAr: 'سماوي',
+    pillBg: 'bg-sky-50',
+    pillText: 'text-sky-800',
+    pillBorder: 'border-sky-300',
+    activeBtn: 'bg-sky-600 text-white border-sky-600',
+    dotBg: 'bg-sky-500',
+  },
+  purple: {
+    labelAr: 'بنفسجي',
+    pillBg: 'bg-purple-50',
+    pillText: 'text-purple-800',
+    pillBorder: 'border-purple-300',
+    activeBtn: 'bg-purple-600 text-white border-purple-600',
+    dotBg: 'bg-purple-500',
+  },
+};
+
 export interface CourseGroup {
   id: string;
   name: string;
   description?: string;
   lessons: ScheduleLessonRef[];
   createdAt?: string;
+  programId?: string;
 }
 
 export type ScheduleDayType = 'lesson' | 'review' | 'exam';
@@ -50,6 +116,7 @@ export interface CourseScheduleDay {
   groupId?: string; // Legacy backwards-compatibility mirror of groupIds[0] || ''
   customTitle?: string;
   notes?: string;
+  programId?: string;
 }
 
 export interface CourseScheduleSettings {
@@ -57,7 +124,18 @@ export interface CourseScheduleSettings {
   courseTitle: string;
 }
 
+export interface CourseProgram {
+  id: string;
+  name: string;
+  description?: string;
+  color?: ProgramColorKey;
+  isDefault?: boolean;
+  settings: CourseScheduleSettings;
+  createdAt?: string;
+}
+
 export interface CourseScheduleData {
+  programs?: CourseProgram[];
   groups: CourseGroup[];
   days: CourseScheduleDay[];
   settings: CourseScheduleSettings;
@@ -199,13 +277,34 @@ export function buildScheduleLessonKey(
   return `${exerciseType}::${topicName.trim()}`;
 }
 
-export function createEmptyCourseSchedule(): CourseScheduleData {
+export function createDefaultCourseProgram(
+  settings?: Partial<CourseScheduleSettings>
+): CourseProgram {
   return {
+    id: DEFAULT_PROGRAM_ID,
+    name: 'البرنامج العام (الافتراضي)',
+    description: 'البرنامج الأساسي للطلاب غير المخصصين لبرنامج محدد',
+    color: 'emerald',
+    isDefault: true,
+    settings: {
+      lockFutureDays: settings?.lockFutureDays !== undefined ? Boolean(settings.lockFutureDays) : true,
+      courseTitle:
+        settings?.courseTitle !== undefined && String(settings.courseTitle).trim()
+          ? String(settings.courseTitle).trim()
+          : 'جدول الدورة اليومي',
+    },
+  };
+}
+
+export function createEmptyCourseSchedule(): CourseScheduleData {
+  const defaultProg = createDefaultCourseProgram();
+  return {
+    programs: [defaultProg],
     groups: [],
     days: [],
     settings: {
-      lockFutureDays: true,
-      courseTitle: 'جدول الدورة اليومي',
+      lockFutureDays: defaultProg.settings.lockFutureDays,
+      courseTitle: defaultProg.settings.courseTitle,
     },
   };
 }
@@ -278,9 +377,89 @@ export function parseScheduleGroupIds(rawIds: unknown, legacySingleId?: unknown)
   return Array.from(seen);
 }
 
+const VALID_PROGRAM_COLORS = new Set<ProgramColorKey>([
+  'emerald',
+  'indigo',
+  'amber',
+  'rose',
+  'sky',
+  'purple',
+]);
+
 export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
   const empty = createEmptyCourseSchedule();
   if (!raw || typeof raw !== 'object') return empty;
+
+  const rootSettings: CourseScheduleSettings = {
+    lockFutureDays:
+      raw.settings?.lockFutureDays !== undefined
+        ? Boolean(raw.settings.lockFutureDays)
+        : true,
+    courseTitle:
+      raw.settings?.courseTitle !== undefined
+        ? String(raw.settings.courseTitle)
+        : empty.settings.courseTitle,
+  };
+
+  const rawProgramsList: any[] = Array.isArray(raw.programs)
+    ? raw.programs
+    : Array.isArray(raw.settings?.programs)
+    ? raw.settings.programs
+    : [];
+
+  const seenProgramIds = new Set<string>();
+  let programs: CourseProgram[] = rawProgramsList
+    .filter((p: any) => p && (p.id || p.name))
+    .map((p: any, idx: number) => {
+      const pid = String(p.id || `prog_${idx + 1}`).trim() || `prog_${idx + 1}`;
+      if (seenProgramIds.has(pid)) return null;
+      seenProgramIds.add(pid);
+      const rawColor = String(p.color || 'emerald').trim() as ProgramColorKey;
+      const color: ProgramColorKey = VALID_PROGRAM_COLORS.has(rawColor) ? rawColor : 'emerald';
+      return {
+        id: pid,
+        name: String(p.name || `برنامج ${idx + 1}`).trim(),
+        description: p.description ? String(p.description) : '',
+        color,
+        isDefault: Boolean(p.isDefault),
+        settings: {
+          lockFutureDays:
+            p.settings?.lockFutureDays !== undefined
+              ? Boolean(p.settings.lockFutureDays)
+              : rootSettings.lockFutureDays,
+          courseTitle:
+            p.settings?.courseTitle !== undefined
+              ? String(p.settings.courseTitle)
+              : String(p.name || rootSettings.courseTitle),
+        },
+        createdAt: p.createdAt ? String(p.createdAt) : undefined,
+      } as CourseProgram;
+    })
+    .filter((p: CourseProgram | null): p is CourseProgram => Boolean(p));
+
+  if (programs.length === 0) {
+    programs = [createDefaultCourseProgram(rootSettings)];
+  }
+
+  let hasDefault = programs.some((p) => p.isDefault);
+  if (!hasDefault) {
+    const defIdx = programs.findIndex((p) => p.id === DEFAULT_PROGRAM_ID);
+    const pickIdx = defIdx >= 0 ? defIdx : 0;
+    programs = programs.map((p, idx) => ({ ...p, isDefault: idx === pickIdx }));
+  } else {
+    let foundFirst = false;
+    programs = programs.map((p) => {
+      if (p.isDefault && !foundFirst) {
+        foundFirst = true;
+        return { ...p, isDefault: true };
+      }
+      return { ...p, isDefault: false };
+    });
+  }
+
+  const programIdSet = new Set(programs.map((p) => p.id));
+  const defaultProgram = programs.find((p) => p.isDefault) || programs[0];
+  const defaultProgId = defaultProgram.id;
 
   const groups: CourseGroup[] = Array.isArray(raw.groups)
     ? raw.groups
@@ -298,12 +477,15 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
                   lessonId: l.lessonId ? String(l.lessonId).trim() : undefined,
                 }))
             : [];
+          const rawProgId = String(g.programId || '').trim();
+          const programId = rawProgId && programIdSet.has(rawProgId) ? rawProgId : defaultProgId;
           return {
             id: String(g.id || `grp_${idx + 1}`).trim(),
             name: String(g.name || `مجموعة ${idx + 1}`).trim(),
             description: g.description ? String(g.description) : '',
             lessons,
             createdAt: g.createdAt ? String(g.createdAt) : undefined,
+            programId,
           };
         })
     : [];
@@ -321,6 +503,8 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
               ? 'exam'
               : 'lesson';
           const groupIds = parseScheduleGroupIds(d?.groupIds, d?.groupId);
+          const rawProgId = String(d?.programId || '').trim();
+          const programId = rawProgId && programIdSet.has(rawProgId) ? rawProgId : defaultProgId;
           return {
             id: String(d?.id || `day_${iso}_${idx}`).trim(),
             date: iso,
@@ -329,24 +513,81 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
             groupId: groupIds[0] || '',
             customTitle: d?.customTitle ? String(d.customTitle) : '',
             notes: d?.notes ? String(d.notes) : '',
+            programId,
           } as CourseScheduleDay;
         })
         .filter((d: CourseScheduleDay | null): d is CourseScheduleDay => Boolean(d))
         .sort((a: CourseScheduleDay, b: CourseScheduleDay) => a.date.localeCompare(b.date))
     : [];
 
-  const settings: CourseScheduleSettings = {
-    lockFutureDays:
-      raw.settings?.lockFutureDays !== undefined
-        ? Boolean(raw.settings.lockFutureDays)
-        : true,
-    courseTitle:
-      raw.settings?.courseTitle !== undefined
-        ? String(raw.settings.courseTitle)
-        : empty.settings.courseTitle,
+  return {
+    programs,
+    groups,
+    days,
+    settings: {
+      lockFutureDays: defaultProgram.settings.lockFutureDays,
+      courseTitle: defaultProgram.settings.courseTitle,
+    },
   };
+}
 
-  return { groups, days, settings };
+export function resolveCourseProgram(
+  schedule: CourseScheduleData,
+  requestedProgramId?: string
+): {
+  programs: CourseProgram[];
+  activeProgram: CourseProgram;
+  defaultProgramId: string;
+} {
+  const normalized =
+    Array.isArray(schedule?.programs) && schedule.programs.length > 0
+      ? schedule
+      : normalizeCourseScheduleData(schedule);
+  const programs = normalized.programs!;
+  const defaultProgram = programs.find((p) => p.isDefault) || programs[0];
+  const req = String(requestedProgramId || '').trim();
+  const activeProgram =
+    (req && programs.find((p) => p.id === req)) || defaultProgram;
+  return {
+    programs,
+    activeProgram,
+    defaultProgramId: defaultProgram.id,
+  };
+}
+
+export function getScheduleForProgram(
+  schedule: CourseScheduleData,
+  requestedProgramId?: string
+): {
+  programs: CourseProgram[];
+  activeProgram: CourseProgram;
+  defaultProgramId: string;
+  scopedSchedule: CourseScheduleData;
+} {
+  const { programs, activeProgram, defaultProgramId } = resolveCourseProgram(
+    schedule,
+    requestedProgramId
+  );
+  const groups = (schedule?.groups || []).filter(
+    (g) => (String(g.programId || '').trim() || defaultProgramId) === activeProgram.id
+  );
+  const days = (schedule?.days || [])
+    .filter(
+      (d) => (String(d.programId || '').trim() || defaultProgramId) === activeProgram.id
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    programs,
+    activeProgram,
+    defaultProgramId,
+    scopedSchedule: {
+      programs,
+      groups,
+      days,
+      settings: activeProgram.settings,
+    },
+  };
 }
 
 export function getLocalCourseSchedule(): CourseScheduleData {
@@ -376,8 +617,13 @@ export async function fetchCourseScheduleFromSheets(
       { method: 'GET' }
     );
     const json = await res.json();
-    if (json && json.success && (Array.isArray(json.groups) || Array.isArray(json.days))) {
+    if (
+      json &&
+      json.success &&
+      (Array.isArray(json.groups) || Array.isArray(json.days) || Array.isArray(json.programs))
+    ) {
       const normalized = normalizeCourseScheduleData({
+        programs: json.programs || json.settings?.programs || [],
         groups: json.groups || [],
         days: json.days || [],
         settings: json.settings || {},
@@ -400,7 +646,8 @@ export async function saveCourseScheduleToSheets(
   needsScriptUpdate?: boolean;
   message?: string;
 }> {
-  saveLocalCourseSchedule(schedule);
+  const normalized = normalizeCourseScheduleData(schedule);
+  saveLocalCourseSchedule(normalized);
   if (!webhookUrl) {
     return {
       success: true,
@@ -410,19 +657,33 @@ export async function saveCourseScheduleToSheets(
   }
 
   try {
-    const daysPayload = schedule.days.map((d) => ({
+    const defaultProgId =
+      normalized.programs?.find((p) => p.isDefault)?.id ||
+      normalized.programs?.[0]?.id ||
+      DEFAULT_PROGRAM_ID;
+
+    const groupsPayload = normalized.groups.map((g) => ({
+      ...g,
+      programId: g.programId || defaultProgId,
+    }));
+    const daysPayload = normalized.days.map((d) => ({
       ...d,
       groupIds: d.groupIds || [],
       groupId: d.groupIds?.[0] || d.groupId || '',
+      programId: d.programId || defaultProgId,
     }));
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
         action: 'save_course_schedule',
-        groups: schedule.groups,
+        programs: normalized.programs,
+        groups: groupsPayload,
         days: daysPayload,
-        settings: schedule.settings,
+        settings: {
+          ...normalized.settings,
+          programs: normalized.programs,
+        },
       }),
     });
     const json = await res.json();
@@ -467,7 +728,8 @@ export function generateCalendarDays(
   weekdays: number[],
   defaultDayType: ScheduleDayType = 'lesson',
   groups: CourseGroup[] = [],
-  groupsPerDay: number = 1
+  groupsPerDay: number = 1,
+  options?: { programId?: string; startGroupIndex?: number }
 ): CourseScheduleDay[] {
   const sISO = normalizeDateISO(startDateISO);
   const eISO = normalizeDateISO(endDateISO);
@@ -481,7 +743,8 @@ export function generateCalendarDays(
   const daySet = new Set(weekdays);
   const result: CourseScheduleDay[] = [];
   const perDay = Math.max(0, Math.floor(groupsPerDay));
-  let groupCursor = 0;
+  let groupCursor = Math.max(0, Math.floor(options?.startGroupIndex ?? 0));
+  const programId = (options?.programId || '').trim() || DEFAULT_PROGRAM_ID;
   let guard = 0;
 
   while (cursor <= end && guard < 400) {
@@ -506,6 +769,7 @@ export function generateCalendarDays(
         groupId: assignedIds[0] || '',
         customTitle: '',
         notes: '',
+        programId,
       });
     }
     cursor.setDate(cursor.getDate() + 1);
@@ -813,13 +1077,15 @@ export interface UnlockedScheduleIndex {
 export function getUnlockedScheduleIndex(
   schedule: CourseScheduleData,
   isAdminAuthenticated: boolean,
-  targetDateISO?: string
+  targetDateISO?: string,
+  programId?: string
 ): UnlockedScheduleIndex {
+  const { scopedSchedule } = getScheduleForProgram(schedule, programId);
   const enforceStrictHide = Boolean(
-    schedule &&
-      Array.isArray(schedule.days) &&
-      schedule.days.length > 0 &&
-      schedule.settings?.lockFutureDays !== false &&
+    scopedSchedule &&
+      Array.isArray(scopedSchedule.days) &&
+      scopedSchedule.days.length > 0 &&
+      scopedSchedule.settings?.lockFutureDays !== false &&
       !isAdminAuthenticated
   );
 
@@ -840,11 +1106,11 @@ export function getUnlockedScheduleIndex(
 
   const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO();
   const groupMap = new Map<string, CourseGroup>();
-  for (const grp of schedule.groups || []) {
+  for (const grp of scopedSchedule.groups || []) {
     if (grp?.id) groupMap.set(grp.id, grp);
   }
 
-  for (const day of schedule.days) {
+  for (const day of scopedSchedule.days) {
     if (!day?.date || day.date > todayISO) continue;
     const gIds = day.groupIds?.length
       ? day.groupIds
@@ -915,11 +1181,13 @@ export function filterLessonsBySchedule(params: {
   catchSubjects: CatchLessonSubject[];
   videoLessons: VideoLesson[];
   targetDateISO?: string;
+  programId?: string;
 }): ScheduleFilteredContent {
   const unlockedIndex = getUnlockedScheduleIndex(
     params.schedule,
     params.isAdminAuthenticated,
-    params.targetDateISO
+    params.targetDateISO,
+    params.programId
   );
 
   if (!unlockedIndex.enforceStrictHide) {
@@ -1001,6 +1269,8 @@ function normalizeAttDigits(raw: unknown): string {
 
 export interface TodayScheduleSummary {
   todayISO: string;
+  programId: string;
+  programName: string;
   day: CourseScheduleDay | null;
   groups: CourseGroup[];
   allLessonRefs: ScheduleLessonRef[];
@@ -1011,10 +1281,15 @@ export interface TodayScheduleSummary {
 
 export function getTodayScheduleSummary(
   schedule: CourseScheduleData,
-  targetDateISO?: string
+  targetDateISO?: string,
+  programId?: string
 ): TodayScheduleSummary {
+  const { activeProgram, scopedSchedule } = getScheduleForProgram(
+    schedule,
+    programId
+  );
   const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO();
-  const day = schedule.days.find((d) => d.date === todayISO) || null;
+  const day = scopedSchedule.days.find((d) => d.date === todayISO) || null;
   const gIds = day
     ? day.groupIds?.length
       ? day.groupIds
@@ -1023,7 +1298,7 @@ export function getTodayScheduleSummary(
       : []
     : [];
   const groups = gIds
-    .map((id) => schedule.groups.find((g) => g.id === id))
+    .map((id) => scopedSchedule.groups.find((g) => g.id === id))
     .filter((g): g is CourseGroup => Boolean(g));
 
   const seenKeys = new Set<string>();
@@ -1048,6 +1323,8 @@ export function getTodayScheduleSummary(
 
   return {
     todayISO,
+    programId: activeProgram.id,
+    programName: activeProgram.name,
     day,
     groups,
     allLessonRefs,
