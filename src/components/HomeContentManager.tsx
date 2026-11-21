@@ -20,12 +20,20 @@ import {
   ChevronLeft,
   Sparkles,
   Link2,
+  BookOpen,
+  Film,
+  Calendar,
 } from 'lucide-react';
-import { HomeBlockType, HomeContentBlock, HomeSlideItem } from '../types';
+import { HomeBlockType, HomeContentBlock, HomeNavbarControls, HomeSlideItem } from '../types';
 import {
   fetchHomeContentFromSheets,
   saveHomeContentToSheets,
   sanitizeExternalUrl,
+  NAVBAR_CONTROLS_BLOCK_ID,
+  DEFAULT_HOME_NAVBAR_CONTROLS,
+  extractHomeNavbarControls,
+  stripSystemHomeBlocks,
+  mergeHomeNavbarControlsIntoBlocks,
 } from '../utils/googleSheets';
 import { getDirectImageUrl } from '../utils/mediaUrl';
 import { getPlayableVideoInfo } from '../video/videoSheets';
@@ -227,7 +235,7 @@ export const HomeContentShowcase: React.FC<{ blocks: HomeContentBlock[] }> = ({ 
   const activeBlocks = useMemo(
     () =>
       [...blocks]
-        .filter((b) => b.enabled)
+        .filter((b) => b.enabled && b.id !== NAVBAR_CONTROLS_BLOCK_ID)
         .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
     [blocks]
   );
@@ -438,14 +446,19 @@ export const HomeContentShowcase: React.FC<{ blocks: HomeContentBlock[] }> = ({ 
 interface HomeContentAdminManagerProps {
   blocks: HomeContentBlock[];
   onUpdateBlocks: (next: HomeContentBlock[]) => void;
+  navbarControls?: HomeNavbarControls;
+  onUpdateNavbarControls?: (next: HomeNavbarControls) => void;
   webhookUrl: string;
 }
 
 export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = ({
   blocks,
   onUpdateBlocks,
+  navbarControls = DEFAULT_HOME_NAVBAR_CONTROLS,
+  onUpdateNavbarControls,
   webhookUrl,
 }) => {
+  const userBlocks = useMemo(() => stripSystemHomeBlocks(blocks), [blocks]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [blockType, setBlockType] = useState<HomeBlockType>('announcement');
   const [title, setTitle] = useState('');
@@ -557,13 +570,13 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
       slides: blockType === 'slideshow' ? finalSlides : [],
       enabled,
       sortOrder: editingId
-        ? blocks.find((b) => b.id === editingId)?.sortOrder || blocks.length + 1
-        : blocks.length + 1,
+        ? userBlocks.find((b) => b.id === editingId)?.sortOrder || userBlocks.length + 1
+        : userBlocks.length + 1,
     };
 
     const nextList = editingId
-      ? blocks.map((b) => (b.id === editingId ? nextItem : b))
-      : [...blocks, nextItem];
+      ? userBlocks.map((b) => (b.id === editingId ? nextItem : b))
+      : [...userBlocks, nextItem];
 
     onUpdateBlocks(nextList.map((b, i) => ({ ...b, sortOrder: i + 1 })));
     resetForm();
@@ -577,8 +590,8 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
 
   const handleMoveBlock = (index: number, dir: -1 | 1) => {
     const target = index + dir;
-    if (target < 0 || target >= blocks.length) return;
-    const copy = [...blocks];
+    if (target < 0 || target >= userBlocks.length) return;
+    const copy = [...userBlocks];
     const [moved] = copy.splice(index, 1);
     copy.splice(target, 0, moved);
     onUpdateBlocks(copy.map((b, i) => ({ ...b, sortOrder: i + 1 })));
@@ -586,12 +599,12 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
 
   const handleToggleEnabled = (id: string) => {
     onUpdateBlocks(
-      blocks.map((b) => (b.id === id ? { ...b, enabled: !b.enabled } : b))
+      userBlocks.map((b) => (b.id === id ? { ...b, enabled: !b.enabled } : b))
     );
   };
 
   const handleDeleteBlock = (id: string) => {
-    const next = blocks
+    const next = userBlocks
       .filter((b) => b.id !== id)
       .map((b, i) => ({ ...b, sortOrder: i + 1 }));
     onUpdateBlocks(next);
@@ -599,11 +612,28 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
     if (editingId === id) resetForm();
   };
 
+  const handleToggleNavbarButton = async (key: keyof HomeNavbarControls) => {
+    const nextControls: HomeNavbarControls = {
+      ...navbarControls,
+      [key]: !navbarControls[key],
+    };
+    onUpdateNavbarControls?.(nextControls);
+    if (webhookUrl && webhookUrl.trim().startsWith('http')) {
+      try {
+        const merged = mergeHomeNavbarControlsIntoBlocks(userBlocks, nextControls);
+        const res = await saveHomeContentToSheets(webhookUrl, merged);
+        if (res.needsScriptUpdate) setScriptSupported(false);
+        else if (res.cloudSaved) setScriptSupported(true);
+      } catch {}
+    }
+  };
+
   const handleSyncToCloud = async () => {
     setIsSaving(true);
     setStatusBanner(null);
     try {
-      const res = await saveHomeContentToSheets(webhookUrl, blocks);
+      const payloadBlocks = mergeHomeNavbarControlsIntoBlocks(userBlocks, navbarControls);
+      const res = await saveHomeContentToSheets(webhookUrl, payloadBlocks);
       if (res.needsScriptUpdate) setScriptSupported(false);
       else if (res.cloudSaved) setScriptSupported(true);
       setStatusBanner({
@@ -634,10 +664,13 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
           message: 'كود Google Apps Script المنشور قديم ولا يدعم ورقة «محتوى_الرئيسية» بعد.',
         });
       } else {
-        onUpdateBlocks(res.blocks);
+        const cleanBlocks = stripSystemHomeBlocks(res.blocks);
+        const extractedControls = extractHomeNavbarControls(res.blocks);
+        onUpdateBlocks(cleanBlocks);
+        onUpdateNavbarControls?.(extractedControls);
         setStatusBanner({
           type: 'success',
-          message: `تم جلب ${res.blocks.length} عناصر من ورقة «محتوى_الرئيسية» بنجاح!`,
+          message: `تم جلب ${cleanBlocks.length} عناصر وإعدادات الشريط العلوي من ورقة «محتوى_الرئيسية» بنجاح!`,
         });
       }
     } finally {
@@ -645,7 +678,7 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
     }
   };
 
-  const activeCount = blocks.filter((b) => b.enabled).length;
+  const activeCount = userBlocks.filter((b) => b.enabled).length;
 
   return (
     <div className="space-y-5 font-cairo">
@@ -668,7 +701,7 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
 
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-extrabold">
-              المفعّل: {activeCount} / {blocks.length}
+              المفعّل: {activeCount} / {userBlocks.length}
             </span>
             <button
               type="button"
@@ -688,6 +721,84 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
               <Save className="w-4 h-4" />
               <span>{isSaving ? 'جاري الحفظ...' : 'حفظ ومزامنة إلى الشيت'}</span>
             </button>
+          </div>
+        </div>
+
+        {/* Navbar Visibility Controls (إظهار/إخفاء أزرار الشريط العلوي بأيقونة بدون نص) */}
+        <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-extrabold text-slate-800">
+              التحكم بإظهار أزرار الشريط العلوي للطلاب
+            </div>
+            <span className="text-[11px] font-semibold text-slate-500">
+              اضغط على أيقونة العين لإظهار أو إخفاء كل زر في الشريط العلوي
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {(
+              [
+                {
+                  key: 'showLessons' as const,
+                  label: 'زر دروس',
+                  icon: <BookOpen className="w-4 h-4 text-indigo-600" />,
+                  activeCls: 'border-indigo-200 bg-white',
+                  btnActiveCls: 'bg-indigo-600 text-white hover:bg-indigo-700',
+                },
+                {
+                  key: 'showVideo' as const,
+                  label: 'زر فيديو',
+                  icon: <Film className="w-4 h-4 text-slate-800" />,
+                  activeCls: 'border-slate-300 bg-white',
+                  btnActiveCls: 'bg-slate-900 text-white hover:bg-slate-800',
+                },
+                {
+                  key: 'showSchedule' as const,
+                  label: 'زر جدول الدروس',
+                  icon: <Calendar className="w-4 h-4 text-teal-600" />,
+                  activeCls: 'border-teal-200 bg-white',
+                  btnActiveCls: 'bg-teal-600 text-white hover:bg-teal-700',
+                },
+              ] as const
+            ).map((item) => {
+              const isVisible = Boolean(navbarControls[item.key]);
+              return (
+                <div
+                  key={item.key}
+                  className={`px-3.5 py-2.5 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
+                    isVisible ? item.activeCls : 'border-slate-200 bg-slate-100/70 opacity-85'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                      {item.icon}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-xs font-extrabold text-slate-900 truncate">
+                        {item.label}
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-500">
+                        {isVisible ? 'ظاهر في الشريط العلوي' : 'مخفي عن الطلاب'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleNavbarButton(item.key)}
+                    title={isVisible ? `إخفاء ${item.label}` : `إظهار ${item.label}`}
+                    aria-label={isVisible ? `إخفاء ${item.label}` : `إظهار ${item.label}`}
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-2xs ${
+                      isVisible
+                        ? item.btnActiveCls
+                        : 'bg-white border border-slate-300 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -976,16 +1087,16 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
         <div className="lg:col-span-7 space-y-3">
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
             <h3 className="text-sm font-extrabold text-slate-900">
-              العناصر المضافة ({blocks.length})
+              العناصر المضافة ({userBlocks.length})
             </h3>
 
-            {blocks.length === 0 ? (
+            {userBlocks.length === 0 ? (
               <div className="py-12 text-center text-xs font-bold text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
                 لا توجد عناصر مضافة في محتوى الصفحة الرئيسية بعد. أضف أول إعلان أو فيديو أو رابط من النموذج الجانبي.
               </div>
             ) : (
               <div className="space-y-3">
-                {blocks.map((blk, idx) => {
+                {userBlocks.map((blk, idx) => {
                   const tMeta = BLOCK_TYPE_META[blk.type];
                   const isConfirming = confirmDeleteId === blk.id;
                   return (
@@ -1040,7 +1151,7 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
                           <button
                             type="button"
                             onClick={() => handleMoveBlock(idx, 1)}
-                            disabled={idx === blocks.length - 1}
+                            disabled={idx === userBlocks.length - 1}
                             className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
                             title="تحريك للأسفل"
                           >

@@ -23,6 +23,8 @@ import {
   X,
   Plus,
   Ban,
+  Download,
+  Link2,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import {
@@ -55,8 +57,9 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
   // Add subscriber form
   const [newId, setNewId] = useState('');
   const [newName, setNewName] = useState('');
-  const [newMaxDevices, setNewMaxDevices] = useState<number>(2);
+  const [newMaxDevices, setNewMaxDevices] = useState<number>(1);
   const [newStatus, setNewStatus] = useState<'مفعّل' | 'معطّل'>('مفعّل');
+  const [newRequireLocation, setNewRequireLocation] = useState<boolean>(false); // افتراضي مسموح (غير إجباري)
   const [isAdding, setIsAdding] = useState(false);
 
   // Row-level busy state
@@ -72,6 +75,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
     name: string;
     status: 'مفعّل' | 'معطّل';
     maxDevices: number;
+    requireLocation: boolean;
   } | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -79,6 +83,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
   const [qrStudent, setQrStudent] = useState<StudentRegistrant | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedRowLinkId, setCopiedRowLinkId] = useState<string | null>(null);
 
   const isDisabledStatus = (status?: string) => {
     const s = String(status || '').trim().toLowerCase();
@@ -136,8 +141,8 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       setStatusBanner({
         type: res.supportsDeviceSecurity ? 'success' : 'warning',
         text: res.supportsDeviceSecurity
-          ? 'تم تجهيز وترقية أعمدة ورقة ID registrants (5 أعمدة) بنجاح!'
-          : 'تم إرسال الطلب، ولكن يرجى نشر النسخة الجديدة من Google Apps Script (New Version) لتفعيل الأعمدة الخمسة.',
+          ? 'تم تجهيز وترقية أعمدة ورقة ID registrants (8 أعمدة تشمل الموقع والرابط المباشر وQR) بنجاح!'
+          : 'تم إرسال الطلب، ولكن يرجى نشر النسخة الجديدة من Google Apps Script (New Version) لتفعيل الأعمدة الثمانية.',
       });
       await loadRegistrants();
     } else {
@@ -159,18 +164,20 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       name: cleanName,
       status: newStatus,
       maxDevices: newMaxDevices,
+      requireLocation: newRequireLocation,
     });
 
     if (res.success) {
       setNewId('');
       setNewName('');
-      setNewMaxDevices(2);
+      setNewMaxDevices(1);
       setNewStatus('مفعّل');
+      setNewRequireLocation(false);
       setStatusBanner({
         type: res.needsScriptUpdate ? 'warning' : 'success',
         text: res.needsScriptUpdate
-          ? 'تمت إضافة المشترك بالصيغة الأساسية. لتفعيل عمود الحالة والأجهزة يرجى نشر New Version من Apps Script.'
-          : `تمت إضافة/تحديث المشترك (${cleanName}) في ورقة ID registrants بنجاح.`,
+          ? 'تمت إضافة المشترك بالصيغة الأساسية. لتفعيل الأعمدة الثمانية يرجى نشر New Version من Apps Script.'
+          : `تمت إضافة/تحديث المشترك (${cleanName}) مع رابط الدخول وQR في ورقة ID registrants بنجاح.`,
       });
       await loadRegistrants();
     } else {
@@ -188,7 +195,8 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       id: student.id,
       name: student.name,
       status: nextStatus,
-      maxDevices: student.maxDevices || 2,
+      maxDevices: student.maxDevices || 1,
+      requireLocation: Boolean(student.requireLocation),
     });
     if (res.success) {
       setRegistrants((prev) =>
@@ -216,6 +224,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       name: student.name,
       status: student.status || 'مفعّل',
       maxDevices: nextMax,
+      requireLocation: Boolean(student.requireLocation),
     });
     if (res.success) {
       setRegistrants((prev) =>
@@ -298,12 +307,16 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
     setIsSavingEdit(false);
   };
 
+  const getAutoLoginUrl = (student: StudentRegistrant) =>
+    student.directLoginUrl ||
+    `${window.location.origin}${window.location.pathname}?student_id=${encodeURIComponent(
+      student.id
+    )}&student_name=${encodeURIComponent(student.name)}`;
+
   const handleOpenQrModal = async (student: StudentRegistrant) => {
     setQrStudent(student);
     setCopiedLink(false);
-    const autoLoginUrl = `${window.location.origin}${window.location.pathname}?student_id=${encodeURIComponent(
-      student.id
-    )}&student_name=${encodeURIComponent(student.name)}`;
+    const autoLoginUrl = getAutoLoginUrl(student);
     try {
       const url = await QRCode.toDataURL(autoLoginUrl, { width: 280, margin: 2 });
       setQrImageUrl(url);
@@ -312,16 +325,15 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
     }
   };
 
-  const getAutoLoginUrl = (student: StudentRegistrant) =>
-    `${window.location.origin}${window.location.pathname}?student_id=${encodeURIComponent(
-      student.id
-    )}&student_name=${encodeURIComponent(student.name)}`;
-
   const handleCopyAutoLoginLink = async (student: StudentRegistrant) => {
     try {
       await navigator.clipboard.writeText(getAutoLoginUrl(student));
       setCopiedLink(true);
-      window.setTimeout(() => setCopiedLink(false), 2000);
+      setCopiedRowLinkId(student.id);
+      window.setTimeout(() => {
+        setCopiedLink(false);
+        setCopiedRowLinkId((prev) => (prev === student.id ? null : prev));
+      }, 2000);
     } catch {}
   };
 
@@ -500,6 +512,37 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                تحديد الموقع (Location) عند الدخول — العمود F
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewRequireLocation(false)}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    !newRequireLocation
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>مسموح (اختياري)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewRequireLocation(true)}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    newRequireLocation
+                      ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span>إجبار تحديد الموقع</span>
+                </button>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={isAdding}
@@ -575,7 +618,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
             <div className="space-y-3">
               {filteredRegistrants.map((student) => {
                 const disabled = isDisabledStatus(student.status);
-                const maxDev = student.maxDevices || 2;
+                const maxDev = student.maxDevices || 1;
                 const devices = student.devices || [];
                 const isBusy = busyRowId === student.id;
                 const isExpanded = expandedDevicesId === student.id;
@@ -623,6 +666,17 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                                 </>
                               )}
                             </button>
+
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                student.requireLocation
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-slate-100 text-slate-600 border-slate-200'
+                              }`}
+                            >
+                              <MapPin className="w-3 h-3" />
+                              <span>{student.requireLocation ? 'الموقع إجباري' : 'الموقع مسموح'}</span>
+                            </span>
                           </div>
 
                           {/* Devices summary */}
@@ -702,6 +756,19 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
 
                         <button
                           type="button"
+                          onClick={() => handleCopyAutoLoginLink(student)}
+                          title="نسخ رابط الدخول المباشر"
+                          className="p-1.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 transition-all cursor-pointer"
+                        >
+                          {copiedRowLinkId === student.id ? (
+                            <Check className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <Link2 className="w-4 h-4" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handleOpenQrModal(student)}
                           title="بطاقة QR ورابط الدخول المباشر"
                           className="p-1.5 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-all cursor-pointer"
@@ -718,6 +785,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                               name: student.name,
                               status: disabled ? 'معطّل' : 'مفعّل',
                               maxDevices: maxDev,
+                              requireLocation: Boolean(student.requireLocation),
                             })
                           }
                           title="تعديل البيانات"
@@ -881,6 +949,36 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  تحديد الموقع (Location) عند الدخول
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingRow({ ...editingRow, requireLocation: false })}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      !editingRow.requireLocation
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    مسموح (اختياري)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingRow({ ...editingRow, requireLocation: true })}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      editingRow.requireLocation
+                        ? 'bg-amber-600 text-white border-amber-600'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    إجبار تحديد الموقع
+                  </button>
+                </div>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
@@ -933,14 +1031,31 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => handleCopyAutoLoginLink(qrStudent)}
-              className="w-full py-2.5 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedLink ? 'تم نسخ رابط الدخول المباشر' : 'نسخ رابط الدخول المباشر'}</span>
-            </button>
+            <div className="text-[11px] font-mono text-slate-500 bg-slate-50 p-2 rounded-xl border border-slate-200 break-all select-all" dir="ltr">
+              {getAutoLoginUrl(qrStudent)}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleCopyAutoLoginLink(qrStudent)}
+                className="py-2.5 px-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedLink ? 'تم النسخ' : 'نسخ الرابط'}</span>
+              </button>
+
+              {qrImageUrl && (
+                <a
+                  href={qrImageUrl}
+                  download={`QR_${qrStudent.id}_${qrStudent.name}.png`}
+                  className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>تنزيل QR</span>
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}

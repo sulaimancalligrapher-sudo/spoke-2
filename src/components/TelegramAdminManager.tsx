@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   Bot,
   Send,
@@ -20,6 +21,9 @@ import {
   ShieldCheck,
   Activity,
   X,
+  QrCode,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 import {
   TelegramConfig,
@@ -74,10 +78,15 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
   const [botDiagnostic, setBotDiagnostic] = useState<string | null>(null);
 
   // Notification composer state
-  const [targetValue, setTargetValue] = useState<string>('ALL'); // 'ALL' | 'SELECTED' | 'CHAT:<chatId>'
+  const [targetValue, setTargetValue] = useState<string>('ALL'); // 'ALL' | 'SELECTED' | 'CUSTOM_CHAT' | 'CHAT:<chatId>'
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [customChatId, setCustomChatId] = useState<string>('');
   const [messageText, setMessageText] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
+
+  // Telegram Quick Link & QR Code state
+  const [qrStudentId, setQrStudentId] = useState('');
+  const [tgQrDataUrl, setTgQrDataUrl] = useState('');
 
   // Linked students search, manual link & row actions
   const [userSearch, setUserSearch] = useState('');
@@ -160,12 +169,65 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
     } catch {}
   };
 
+  const cleanBotUsername = useMemo(
+    () => (tgConfig.botUsername || '').trim().replace(/^@/, ''),
+    [tgConfig.botUsername]
+  );
+
+  const tgQuickUrl = useMemo(() => {
+    if (!cleanBotUsername) return '';
+    const cleanSid = normalizeDigits(qrStudentId);
+    return cleanSid
+      ? `https://t.me/${cleanBotUsername}?start=${encodeURIComponent(cleanSid)}`
+      : `https://t.me/${cleanBotUsername}`;
+  }, [cleanBotUsername, qrStudentId]);
+
+  useEffect(() => {
+    let active = true;
+    if (!tgQuickUrl) {
+      setTgQrDataUrl('');
+      return;
+    }
+    QRCode.toDataURL(tgQuickUrl, {
+      width: 260,
+      margin: 2,
+      color: { dark: '#0f172a', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (active) setTgQrDataUrl(url);
+      })
+      .catch(() => {
+        if (active) setTgQrDataUrl('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [tgQuickUrl]);
+
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setStatusBanner(null);
     try {
-      const res = await saveTelegramConfig(webhookUrl, tgConfig);
+      let configToSave: TelegramConfig = {
+        ...tgConfig,
+        botToken: tgConfig.botToken.trim(),
+        botUsername: tgConfig.botUsername.trim().replace(/^@/, ''),
+        adminChatId: (tgConfig.adminChatId || '').trim(),
+      };
+      if (configToSave.botToken && !configToSave.botUsername) {
+        try {
+          const resp = await fetch(
+            `https://api.telegram.org/bot${encodeURIComponent(configToSave.botToken)}/getMe`
+          );
+          const meData = await resp.json();
+          if (meData.ok && meData.result?.username) {
+            configToSave = { ...configToSave, botUsername: String(meData.result.username) };
+            setTgConfig(configToSave);
+          }
+        } catch {}
+      }
+      const res = await saveTelegramConfig(webhookUrl, configToSave);
       setStatusBanner({
         type: res.success ? 'success' : 'error',
         text: res.message,
@@ -246,6 +308,14 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
 
   const handleTestAdminAlert = async () => {
     const adminCid = (tgConfig.adminChatId || '').trim();
+    const tokenVal = (tgConfig.botToken || '').trim();
+    if (!tokenVal) {
+      setStatusBanner({
+        type: 'warning',
+        text: 'يرجى إدخال Bot Token أولاً.',
+      });
+      return;
+    }
     if (!adminCid) {
       setStatusBanner({
         type: 'warning',
@@ -258,6 +328,7 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
     try {
       const res = await sendTelegramNotification(webhookUrl, {
         chatId: adminCid,
+        botToken: tokenVal,
         message: '<b>رسالة اختبار للمشرف</b>\nتم ربط تنبيهات الإدارة عبر بوت تيليغرام بنجاح.',
       });
       setStatusBanner({
@@ -276,9 +347,11 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
     setSendingMsg(true);
     setStatusBanner(null);
     try {
+      const tokenVal = (tgConfig.botToken || '').trim();
       let params: Parameters<typeof sendTelegramNotification>[1] = {
         message: messageText.trim(),
         photoUrl: photoUrl.trim() || undefined,
+        botToken: tokenVal || undefined,
       };
 
       if (targetValue === 'ALL') {
@@ -294,6 +367,17 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
           return;
         }
         params.studentIds = cleanSelected;
+      } else if (targetValue === 'CUSTOM_CHAT') {
+        const cleanCid = customChatId.trim();
+        if (!cleanCid) {
+          setStatusBanner({
+            type: 'warning',
+            text: 'يرجى إدخال رقم Chat ID المطلوب الإرسال إليه.',
+          });
+          setSendingMsg(false);
+          return;
+        }
+        params.chatId = cleanCid;
       } else if (targetValue.startsWith('CHAT:')) {
         params.chatId = targetValue.slice('CHAT:'.length);
       }
@@ -486,7 +570,8 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
 
       {/* Two-Column Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* Column 1: Bot Configuration & Automation Rules */}
+        {/* Column 1: Bot Configuration + Quick Access QR Card */}
+        <div className="space-y-6">
         <form
           onSubmit={handleSaveConfig}
           className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm space-y-4"
@@ -670,6 +755,97 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
           </div>
         </form>
 
+        {/* Quick Link & QR Code Card for Telegram */}
+        <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-sky-600" />
+              <span>رابط ورمز QR للدخول السريع إلى تيليغرام</span>
+            </h3>
+          </div>
+
+          {!cleanBotUsername ? (
+            <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-200 text-xs font-bold text-sky-900 leading-relaxed">
+              أدخل <code className="font-mono">Bot Token</code> واضغط «فحص البوت» أو «حفظ الإعدادات» ليتم جلب معرف البوت تلقائياً وإنشاء رابط الدخول السريع ورمز QR الخاص به.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">
+                  تخصيص برقم الطالب للربط التلقائي (اختياري)
+                </label>
+                <input
+                  type="text"
+                  value={qrStudentId}
+                  onChange={(e) => setQrStudentId(e.target.value)}
+                  placeholder="اتركه فارغاً لرابط البوت العام أو اكتب رقم المشترك مثل 1001"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <div className="w-40 h-40 rounded-2xl bg-white p-2 border border-slate-200 shadow-2xs flex items-center justify-center shrink-0">
+                  {tgQrDataUrl ? (
+                    <img src={tgQrDataUrl} alt="Telegram Bot QR" className="w-full h-full object-contain" />
+                  ) : (
+                    <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0 w-full space-y-2.5 text-center sm:text-right">
+                  <div className="text-xs font-extrabold text-slate-800">
+                    {normalizeDigits(qrStudentId)
+                      ? `رابط ربط مباشر للطالب #${normalizeDigits(qrStudentId)}`
+                      : `الرابط المباشر لبوت تيليغرام (@${cleanBotUsername})`}
+                  </div>
+                  <div
+                    className="p-2 rounded-xl bg-white border border-slate-200 text-[11px] font-mono text-sky-800 break-all"
+                    dir="ltr"
+                  >
+                    {tgQuickUrl}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyText('qr_quick_link', tgQuickUrl)}
+                      className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedKey === 'qr_quick_link' ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      <span>{copiedKey === 'qr_quick_link' ? 'تم النسخ' : 'نسخ الرابط'}</span>
+                    </button>
+
+                    <a
+                      href={tgQuickUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                      <span>فتح في تيليغرام</span>
+                    </a>
+
+                    {tgQrDataUrl && (
+                      <a
+                        href={tgQrDataUrl}
+                        download={`telegram-${cleanBotUsername}${normalizeDigits(qrStudentId) ? `-${normalizeDigits(qrStudentId)}` : ''}.png`}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>تحميل QR</span>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        </div>
+
         {/* Column 2: Notification Sender + Linked Students Management */}
         <div className="space-y-6">
           {/* Broadcast & Targeted Message Card */}
@@ -690,6 +866,7 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-bold text-slate-900"
                 >
                   <option value="ALL">جميع الطلاب المربوطين النشطين ({activeUsersCount})</option>
+                  <option value="CUSTOM_CHAT">إرسال مباشر لـ Chat ID (تجريبي أو مستخدم محدد)</option>
                   {tgUsers.length > 0 && (
                     <option value="SELECTED">
                       تحديد مجموعة طلاب يدوياً ({selectedIds.length} محدد)
@@ -706,6 +883,28 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
                   )}
                 </select>
               </div>
+
+              {targetValue === 'CUSTOM_CHAT' && (
+                <div className="p-3 rounded-2xl bg-sky-50 border border-sky-200 space-y-1.5">
+                  <label className="block text-[11px] font-extrabold text-sky-900">
+                    أدخل Telegram Chat ID المستهدف (يمكن استخدام Chat ID المشرف أو الطالب للتجربة):
+                  </label>
+                  <input
+                    type="text"
+                    value={customChatId}
+                    onChange={(e) => setCustomChatId(e.target.value)}
+                    placeholder="مثال: 987654321"
+                    className="w-full px-3 py-2 rounded-xl border border-sky-300 bg-white text-xs font-mono"
+                    dir="ltr"
+                  />
+                </div>
+              )}
+
+              {targetValue === 'ALL' && activeUsersCount === 0 && (
+                <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-900 leading-relaxed">
+                  تنبيه: لا يوجد طلاب مربوطون في ورقة <code className="font-mono">تيليغرام_الطلاب</code> بعد. اطلب من الطالب فتح البوت عبر رابط QR وإرسال رقم اشتراكه، أو اختر «إرسال مباشر لـ Chat ID» للتجربة الفورية.
+                </div>
+              )}
 
               {targetValue === 'SELECTED' && tgUsers.length > 0 && (
                 <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 max-h-36 overflow-y-auto space-y-1.5">

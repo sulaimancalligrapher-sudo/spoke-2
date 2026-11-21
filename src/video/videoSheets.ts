@@ -1457,6 +1457,7 @@ export async function sendTelegramNotification(
     message: string;
     photoUrl?: string;
     broadcastAll?: boolean;
+    botToken?: string;
   }
 ): Promise<{ success: boolean; sentCount?: number; message: string }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {

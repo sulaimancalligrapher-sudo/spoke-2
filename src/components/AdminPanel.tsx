@@ -93,7 +93,7 @@ import { CourseScheduleData, createEmptyCourseSchedule } from '../utils/courseSc
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
-import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock } from '../types';
+import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock, HomeNavbarControls } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -181,6 +181,8 @@ interface AdminPanelProps {
   onOpenSchedulePreview?: () => void;
   homeContentBlocks?: HomeContentBlock[];
   onUpdateHomeContentBlocks?: (blocks: HomeContentBlock[]) => void;
+  homeNavbarControls?: HomeNavbarControls;
+  onUpdateHomeNavbarControls?: (controls: HomeNavbarControls) => void;
   initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
@@ -259,6 +261,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenSchedulePreview,
   homeContentBlocks = [],
   onUpdateHomeContentBlocks,
+  homeNavbarControls,
+  onUpdateHomeNavbarControls,
   initialTab = 'lessons',
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
@@ -3008,6 +3012,8 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           <HomeContentAdminManager
             blocks={homeContentBlocks}
             onUpdateBlocks={(next) => onUpdateHomeContentBlocks?.(next)}
+            navbarControls={homeNavbarControls}
+            onUpdateNavbarControls={(next) => onUpdateHomeNavbarControls?.(next)}
             webhookUrl={sheetsConfig.webhookUrl}
           />
         )}

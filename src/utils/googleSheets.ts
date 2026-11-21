@@ -6,6 +6,7 @@ import {
   HomeContentBlock,
   HomeBlockType,
   HomeSlideItem,
+  HomeNavbarControls,
   SocialLinkItem,
   PracticeHistoryItem,
   Answers1SubmissionRow,
@@ -50,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyZo_MnJCj_c6WOD0JZ8a9IrRugXoc-fgv96H6WTLAbVsl1qkCUi5GVtHUrI3nDXOUm6w/exec';
+  'https://script.google.com/macros/s/AKfycbzq9s-a-2WmEzaOKNqpJ14-NLz2UyK4ZzPnN-CSkRCW1caPASD7d7Z8BKiJtVilvV1daw/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -571,6 +572,42 @@ export async function getFastOptionalGeolocation(
   });
 }
 
+export async function requestMandatoryGeolocation(
+  timeoutMs = 8000
+): Promise<{ lat: number | null; lng: number | null }> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    return { lat: null, lng: null };
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (coords: { lat: number | null; lng: number | null }) => {
+      if (settled) return;
+      settled = true;
+      resolve(coords);
+    };
+    const timer = window.setTimeout(() => done({ lat: null, lng: null }), timeoutMs);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          window.clearTimeout(timer);
+          done({
+            lat: typeof pos.coords?.latitude === 'number' ? pos.coords.latitude : null,
+            lng: typeof pos.coords?.longitude === 'number' ? pos.coords.longitude : null,
+          });
+        },
+        () => {
+          window.clearTimeout(timer);
+          done({ lat: null, lng: null });
+        },
+        { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
+      );
+    } catch {
+      window.clearTimeout(timer);
+      done({ lat: null, lng: null });
+    }
+  });
+}
+
 function parseRegistrantDevicesList(raw: any): { deviceId: string; location?: string; lastLogin?: string }[] {
   if (Array.isArray(raw)) {
     return raw
@@ -591,19 +628,37 @@ function parseRegistrantDevicesList(raw: any): { deviceId: string; location?: st
   return [];
 }
 
+function parseRequireLocationFlag(val: any): boolean {
+  if (val === true) return true;
+  const s = String(val || '').trim().toLowerCase();
+  return s === 'إجبار' || s === 'اجبار' || s === 'نعم' || s === 'true' || s === 'required' || s === '1';
+}
+
+function getAppOriginBaseUrl(): string {
+  try {
+    if (typeof window !== 'undefined' && window.location) {
+      return `${window.location.origin}${window.location.pathname}`;
+    }
+  } catch {}
+  return '';
+}
+
 function normalizeRegistrantRow(r: any): StudentRegistrant {
   const maxDevNum = Number(r?.maxDevices);
   return {
     id: normalizeDigits(String(r?.id || '')),
     name: String(r?.name || '').trim(),
     status: String(r?.status || 'مفعّل').trim() || 'مفعّل',
-    maxDevices: Number.isFinite(maxDevNum) && maxDevNum >= 1 ? Math.min(10, Math.round(maxDevNum)) : 2,
+    maxDevices: Number.isFinite(maxDevNum) && maxDevNum >= 1 ? Math.min(10, Math.round(maxDevNum)) : 1,
     devices: parseRegistrantDevicesList(r?.devices),
+    requireLocation: parseRequireLocationFlag(r?.requireLocation),
+    directLoginUrl: r?.directLoginUrl ? String(r.directLoginUrl).trim() : undefined,
+    qrImageUrl: r?.qrImageUrl ? String(r.qrImageUrl).trim() : undefined,
   };
 }
 
 /**
- * Initialize or ensure sheet "ID registrants" exists with 5 columns (ID, Name, Status, MaxDevices, DevicesJSON)
+ * Initialize or ensure sheet "ID registrants" exists with 8 columns (ID, Name, Status, MaxDevices, DevicesJSON, RequireLocation, DirectLoginUrl, QRImage)
  */
 export async function ensureIDRegistrantsSheet(
   webhookUrl: string
@@ -614,6 +669,7 @@ export async function ensureIDRegistrantsSheet(
 
   const res = await callGoogleSheetsPost(webhookUrl, {
     action: 'init_registrants_sheet',
+    appBaseUrl: getAppOriginBaseUrl(),
   });
 
   return {
@@ -669,9 +725,9 @@ export async function fetchIDRegistrantsDetailed(webhookUrl: string): Promise<{
   // Default demo registrants for offline/initial state
   return {
     registrants: [
-      { id: '1001', name: 'أحمد علي', status: 'مفعّل', maxDevices: 2, devices: [] },
-      { id: '1002', name: 'فاطمة محمد', status: 'مفعّل', maxDevices: 2, devices: [] },
-      { id: '1003', name: 'عمر خالد', status: 'مفعّل', maxDevices: 2, devices: [] },
+      { id: '1001', name: 'أحمد علي', status: 'مفعّل', maxDevices: 1, devices: [], requireLocation: false },
+      { id: '1002', name: 'فاطمة محمد', status: 'مفعّل', maxDevices: 1, devices: [], requireLocation: false },
+      { id: '1003', name: 'عمر خالد', status: 'مفعّل', maxDevices: 1, devices: [], requireLocation: false },
     ],
     supportsDeviceSecurity: false,
   };
@@ -690,7 +746,7 @@ export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentReg
  */
 export async function addIDRegistrantToSheet(
   webhookUrl: string,
-  payload: { id: string; name: string; status?: string; maxDevices?: number }
+  payload: { id: string; name: string; status?: string; maxDevices?: number; requireLocation?: boolean }
 ): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
   const cleanId = normalizeDigits(payload.id);
   const cleanName = payload.name.trim();
@@ -706,7 +762,9 @@ export async function addIDRegistrantToSheet(
     id: cleanId,
     name: cleanName,
     status: payload.status || 'مفعّل',
-    maxDevices: payload.maxDevices ?? 2,
+    maxDevices: payload.maxDevices ?? 1,
+    requireLocation: Boolean(payload.requireLocation),
+    appBaseUrl: getAppOriginBaseUrl(),
   });
 
   if (!res.success) {
@@ -720,11 +778,18 @@ export async function addIDRegistrantToSheet(
 }
 
 /**
- * Update an existing registrant (ID, Name, Status, MaxDevices) in sheet "ID registrants"
+ * Update an existing registrant (ID, Name, Status, MaxDevices, RequireLocation) in sheet "ID registrants"
  */
 export async function updateIDRegistrantInSheet(
   webhookUrl: string,
-  payload: { originalId: string; id: string; name: string; status: string; maxDevices: number }
+  payload: {
+    originalId: string;
+    id: string;
+    name: string;
+    status: string;
+    maxDevices: number;
+    requireLocation?: boolean;
+  }
 ): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
     return { success: false, message: 'رابط Google Sheets غير مضبوط.' };
@@ -735,7 +800,9 @@ export async function updateIDRegistrantInSheet(
     id: normalizeDigits(payload.id),
     name: payload.name.trim(),
     status: payload.status || 'مفعّل',
-    maxDevices: Math.max(1, Math.min(10, Number(payload.maxDevices) || 2)),
+    maxDevices: Math.max(1, Math.min(10, Number(payload.maxDevices) || 1)),
+    requireLocation: Boolean(payload.requireLocation),
+    appBaseUrl: getAppOriginBaseUrl(),
   });
   if (!res.success) {
     return { success: false, message: res.error || 'تعذر تحديث بيانات المشترك' };
@@ -744,7 +811,7 @@ export async function updateIDRegistrantInSheet(
     return {
       success: false,
       needsScriptUpdate: true,
-      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب وعدد الأجهزة.',
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب والأجهزة وإجبار الموقع.',
     };
   }
   return { success: true, message: res.message || 'تم تحديث بيانات المشترك بنجاح' };
@@ -1135,6 +1202,14 @@ export async function fetchHomeConfigFromSheets(webhookUrl: string): Promise<Hom
 }
 
 export const STORAGE_KEY_HOME_CONTENT = 'faseeh_home_content_blocks_v1';
+export const STORAGE_KEY_HOME_NAVBAR_CONTROLS = 'faseeh_home_navbar_controls_v1';
+export const NAVBAR_CONTROLS_BLOCK_ID = '__NAVBAR_CONTROLS__';
+
+export const DEFAULT_HOME_NAVBAR_CONTROLS: HomeNavbarControls = {
+  showLessons: false, // مخفي افتراضياً
+  showVideo: false, // مخفي افتراضياً
+  showSchedule: true, // مسموح / ظاهر افتراضياً
+};
 
 export function sanitizeExternalUrl(raw?: string): string {
   const s = String(raw || '').trim();
@@ -1147,8 +1222,9 @@ export function sanitizeExternalUrl(raw?: string): string {
 export function normalizeHomeContentBlocks(rawList: any[]): HomeContentBlock[] {
   if (!Array.isArray(rawList)) return [];
   return rawList
-    .filter((b) => b && (b.title || b.body || b.mediaUrl || b.linkUrl || (Array.isArray(b.slides) && b.slides.length > 0)))
+    .filter((b) => b && (b.id === NAVBAR_CONTROLS_BLOCK_ID || b.title || b.body || b.mediaUrl || b.linkUrl || (Array.isArray(b.slides) && b.slides.length > 0)))
     .map((b, idx) => {
+      const isNavCtrl = String(b.id || '').trim() === NAVBAR_CONTROLS_BLOCK_ID;
       const rawType = String(b.type || 'announcement').trim().toLowerCase();
       const type: HomeBlockType =
         rawType === 'slideshow' || rawType === 'video' || rawType === 'link'
@@ -1179,11 +1255,78 @@ export function normalizeHomeContentBlocks(rawList: any[]): HomeContentBlock[] {
         badgeText: b.badgeText ? String(b.badgeText).trim() : '',
         accentColor,
         slides,
-        enabled: b.enabled === false || String(b.enabled).toLowerCase() === 'false' || String(b.enabled) === '0' ? false : true,
-        sortOrder: Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : idx + 1,
+        enabled: isNavCtrl
+          ? false
+          : b.enabled === false || String(b.enabled).toLowerCase() === 'false' || String(b.enabled) === '0'
+          ? false
+          : true,
+        sortOrder: isNavCtrl ? 9999 : Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : idx + 1,
       };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function extractHomeNavbarControls(blocks: HomeContentBlock[]): HomeNavbarControls {
+  const sys = blocks.find((b) => b.id === NAVBAR_CONTROLS_BLOCK_ID);
+  if (sys?.body) {
+    try {
+      const parsed = JSON.parse(sys.body);
+      return {
+        showLessons: parsed.showLessons === true,
+        showVideo: parsed.showVideo === true,
+        showSchedule: parsed.showSchedule !== false,
+      };
+    } catch {}
+  }
+  return getLocalHomeNavbarControls();
+}
+
+export function stripSystemHomeBlocks(blocks: HomeContentBlock[]): HomeContentBlock[] {
+  return blocks.filter((b) => b.id !== NAVBAR_CONTROLS_BLOCK_ID);
+}
+
+export function mergeHomeNavbarControlsIntoBlocks(
+  blocks: HomeContentBlock[],
+  controls: HomeNavbarControls
+): HomeContentBlock[] {
+  const userBlocks = stripSystemHomeBlocks(blocks).map((b, idx) => ({
+    ...b,
+    sortOrder: idx + 1,
+  }));
+  const sysBlock: HomeContentBlock = {
+    id: NAVBAR_CONTROLS_BLOCK_ID,
+    type: 'announcement',
+    title: 'إعدادات أزرار الشريط العلوي',
+    body: JSON.stringify({
+      showLessons: Boolean(controls.showLessons),
+      showVideo: Boolean(controls.showVideo),
+      showSchedule: controls.showSchedule !== false,
+    }),
+    enabled: false,
+    sortOrder: 9999,
+  };
+  return [...userBlocks, sysBlock];
+}
+
+export function getLocalHomeNavbarControls(): HomeNavbarControls {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_HOME_NAVBAR_CONTROLS);
+    if (!raw) return { ...DEFAULT_HOME_NAVBAR_CONTROLS };
+    const parsed = JSON.parse(raw);
+    return {
+      showLessons: parsed.showLessons === true,
+      showVideo: parsed.showVideo === true,
+      showSchedule: parsed.showSchedule !== false,
+    };
+  } catch {
+    return { ...DEFAULT_HOME_NAVBAR_CONTROLS };
+  }
+}
+
+export function saveLocalHomeNavbarControls(controls: HomeNavbarControls): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_HOME_NAVBAR_CONTROLS, JSON.stringify(controls));
+  } catch {}
 }
 
 export function getLocalHomeContentBlocks(): HomeContentBlock[] {
@@ -3594,19 +3737,61 @@ function getLessonsSheet(ss) {
   return sheet;
 }
 
-// دالة مساعدة لضمان ترويسة الأعمدة الخمسة لورقة المشتركين "ID registrants"
+// دالة مساعدة لضمان ترويسة الأعمدة الثمانية لورقة المشتركين "ID registrants"
 function ensureIDRegistrantsHeadersGS(sheet) {
-  var expected = ["ID", "اسم المشترك", "الحالة", "الحد الأقصى للأجهزة", "الأجهزة المسجلة JSON"];
+  var expected = ["ID", "اسم المشترك", "الحالة", "الحد الأقصى للأجهزة", "الأجهزة المسجلة JSON", "إجبار الموقع", "رابط الدخول المباشر", "صورة QR"];
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, 5).setValues([expected])
+    sheet.getRange(1, 1, 1, 8).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
     return;
   }
   var existingCols = Math.max(2, sheet.getLastColumn());
-  if (existingCols < 5) {
-    sheet.getRange(1, 1, 1, 5).setValues([expected])
+  if (existingCols < 8) {
+    sheet.getRange(1, 1, 1, 8).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
   }
+}
+
+function saveAppBaseUrlGS(baseUrl) {
+  var clean = String(baseUrl || "").trim();
+  if (!clean) return;
+  try {
+    PropertiesService.getScriptProperties().setProperty("APP_BASE_URL", clean);
+  } catch (e) {}
+}
+
+function getAppBaseUrlGS() {
+  try {
+    return String(PropertiesService.getScriptProperties().getProperty("APP_BASE_URL") || "").trim();
+  } catch (e) {
+    return "";
+  }
+}
+
+function buildDirectLoginUrlGS(baseUrl, studentId, studentName) {
+  var cleanBase = String(baseUrl || getAppBaseUrlGS() || "").trim();
+  var q = "student_id=" + encodeURIComponent(String(studentId || "")) + "&student_name=" + encodeURIComponent(String(studentName || ""));
+  if (!cleanBase) return "";
+  return cleanBase + (cleanBase.indexOf("?") === -1 ? "?" : "&") + q;
+}
+
+function buildQrImageUrlGS(directUrl) {
+  if (!directUrl) return "";
+  return "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + encodeURIComponent(directUrl);
+}
+
+function syncRegistrantLinkAndQrCellsGS(sheet, rowNum, studentId, studentName, baseUrl) {
+  var directUrl = buildDirectLoginUrlGS(baseUrl, studentId, studentName);
+  if (!directUrl) return { directLoginUrl: "", qrImageUrl: "" };
+  var qrImgUrl = buildQrImageUrlGS(directUrl);
+  sheet.getRange(rowNum, 7).setValue(directUrl);
+  sheet.getRange(rowNum, 8).setFormula('=IMAGE("' + qrImgUrl + '")');
+  return { directLoginUrl: directUrl, qrImageUrl: qrImgUrl };
+}
+
+function isLocationRequiredGS(val) {
+  var s = String(val || "").trim().toLowerCase();
+  return s === "إجبار" || s === "اجبار" || s === "نعم" || s === "true" || s === "required" || s === "1";
 }
 
 function normRegDigitsGS(str) {
@@ -3681,23 +3866,30 @@ function readAllRegistrantsGS(sheet) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var colCount = Math.max(5, sheet.getLastColumn());
+  var colCount = Math.max(8, sheet.getLastColumn());
   var vals = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
+  var baseUrl = getAppBaseUrlGS();
   for (var i = 0; i < vals.length; i++) {
     var rId = normRegDigitsGS(vals[i][0]);
     var rName = String(vals[i][1] || "").trim();
     if (rId && rName && rId !== "ID") {
       var rStatus = String(vals[i][2] || "").trim() || "مفعّل";
       var rMax = Number(vals[i][3]);
-      if (isNaN(rMax) || rMax < 1) rMax = 2;
+      if (isNaN(rMax) || rMax < 1) rMax = 1;
       var rDevices = parseRegistrantDevicesGS(vals[i][4]);
+      var reqLoc = isLocationRequiredGS(vals[i][5]);
+      var directUrl = String(vals[i][6] || "").trim() || buildDirectLoginUrlGS(baseUrl, rId, rName);
+      var qrUrl = buildQrImageUrlGS(directUrl);
       list.push({
         rowNumber: i + 2,
         id: rId,
         name: rName,
         status: rStatus,
         maxDevices: rMax,
-        devices: rDevices
+        devices: rDevices,
+        requireLocation: reqLoc,
+        directLoginUrl: directUrl,
+        qrImageUrl: qrUrl
       });
     }
   }
@@ -3710,7 +3902,7 @@ function getIDRegistrantsSheet(ss) {
   if (!sheet) {
     sheet = ss.insertSheet("ID registrants");
     ensureIDRegistrantsHeadersGS(sheet);
-    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 2, "[]"]);
+    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", ""]);
   } else {
     ensureIDRegistrantsHeadersGS(sheet);
   }
@@ -4142,11 +4334,13 @@ function writeTelegramConfigGS(ss, cfg) {
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
 }
 
-function sendTelegramBotMessageGS(ss, chatId, text, photoUrl) {
+function sendTelegramBotMessageGS(ss, chatId, text, photoUrl, tokenOverride) {
   var cfg = readTelegramConfigGS(ss);
-  if (!cfg.botToken || !chatId) return false;
+  var token = String(tokenOverride || cfg.botToken || "").trim();
+  if (!token) return { ok: false, error: "لم يتم ضبط رمز البوت (Bot Token)." };
+  if (!chatId) return { ok: false, error: "لم يتم تحديد Chat ID." };
   try {
-    var apiBase = "https://api.telegram.org/bot" + cfg.botToken;
+    var apiBase = "https://api.telegram.org/bot" + token;
     var endpoint = photoUrl ? (apiBase + "/sendPhoto") : (apiBase + "/sendMessage");
     var body = photoUrl
       ? { chat_id: String(chatId), photo: String(photoUrl), caption: String(text || ""), parse_mode: "HTML" }
@@ -4158,10 +4352,17 @@ function sendTelegramBotMessageGS(ss, chatId, text, photoUrl) {
       muteHttpExceptions: true
     });
     var code = resp.getResponseCode();
-    return code >= 200 && code < 300;
+    var respText = resp.getContentText();
+    var parsedResp = null;
+    try { parsedResp = JSON.parse(respText); } catch (pErr) {}
+    if (code >= 200 && code < 300 && (!parsedResp || parsedResp.ok !== false)) {
+      return { ok: true };
+    }
+    var tgErrDesc = (parsedResp && parsedResp.description) ? String(parsedResp.description) : ("HTTP " + code);
+    return { ok: false, error: tgErrDesc };
   } catch (tgErr) {
     Logger.log("Telegram send error: " + tgErr);
-    return false;
+    return { ok: false, error: String(tgErr) };
   }
 }
 
@@ -5944,7 +6145,7 @@ function doPost(e) {
             if (data.audioScore) summaryMsg += "\\nدرجة الصوت: " + data.audioScore;
             if (data.audioNotes) summaryMsg += "\\nتوجيه صوتي: " + data.audioNotes;
             if (tgCfgCorr.customFooter) summaryMsg += "\\n\\n" + tgCfgCorr.customFooter;
-            telegramSent = sendTelegramBotMessageGS(ss, uChatId, summaryMsg, correctedImage || "");
+            telegramSent = sendTelegramBotMessageGS(ss, uChatId, summaryMsg, correctedImage || "").ok;
             break;
           }
         }
@@ -6090,14 +6291,32 @@ function doPost(e) {
 
     if (data.action === "send_telegram_notification") {
       var tgCfgSend = readTelegramConfigGS(ss);
+      var resolvedToken = String(data.botToken || tgCfgSend.botToken || "").trim();
+      if (!resolvedToken) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          sentCount: 0,
+          message: "يرجى إدخال رمز البوت (Bot Token) وحفظ الإعدادات أولاً."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
       var msg = String(data.message || "").trim();
       if (tgCfgSend.customFooter) {
         msg = msg + "\\n\\n" + tgCfgSend.customFooter;
       }
       var photo = String(data.photoUrl || "").trim();
       var sentCount = 0;
+      var attemptedCount = 0;
+      var lastTgError = "";
+
       if (data.chatId) {
-        if (sendTelegramBotMessageGS(ss, String(data.chatId), msg, photo)) sentCount++;
+        attemptedCount = 1;
+        var directSendRes = sendTelegramBotMessageGS(ss, String(data.chatId).trim(), msg, photo, resolvedToken);
+        if (directSendRes.ok) {
+          sentCount++;
+        } else {
+          lastTgError = directSendRes.error || "";
+        }
       } else {
         var targetIdsMap = {};
         var hasTargetIds = Array.isArray(data.studentIds) && data.studentIds.length > 0;
@@ -6111,19 +6330,38 @@ function doPost(e) {
           var uId = normRegDigitsGS(uRows[u][0]);
           var uName = String(uRows[u][1] || "").trim();
           var uChatId = String(uRows[u][2] || "").trim();
-          var uEnabled = String(uRows[u][5] || "true") !== "false";
+          var uEnabled = String(uRows[u][5] || "true").trim().toLowerCase() !== "false";
           if (!uEnabled || !uChatId) continue;
           var matchedGroup = hasTargetIds && targetIdsMap[uId];
           var matchedSingle = (data.studentId && uId === normRegDigitsGS(data.studentId)) || (data.studentName && uName === data.studentName);
           if (data.broadcastAll || matchedGroup || matchedSingle) {
-            if (sendTelegramBotMessageGS(ss, uChatId, msg, photo)) sentCount++;
+            attemptedCount++;
+            var grpSendRes = sendTelegramBotMessageGS(ss, uChatId, msg, photo, resolvedToken);
+            if (grpSendRes.ok) {
+              sentCount++;
+            } else {
+              lastTgError = grpSendRes.error || lastTgError;
+            }
           }
         }
       }
+
+      var resultMessage = "";
+      if (sentCount > 0) {
+        resultMessage = "تم إرسال الإشعار بنجاح (" + sentCount + ")";
+      } else if (data.chatId) {
+        resultMessage = "فشل الإرسال إلى معرف تيليغرام (" + data.chatId + "): " + (lastTgError || "تأكد من إرسال /start للبوت أولاً وصحة Chat ID");
+      } else if (attemptedCount === 0) {
+        resultMessage = "لا يوجد طلاب مربوطون ومفعّلون في ورقة (تيليغرام_الطلاب) حالياً. يجب على الطالب فتح البوت وإرسال رقم المشترك (ID) أولاً.";
+      } else {
+        resultMessage = "تم العثور على " + attemptedCount + " طالب مربوط، ولكن فشل الإرسال من تيليغرام: " + (lastTgError || "تحقق من رمز البوت Bot Token");
+      }
+
       return ContentService.createTextOutput(JSON.stringify({
         success: sentCount > 0,
         sentCount: sentCount,
-        message: sentCount > 0 ? ("تم إرسال الإشعار بنجاح (" + sentCount + ")") : "لم يتم العثور على طلاب مربوطين بالبوت أو فشل الإرسال"
+        attemptedCount: attemptedCount,
+        message: resultMessage
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
@@ -6275,11 +6513,20 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة
+    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة وإجبار الموقع ورابط الدخول
     if (data.action === "get_registrants" || data.action === "verify_student") {
       var regSheet = getIDRegistrantsSheet(ss);
       var rows = readAllRegistrantsGS(regSheet).map(function(r) {
-        return { id: r.id, name: r.name, status: r.status, maxDevices: r.maxDevices, devices: r.devices };
+        return {
+          id: r.id,
+          name: r.name,
+          status: r.status,
+          maxDevices: r.maxDevices,
+          devices: r.devices,
+          requireLocation: Boolean(r.requireLocation),
+          directLoginUrl: r.directLoginUrl || "",
+          qrImageUrl: r.qrImageUrl || ""
+        };
       });
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
@@ -6288,7 +6535,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-أ) التحقق الآمن من دخول الطالب مع تفعيل الحالة والحد الأقصى للأجهزة والموقع الجغرافي
+    // (0-أ) التحقق الآمن من دخول الطالب مع تفعيل الحالة والحد الأقصى للأجهزة وإجبار/تحديد الموقع الجغرافي
     if (data.action === "verify_student_login") {
       var regSheet = getIDRegistrantsSheet(ss);
       var allRegs = readAllRegistrantsGS(regSheet);
@@ -6335,7 +6582,20 @@ function doPost(e) {
         })).setMimeType(ContentService.MimeType.JSON);
       }
 
-      var maxDev = Math.max(1, Number(matchedRow.maxDevices) || 2);
+      var hasCoords = data.lat !== null && data.lat !== undefined && data.lat !== ""
+        && data.lng !== null && data.lng !== undefined && data.lng !== ""
+        && !isNaN(Number(data.lat)) && !isNaN(Number(data.lng));
+
+      if (matchedRow.requireLocation && !hasCoords) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          loginCheckHandled: true,
+          errorCode: "LOCATION_REQUIRED",
+          error: "هذا الحساب يتطلب تفعيل وتحديد الموقع الجغرافي (Location) للدخول. يرجى السماح بصلاحية الموقع والمحاولة مرة أخرى."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var maxDev = Math.max(1, Number(matchedRow.maxDevices) || 1);
       var devList = Array.isArray(matchedRow.devices) ? matchedRow.devices.slice() : [];
       if (deviceId) {
         var locLabel = reverseGeocodeLocGS(data.lat, data.lng);
@@ -6360,7 +6620,7 @@ function doPost(e) {
               success: false,
               loginCheckHandled: true,
               errorCode: "DEVICE_LIMIT_EXCEEDED",
-              error: "تم تجاوز الحد الأقصى لعدد الأجهزة المسموحة (" + maxDev + " أجهزة). يرجى التواصل مع المعلم لتصفير الأجهزة."
+              error: "تم تجاوز الحد الأقصى لعدد الأجهزة المسموحة (" + maxDev + " جهاز/أجهزة). يرجى التواصل مع المعلم لتصفير الأجهزة."
             })).setMimeType(ContentService.MimeType.JSON);
           }
           devList.push({
@@ -6380,19 +6640,26 @@ function doPost(e) {
           name: matchedRow.name,
           status: matchedRow.status,
           maxDevices: maxDev,
-          devices: devList
+          devices: devList,
+          requireLocation: Boolean(matchedRow.requireLocation),
+          directLoginUrl: matchedRow.directLoginUrl || "",
+          qrImageUrl: matchedRow.qrImageUrl || ""
         }
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (0-ب) إنشاء وتجهيز ورقة "ID registrants" أو إضافة مشترك
     if (data.action === "init_registrants_sheet" || data.action === "add_registrant") {
+      if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
       var regSheet = getIDRegistrantsSheet(ss);
+      var activeBaseUrl = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
+
       if (data.id && data.name) {
         var newId = normRegDigitsGS(data.id);
         var newName = String(data.name).trim();
         var newStatus = String(data.status || "مفعّل").trim() || "مفعّل";
-        var newMax = Math.max(1, Math.min(10, Number(data.maxDevices) || 2));
+        var newMax = Math.max(1, Math.min(10, Number(data.maxDevices) || 1));
+        var newReqLoc = isLocationRequiredGS(data.requireLocation) ? "إجبار" : "مسموح";
         var existingRows = readAllRegistrantsGS(regSheet);
         var existingRow = null;
         for (var k = 0; k < existingRows.length; k++) {
@@ -6401,21 +6668,40 @@ function doPost(e) {
             break;
           }
         }
+        var targetRowNum;
         if (existingRow) {
-          regSheet.getRange(existingRow.rowNumber, 1, 1, 4).setValues([[newId, newName, newStatus, newMax]]);
+          targetRowNum = existingRow.rowNumber;
+          regSheet.getRange(targetRowNum, 1, 1, 4).setValues([[newId, newName, newStatus, newMax]]);
+          regSheet.getRange(targetRowNum, 6).setValue(newReqLoc);
         } else {
-          regSheet.appendRow([newId, newName, newStatus, newMax, "[]"]);
+          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", ""]);
+          targetRowNum = regSheet.getLastRow();
+        }
+        syncRegistrantLinkAndQrCellsGS(regSheet, targetRowNum, newId, newName, activeBaseUrl);
+      } else if (data.action === "init_registrants_sheet") {
+        // تعبئة الأعمدة الناقصة (إجبار الموقع + الرابط المباشر + صورة QR) لجميع الصفوف الحالية
+        var allToUpgrade = readAllRegistrantsGS(regSheet);
+        for (var ui = 0; ui < allToUpgrade.length; ui++) {
+          var uRow = allToUpgrade[ui];
+          var curReqVal = String(regSheet.getRange(uRow.rowNumber, 6).getValue() || "").trim();
+          if (!curReqVal) {
+            regSheet.getRange(uRow.rowNumber, 6).setValue("مسموح");
+          }
+          if (activeBaseUrl) {
+            syncRegistrantLinkAndQrCellsGS(regSheet, uRow.rowNumber, uRow.id, uRow.name, activeBaseUrl);
+          }
         }
       }
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         registrantHandled: true,
-        message: "تم إعداد وحفظ ورقة ID registrants بنجاح"
+        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة الثمانية بنجاح"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة)
+    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة، إجبار الموقع، الرابط وQR)
     if (data.action === "update_registrant") {
+      if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
       var regSheet = getIDRegistrantsSheet(ss);
       var rows = readAllRegistrantsGS(regSheet);
       var origId = normRegDigitsGS(data.originalId || data.id || "");
@@ -6436,8 +6722,14 @@ function doPost(e) {
       var nextId = normRegDigitsGS(data.id || targetRow.id);
       var nextName = String(data.name || targetRow.name).trim();
       var nextStatus = String(data.status || targetRow.status || "مفعّل").trim();
-      var nextMax = Math.max(1, Math.min(10, Number(data.maxDevices) || targetRow.maxDevices || 2));
+      var nextMax = Math.max(1, Math.min(10, Number(data.maxDevices) || targetRow.maxDevices || 1));
+      var nextReqLoc = data.requireLocation !== undefined
+        ? (isLocationRequiredGS(data.requireLocation) ? "إجبار" : "مسموح")
+        : (targetRow.requireLocation ? "إجبار" : "مسموح");
       regSheet.getRange(targetRow.rowNumber, 1, 1, 4).setValues([[nextId, nextName, nextStatus, nextMax]]);
+      regSheet.getRange(targetRow.rowNumber, 6).setValue(nextReqLoc);
+      var activeBaseUrlUpd = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
+      syncRegistrantLinkAndQrCellsGS(regSheet, targetRow.rowNumber, nextId, nextName, activeBaseUrlUpd);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         registrantHandled: true,

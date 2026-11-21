@@ -126,8 +126,11 @@ export interface StudentRegistrant {
   name: string; // اسم المشترك
   registeredAt?: number;
   status?: 'مفعّل' | 'معطّل' | string; // حالة الحساب
-  maxDevices?: number; // الحد الأقصى للأجهزة المسموحة (افتراضي 2)
+  maxDevices?: number; // الحد الأقصى للأجهزة المسموحة (افتراضي 1)
   devices?: StudentDeviceInfo[]; // الأجهزة المسجلة مع الموقع وتاريخ آخر دخول
+  requireLocation?: boolean; // إجبار تحديد الموقع عند الدخول (افتراضي false = مسموح)
+  directLoginUrl?: string; // رابط الدخول المباشر
+  qrImageUrl?: string; // رابط/صيغة صورة QR
 }
 
 export interface SocialLinkItem {
@@ -192,6 +195,12 @@ export interface HomeContentBlock {
   slides?: HomeSlideItem[];
   enabled: boolean;
   sortOrder: number;
+}
+
+export interface HomeNavbarControls {
+  showLessons: boolean; // افتراضي false (مخفي)
+  showVideo: boolean; // افتراضي false (مخفي)
+  showSchedule: boolean; // افتراضي true (مسموح)
 }
 
 export interface HomeBrandConfig {

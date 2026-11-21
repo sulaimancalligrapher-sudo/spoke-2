@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   QrCode,
   Camera,
+  MapPin,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { StudentRegistrant } from '../types';
@@ -18,6 +19,7 @@ import {
   fetchIDRegistrants,
   getOrCreateDeviceId,
   getFastOptionalGeolocation,
+  requestMandatoryGeolocation,
   normalizeDigits,
 } from '../utils/googleSheets';
 
@@ -26,6 +28,10 @@ interface StudentLoginModalProps {
   onClose: () => void;
   onLoginSuccess: (student: StudentRegistrant) => void;
   webhookUrl: string;
+  isMandatory?: boolean;
+  initialName?: string;
+  initialId?: string;
+  initialError?: string | null;
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -121,19 +127,35 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
   onClose,
   onLoginSuccess,
   webhookUrl,
+  isMandatory = false,
+  initialName = '',
+  initialId = '',
+  initialError = null,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
-  const [studentName, setStudentName] = useState('');
-  const [studentId, setStudentId] = useState('');
+  const [studentName, setStudentName] = useState(initialName);
+  const [studentId, setStudentId] = useState(initialId);
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(initialError);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
   const [scannerStarting, setScannerStarting] = useState(false);
   const qrInstanceRef = useRef<Html5Qrcode | null>(null);
   const scannerBusyRef = useRef(false);
+
+  useEffect(() => {
+    if (initialName) setStudentName(initialName);
+  }, [initialName]);
+
+  useEffect(() => {
+    if (initialId) setStudentId(initialId);
+  }, [initialId]);
+
+  useEffect(() => {
+    if (initialError) setErrorMsg(initialError);
+  }, [initialError]);
 
   const stopScanner = async () => {
     const inst = qrInstanceRef.current;
@@ -192,12 +214,23 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
       }
 
       const deviceId = getOrCreateDeviceId();
-      const geo = await getFastOptionalGeolocation(250);
-      const result = await verifyStudentLogin(webhookUrl, cleanName, cleanId, {
+      const geo = await getFastOptionalGeolocation(800);
+      let result = await verifyStudentLogin(webhookUrl, cleanName, cleanId, {
         deviceId,
         lat: geo.lat,
         lng: geo.lng,
       });
+
+      if (!result.success && result.errorCode === 'LOCATION_REQUIRED') {
+        const mandatoryGeo = await requestMandatoryGeolocation(8000);
+        if (mandatoryGeo.lat !== null && mandatoryGeo.lng !== null) {
+          result = await verifyStudentLogin(webhookUrl, cleanName, cleanId, {
+            deviceId,
+            lat: mandatoryGeo.lat,
+            lng: mandatoryGeo.lng,
+          });
+        }
+      }
 
       if (result.success && result.student) {
         setSuccessMsg(`أهلاً بك يا ${result.student.name}! تم التحقق من ورقة ID registrants بنجاح.`);
@@ -284,7 +317,10 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs font-cairo animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-[95] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm font-cairo animate-in fade-in duration-200 pointer-events-auto"
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="bg-white rounded-3xl max-w-md w-full max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-[#0c3868] text-white p-5 flex items-center justify-between shrink-0">
@@ -302,17 +338,19 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              stopScanner();
-              onClose();
-            }}
-            className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-            title="إغلاق"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {!isMandatory && (
+            <button
+              type="button"
+              onClick={() => {
+                stopScanner();
+                onClose();
+              }}
+              className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+              title="إغلاق"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Body */}

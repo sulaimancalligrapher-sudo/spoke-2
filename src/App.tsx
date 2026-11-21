@@ -17,6 +17,7 @@ import {
   CatchHistoryItem,
   WritingHistoryItem,
   HomeContentBlock,
+  HomeNavbarControls,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -95,6 +96,10 @@ import {
   fetchHomeContentFromSheets,
   getLocalHomeContentBlocks,
   saveLocalHomeContentBlocks,
+  extractHomeNavbarControls,
+  stripSystemHomeBlocks,
+  getLocalHomeNavbarControls,
+  saveLocalHomeNavbarControls,
   fetchStudentSubmissionsFromSheet,
   fetchStudentMatchingHistory,
   fetchStudentDictationHistory,
@@ -111,6 +116,7 @@ import {
   fetchIDRegistrants,
   getOrCreateDeviceId,
   getFastOptionalGeolocation,
+  requestMandatoryGeolocation,
   normalizeDigits,
   STORAGE_KEY_MATCHING_CURRICULUM,
   STORAGE_KEY_DICTATION_CURRICULUM,
@@ -295,8 +301,6 @@ export default function App() {
   const [isMatchingLessonsModalOpen, setIsMatchingLessonsModalOpen] = useState(false);
   const [isDictationLessonsModalOpen, setIsDictationLessonsModalOpen] = useState(false);
   const [isCatchLessonsModalOpen, setIsCatchLessonsModalOpen] = useState(false);
-  const [landingLessonsMenuOpen, setLandingLessonsMenuOpen] = useState(false);
-  const landingLessonsMenuRef = useRef<HTMLDivElement | null>(null);
   const [activeMatchingSubjectId, setActiveMatchingSubjectId] = useState<string>('');
   const [activeMatchingExerciseIdx, setActiveMatchingExerciseIdx] = useState<number>(0);
   const [activeDictationSubjectId, setActiveDictationSubjectId] = useState<string>('');
@@ -341,28 +345,24 @@ export default function App() {
     [courseSchedule]
   );
 
-  useEffect(() => {
-    const handleOutside = (e: MouseEvent | TouchEvent) => {
-      if (landingLessonsMenuRef.current && !landingLessonsMenuRef.current.contains(e.target as Node)) {
-        setLandingLessonsMenuOpen(false);
-      }
-    };
-    if (landingLessonsMenuOpen) {
-      document.addEventListener('mousedown', handleOutside);
-      document.addEventListener('touchstart', handleOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleOutside);
-      document.removeEventListener('touchstart', handleOutside);
-    };
-  }, [landingLessonsMenuOpen]);
-
   // Modals & Registration
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [currentStudent, setCurrentStudent] = useState<StudentRegistrant | null>(null);
+  const [loginModalPrefill, setLoginModalPrefill] = useState<{
+    name: string;
+    id: string;
+    error: string | null;
+  }>({ name: '', id: '', error: null });
+  const [currentStudent, setCurrentStudent] = useState<StudentRegistrant | null>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_STUDENT);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -378,7 +378,10 @@ export default function App() {
 
   // Dynamic Home Page Content Blocks (Sheet: "محتوى_الرئيسية")
   const [homeContentBlocks, setHomeContentBlocks] = useState<HomeContentBlock[]>(() =>
-    getLocalHomeContentBlocks()
+    stripSystemHomeBlocks(getLocalHomeContentBlocks())
+  );
+  const [homeNavbarControls, setHomeNavbarControls] = useState<HomeNavbarControls>(() =>
+    getLocalHomeNavbarControls()
   );
 
   // Dedicated Student Evaluation History (from sheet "answers 1")
@@ -570,18 +573,26 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_CUSTOM, JSON.stringify(currRes.curriculum));
     }
 
-    // 2. Update homeConfig from sheet "الرئيسية" & dynamic blocks from "محتوى_الرئيسية"
+    // 2. Update homeConfig from sheet "الرئيسية" & dynamic blocks + navbar controls from "محتوى_الرئيسية"
     if (homeCfg) {
       setHomeConfig(homeCfg);
       localStorage.setItem('faseeh_cached_home_config', JSON.stringify(homeCfg));
       if (Array.isArray(homeCfg.contentBlocks)) {
-        setHomeContentBlocks(homeCfg.contentBlocks);
-        saveLocalHomeContentBlocks(homeCfg.contentBlocks);
+        const cleanBlocks = stripSystemHomeBlocks(homeCfg.contentBlocks);
+        const navCtrls = extractHomeNavbarControls(homeCfg.contentBlocks);
+        setHomeContentBlocks(cleanBlocks);
+        saveLocalHomeContentBlocks(cleanBlocks);
+        setHomeNavbarControls(navCtrls);
+        saveLocalHomeNavbarControls(navCtrls);
       }
     }
-    if (homeContentRes && Array.isArray(homeContentRes)) {
-      setHomeContentBlocks(homeContentRes);
-      saveLocalHomeContentBlocks(homeContentRes);
+    if (homeContentRes && homeContentRes.scriptSupported && Array.isArray(homeContentRes.blocks)) {
+      const cleanBlocks = stripSystemHomeBlocks(homeContentRes.blocks);
+      const navCtrls = extractHomeNavbarControls(homeContentRes.blocks);
+      setHomeContentBlocks(cleanBlocks);
+      saveLocalHomeContentBlocks(cleanBlocks);
+      setHomeNavbarControls(navCtrls);
+      saveLocalHomeNavbarControls(navCtrls);
     }
 
     // 3. Update translations from sheet "الترجمة"
@@ -931,14 +942,22 @@ export default function App() {
                 localStorage.setItem('faseeh_cached_home_config', JSON.stringify(cfg));
               } catch {}
               if (Array.isArray(cfg.contentBlocks)) {
-                setHomeContentBlocks(cfg.contentBlocks);
-                saveLocalHomeContentBlocks(cfg.contentBlocks);
+                const cleanBlocks = stripSystemHomeBlocks(cfg.contentBlocks);
+                const navCtrls = extractHomeNavbarControls(cfg.contentBlocks);
+                setHomeContentBlocks(cleanBlocks);
+                saveLocalHomeContentBlocks(cleanBlocks);
+                setHomeNavbarControls(navCtrls);
+                saveLocalHomeNavbarControls(navCtrls);
               } else {
                 fetchHomeContentFromSheets(activeConfig.webhookUrl)
-                  .then((blocks) => {
-                    if (blocks && Array.isArray(blocks)) {
-                      setHomeContentBlocks(blocks);
-                      saveLocalHomeContentBlocks(blocks);
+                  .then((res) => {
+                    if (res && res.scriptSupported && Array.isArray(res.blocks)) {
+                      const cleanBlocks = stripSystemHomeBlocks(res.blocks);
+                      const navCtrls = extractHomeNavbarControls(res.blocks);
+                      setHomeContentBlocks(cleanBlocks);
+                      saveLocalHomeContentBlocks(cleanBlocks);
+                      setHomeNavbarControls(navCtrls);
+                      saveLocalHomeNavbarControls(navCtrls);
                     }
                   })
                   .catch(() => {});
@@ -1274,14 +1293,36 @@ export default function App() {
             }
             if (finalName && urlId) {
               const deviceId = getOrCreateDeviceId();
-              const geo = await getFastOptionalGeolocation(250);
-              const check = await verifyStudentLogin(activeConfig.webhookUrl, finalName, urlId, {
+              const geo = await getFastOptionalGeolocation(400);
+              let check = await verifyStudentLogin(activeConfig.webhookUrl, finalName, urlId, {
                 deviceId,
                 lat: geo.lat,
                 lng: geo.lng,
               });
+
+              if (!check.success && check.errorCode === 'LOCATION_REQUIRED') {
+                const mandatoryGeo = await requestMandatoryGeolocation(8000);
+                if (mandatoryGeo.lat !== null && mandatoryGeo.lng !== null) {
+                  check = await verifyStudentLogin(activeConfig.webhookUrl, finalName, urlId, {
+                    deviceId,
+                    lat: mandatoryGeo.lat,
+                    lng: mandatoryGeo.lng,
+                  });
+                } else {
+                  setLoginModalPrefill({
+                    name: finalName,
+                    id: urlId,
+                    error:
+                      check.error ||
+                      'تحديد الموقع الجغرافي إجباري لحسابك. يرجى السماح بالوصول للموقع ثم المتابعة.',
+                  });
+                  return;
+                }
+              }
+
               if (check.success && check.student) {
                 setCurrentStudent(check.student);
+                setLoginModalPrefill({ name: '', id: '', error: null });
                 try {
                   localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(check.student));
                 } catch {}
@@ -1305,8 +1346,19 @@ export default function App() {
                     .catch(() => {});
                 }
               } else if (check.error) {
+                setLoginModalPrefill({
+                  name: finalName,
+                  id: urlId,
+                  error: check.error,
+                });
                 setSyncNotice(check.error);
               }
+            } else if (urlId || urlName) {
+              setLoginModalPrefill({
+                name: urlName,
+                id: urlId,
+                error: null,
+              });
             }
           })();
         }
@@ -1347,6 +1399,8 @@ export default function App() {
 
   const handleLoginSuccess = (student: StudentRegistrant) => {
     setCurrentStudent(student);
+    setLoginModalPrefill({ name: '', id: '', error: null });
+    setIsLoginModalOpen(false);
     try {
       localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(student));
     } catch (e) {}
@@ -1793,7 +1847,6 @@ export default function App() {
     setIsVideoLessonsModalOpen(false);
     setIsVideoCorrectionModalOpen(false);
     setIsScheduleModalOpen(false);
-    setLandingLessonsMenuOpen(false);
   };
 
   const handleOpenScheduledLesson = (ref: ScheduleLessonRef) => {
@@ -2041,7 +2094,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -2211,8 +2264,14 @@ export default function App() {
           }}
           homeContentBlocks={homeContentBlocks}
           onUpdateHomeContentBlocks={(next) => {
-            setHomeContentBlocks(next);
-            saveLocalHomeContentBlocks(next);
+            const clean = stripSystemHomeBlocks(next);
+            setHomeContentBlocks(clean);
+            saveLocalHomeContentBlocks(clean);
+          }}
+          homeNavbarControls={homeNavbarControls}
+          onUpdateHomeNavbarControls={(next) => {
+            setHomeNavbarControls(next);
+            saveLocalHomeNavbarControls(next);
           }}
         />
 
@@ -2333,6 +2392,9 @@ export default function App() {
         }}
         hasCourseSchedule={courseSchedule.days.length > 0}
         hasTodayScheduleLesson={hasTodayScheduleLesson}
+        showLessonsBtn={homeNavbarControls.showLessons}
+        showVideoBtn={homeNavbarControls.showVideo}
+        showScheduleBtn={homeNavbarControls.showSchedule}
         currentMode={appMode}
         onSelectMode={(mode) => {
           closeAllLessonModals();
@@ -2444,119 +2506,6 @@ export default function App() {
                   );
                 })()}
 
-                {/* 5. Unified Lessons Dropdown Button (دروس) + Standalone Interactive Video Button (فيديو) */}
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                  <div ref={landingLessonsMenuRef} className="relative flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => setLandingLessonsMenuOpen((prev) => !prev)}
-                      className="flex items-center justify-center gap-2.5 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-emerald-500/30 cursor-pointer hover:scale-105 active:scale-95"
-                      aria-expanded={landingLessonsMenuOpen}
-                      aria-haspopup="menu"
-                    >
-                      <BookOpen className="w-5 h-5" />
-                      <span>{t('nav_lessons_menu', 'دروس')}</span>
-                      <ChevronDown
-                        className={`w-4 h-4 transition-transform duration-200 ${
-                          landingLessonsMenuOpen ? 'rotate-180' : ''
-                        }`}
-                      />
-                    </button>
-
-                  {landingLessonsMenuOpen && (
-                    <div
-                      role="menu"
-                      className="absolute top-full left-1/2 -translate-x-1/2 mt-2.5 w-60 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-30 text-slate-800 animate-in fade-in slide-in-from-top-2 duration-150"
-                    >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={openPronunciationLessonsModal}
-                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-indigo-50 hover:text-indigo-900 transition-colors cursor-pointer"
-                      >
-                        <span className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                          <Mic className="w-4 h-4" />
-                        </span>
-                        <span className="flex-1">{t('nav_pronunciation_training', 'تدريب النطق')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={openMatchingLessonsModal}
-                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-purple-50 hover:text-purple-900 transition-colors cursor-pointer"
-                      >
-                        <span className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
-                          <Link2 className="w-4 h-4" />
-                        </span>
-                        <span className="flex-1">{t('nav_matching_exercises', 'تمارين الوصل')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={openDictationLessonsModal}
-                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-teal-50 hover:text-teal-900 transition-colors cursor-pointer"
-                      >
-                        <span className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center shrink-0">
-                          <PenTool className="w-4 h-4" />
-                        </span>
-                        <span className="flex-1">{t('nav_dictation_exercise', 'تمرين الإملاء')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={openWritingExercise}
-                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-amber-50 hover:text-amber-900 transition-colors cursor-pointer"
-                      >
-                        <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                          <Pencil className="w-4 h-4" />
-                        </span>
-                        <span className="flex-1">{t('nav_writing_exercise', 'تمرين الكتابة')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={openCatchLessonsModal}
-                        className="w-full px-4 py-3 text-right flex items-center gap-3 text-sm font-bold text-slate-800 hover:bg-sky-50 hover:text-sky-900 transition-colors cursor-pointer"
-                      >
-                        <span className="w-8 h-8 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0">
-                          <Target className="w-4 h-4" />
-                        </span>
-                        <span className="flex-1">{t('nav_catch_exercise', 'تحدي الصيد (AR)')}</span>
-                      </button>
-                    </div>
-                  )}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={openVideoLessonsModal}
-                    className="flex items-center justify-center gap-2.5 px-7 py-4 bg-slate-900/90 hover:bg-slate-800 text-white border border-white/25 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl cursor-pointer hover:scale-105 active:scale-95"
-                  >
-                    <Film className="w-5 h-5 text-emerald-400" />
-                    <span>{t('nav_video_btn', 'فيديو')}</span>
-                  </button>
-
-                  {courseSchedule.days.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        closeAllLessonModals();
-                        setIsScheduleModalOpen(true);
-                      }}
-                      className="relative flex items-center justify-center gap-2.5 px-7 py-4 bg-teal-600/95 hover:bg-teal-500 text-white border border-teal-300/35 font-extrabold rounded-2xl text-base sm:text-lg transition-all shadow-xl cursor-pointer hover:scale-105 active:scale-95"
-                    >
-                      <Calendar className="w-5 h-5 text-teal-100" />
-                      <span>{t('nav_schedule_btn', 'جدول الدروس')}</span>
-                      {hasTodayScheduleLesson && (
-                        <span className="w-2.5 h-2.5 rounded-full bg-amber-300 animate-ping" />
-                      )}
-                    </button>
-                  )}
-                </div>
               </div>
             </div>
 
@@ -3830,10 +3779,16 @@ export default function App() {
         onOpenScheduledLesson={handleOpenScheduledLesson}
       />
 
-      {/* Student Login & Registration Verification Modal */}
+      {/* Student Login & Registration Verification Modal (Mandatory when not logged in) */}
       <StudentLoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
+        isOpen={isLoginModalOpen || (!currentStudent && !isAdminView && !showAdminLoginModal)}
+        isMandatory={!currentStudent}
+        initialName={loginModalPrefill.name}
+        initialId={loginModalPrefill.id}
+        initialError={loginModalPrefill.error}
+        onClose={() => {
+          if (currentStudent) setIsLoginModalOpen(false);
+        }}
         onLoginSuccess={handleLoginSuccess}
         webhookUrl={sheetsConfig.webhookUrl}
         t={t}

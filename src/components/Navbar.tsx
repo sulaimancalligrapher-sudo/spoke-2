@@ -56,6 +56,9 @@ interface NavbarProps {
   hasTodayScheduleLesson?: boolean;
   currentMode?: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video';
   onSelectMode?: (mode: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video') => void;
+  showLessonsBtn?: boolean;
+  showVideoBtn?: boolean;
+  showScheduleBtn?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -90,6 +93,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   hasTodayScheduleLesson,
   currentMode = 'pronunciation',
   onSelectMode,
+  showLessonsBtn = false,
+  showVideoBtn = false,
+  showScheduleBtn = true,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [lessonsMenuOpen, setLessonsMenuOpen] = useState(false);
@@ -197,7 +203,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Unified Lessons Dropdown Button (دروس) */}
-          {(onOpenLessons || onOpenMatchingLessons || onOpenDictationLessons || onOpenWriting || onOpenCatchLessons) && (
+          {showLessonsBtn && (onOpenLessons || onOpenMatchingLessons || onOpenDictationLessons || onOpenWriting || onOpenCatchLessons) && (
             <div ref={lessonsMenuRef} className="relative flex-1 sm:flex-none">
               <button
                 type="button"
@@ -330,7 +336,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Standalone Interactive Video Button (فيديو) beside Lessons dropdown */}
-          {onOpenVideoLessons && (
+          {showVideoBtn && onOpenVideoLessons && (
             <button
               type="button"
               onClick={() => {
@@ -350,7 +356,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Course Daily Schedule Button (جدول الدروس) */}
-          {onOpenCourseSchedule && hasCourseSchedule && (
+          {showScheduleBtn && onOpenCourseSchedule && hasCourseSchedule && (
             <button
               type="button"
               onClick={() => {
