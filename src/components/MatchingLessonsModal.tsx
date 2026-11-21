@@ -35,6 +35,7 @@ interface MatchingLessonsModalProps {
   currentStudent?: StudentRegistrant | null;
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
+  isScheduleRestricted?: boolean;
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -50,6 +51,7 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
   currentStudent,
   currentLang = 'ar',
   translations = [],
+  isScheduleRestricted = false,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -359,6 +361,18 @@ export const MatchingLessonsModal: React.FC<MatchingLessonsModalProps> = ({
                   {tr(
                     'matching_all_completed_hint',
                     'أتممت جميع تمارين هذا الموضوع! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.'
+                  )}
+                </p>
+              </div>
+            </div>
+          ) : isScheduleRestricted && subjects.length === 0 ? (
+            <div className="text-center py-10 px-4">
+              <div className="inline-flex flex-col items-center gap-2 max-w-md mx-auto p-4 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900">
+                <Lock className="w-6 h-6 text-amber-600" />
+                <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                  {tr(
+                    'schedule_no_unlocked_lessons_desc',
+                    'لا توجد دروس مفتوحة حالياً في هذا القسم — تفتح الدروس تلقائياً حسب جدول الدورة اليومي'
                   )}
                 </p>
               </div>

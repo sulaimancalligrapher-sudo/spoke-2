@@ -59,6 +59,7 @@ import {
   checkInAttendance,
   fetchAttendanceRecordsFromSheets,
   fetchCourseScheduleFromSheets,
+  filterLessonsBySchedule,
   formatScheduleDateLabel,
   getLocalAttendanceRecords,
   getLocalCourseSchedule,
@@ -1714,12 +1715,146 @@ export default function App() {
     }
   };
 
+  // Distinct subjects (full unfiltered list for Admin & CourseScheduleModal)
+  const allSubjects = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...subjects,
+          ...curriculum.map((c) => c.lessonSubject || 'دروس عامة'),
+        ])
+      ),
+    [subjects, curriculum]
+  );
+
+  // Strict-Hide schedule-filtered lessons across all 6 exercise types for students
+  const scheduleFiltered = useMemo(
+    () =>
+      filterLessonsBySchedule({
+        schedule: courseSchedule,
+        isAdminAuthenticated,
+        curriculum,
+        subjects: allSubjects,
+        matchingSubjects,
+        dictationSubjects,
+        writingTemplates,
+        catchSubjects,
+        videoLessons,
+      }),
+    [
+      courseSchedule,
+      isAdminAuthenticated,
+      curriculum,
+      allSubjects,
+      matchingSubjects,
+      dictationSubjects,
+      writingTemplates,
+      catchSubjects,
+      videoLessons,
+    ]
+  );
+
+  const visibleCurriculum = scheduleFiltered.curriculum;
+  const visibleSubjects = scheduleFiltered.subjects;
+  const visibleMatchingSubjects = scheduleFiltered.matchingSubjects;
+  const visibleDictationSubjects = scheduleFiltered.dictationSubjects;
+  const visibleWritingTemplates = scheduleFiltered.writingTemplates;
+  const visibleCatchSubjects = scheduleFiltered.catchSubjects;
+  const visibleVideoLessons = scheduleFiltered.videoLessons;
+
+  const resolvedPronunciationSubject = useMemo(() => {
+    if (visibleSubjects.length === 0) return '';
+    return visibleSubjects.includes(studentSubject)
+      ? studentSubject
+      : visibleSubjects[0];
+  }, [visibleSubjects, studentSubject]);
+
+  // Words currently available under the student's selected (unlocked) subject
+  const currentSubjectWords = useMemo(
+    () =>
+      visibleCurriculum.filter(
+        (item) =>
+          !resolvedPronunciationSubject ||
+          (item.lessonSubject || 'دروس عامة') === resolvedPronunciationSubject
+      ),
+    [visibleCurriculum, resolvedPronunciationSubject]
+  );
+  const activeSubjectWords =
+    currentSubjectWords.length > 0 ? currentSubjectWords : visibleCurriculum;
+
+  const activeSelectedItem: WordItem | null = useMemo(() => {
+    if (activeSubjectWords.length === 0) return null;
+    return (
+      activeSubjectWords.find((item) => item.id === selectedItem.id) ||
+      activeSubjectWords[0]
+    );
+  }, [activeSubjectWords, selectedItem]);
+
+  const currentIndex = activeSelectedItem
+    ? activeSubjectWords.findIndex((item) => item.id === activeSelectedItem.id)
+    : -1;
+
+  const resolvedMatchingSubject = useMemo(
+    () =>
+      visibleMatchingSubjects.find((s) => s.id === activeMatchingSubjectId) ||
+      visibleMatchingSubjects[0] ||
+      null,
+    [visibleMatchingSubjects, activeMatchingSubjectId]
+  );
+  const resolvedMatchingSubjectId = resolvedMatchingSubject?.id || '';
+  const resolvedMatchingExerciseIdx =
+    resolvedMatchingSubject && resolvedMatchingSubject.id === activeMatchingSubjectId
+      ? activeMatchingExerciseIdx
+      : 0;
+
+  const resolvedDictationSubject = useMemo(
+    () =>
+      visibleDictationSubjects.find((s) => s.id === activeDictationSubjectId) ||
+      visibleDictationSubjects[0] ||
+      null,
+    [visibleDictationSubjects, activeDictationSubjectId]
+  );
+  const resolvedDictationSubjectId = resolvedDictationSubject?.id || '';
+  const resolvedDictationExerciseIdx =
+    resolvedDictationSubject && resolvedDictationSubject.id === activeDictationSubjectId
+      ? activeDictationExerciseIdx
+      : 0;
+
+  const resolvedCatchSubject = useMemo(
+    () =>
+      visibleCatchSubjects.find((s) => s.id === activeCatchSubjectId) ||
+      visibleCatchSubjects[0] ||
+      null,
+    [visibleCatchSubjects, activeCatchSubjectId]
+  );
+  const resolvedCatchSubjectId = resolvedCatchSubject?.id || '';
+  const resolvedCatchExerciseIdx =
+    resolvedCatchSubject && resolvedCatchSubject.id === activeCatchSubjectId
+      ? activeCatchExerciseIdx
+      : 0;
+
+  const activeSelectedWritingTemplate: DrawingTemplate | null = useMemo(() => {
+    if (!selectedWritingTemplate) return null;
+    return (
+      visibleWritingTemplates.find((t) => t.id === selectedWritingTemplate.id) ||
+      null
+    );
+  }, [selectedWritingTemplate, visibleWritingTemplates]);
+
+  const resolvedVideoLessonId = useMemo(() => {
+    if (visibleVideoLessons.some((l) => l.id === activeVideoLessonId)) {
+      return activeVideoLessonId;
+    }
+    return visibleVideoLessons[0]?.id || '';
+  }, [visibleVideoLessons, activeVideoLessonId]);
+
   // Evaluation completed
   const handleEvaluationComplete = async (
     evalResult: PronunciationEvaluation,
     audioUrl?: string,
     studentName?: string
   ) => {
+    const targetWordItem = activeSelectedItem || selectedItem;
     setEvaluation(evalResult);
     if (audioUrl) setRecordedAudioUrl(audioUrl);
 
@@ -1735,8 +1870,8 @@ export default function App() {
     // Save to history
     saveHistoryItem({
       id: `history-${Date.now()}`,
-      wordId: selectedItem.id,
-      word: selectedItem.word,
+      wordId: targetWordItem.id,
+      word: targetWordItem.word,
       score: evalResult.score,
       grade: evalResult.grade,
       timestamp: Date.now(),
@@ -1750,7 +1885,7 @@ export default function App() {
     const submissionRecord: StudentSubmissionRecord = {
       id: `sub-${Date.now()}`,
       studentName: currentStudentName,
-      word: selectedItem.word,
+      word: targetWordItem.word,
       score: evalResult.score,
       grade: evalResult.grade,
       detectedWord: evalResult.detectedWord,
@@ -1788,22 +1923,6 @@ export default function App() {
     });
     return map;
   }, [currentStudent, studentHistory]);
-
-  // Distinct subjects
-  const allSubjects = Array.from(
-    new Set([
-      ...subjects,
-      ...curriculum.map((c) => c.lessonSubject || 'دروس عامة'),
-    ])
-  );
-
-  // Words currently available under the student's selected subject
-  const currentSubjectWords = curriculum.filter(
-    (item) => !studentSubject || item.lessonSubject === studentSubject
-  );
-  const activeSubjectWords = currentSubjectWords.length > 0 ? currentSubjectWords : curriculum;
-
-  const currentIndex = activeSubjectWords.findIndex((item) => item.id === selectedItem.id);
 
   const handleSelectWord = (item: WordItem, isRetry = false) => {
     setSelectedItem(item);
@@ -1855,8 +1974,8 @@ export default function App() {
 
     if (ref.exerciseType === 'pronunciation') {
       const targetWord =
-        curriculum.find((w) => (w.lessonSubject || '').trim() === cleanTopic) ||
-        curriculum[0];
+        visibleCurriculum.find((w) => (w.lessonSubject || '').trim() === cleanTopic) ||
+        visibleCurriculum[0];
       if (targetWord) {
         setStudentSubject(cleanTopic || targetWord.lessonSubject || '');
         handleSelectWord(targetWord, false);
@@ -1868,8 +1987,8 @@ export default function App() {
 
     if (ref.exerciseType === 'matching') {
       const subj =
-        matchingSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
-        matchingSubjects[0];
+        visibleMatchingSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
+        visibleMatchingSubjects[0];
       if (subj) {
         setActiveMatchingSubjectId(subj.id);
         setActiveMatchingExerciseIdx(0);
@@ -1881,8 +2000,8 @@ export default function App() {
 
     if (ref.exerciseType === 'dictation') {
       const subj =
-        dictationSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
-        dictationSubjects[0];
+        visibleDictationSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
+        visibleDictationSubjects[0];
       if (subj) {
         setActiveDictationSubjectId(subj.id);
         setActiveDictationExerciseIdx(0);
@@ -1894,9 +2013,9 @@ export default function App() {
 
     if (ref.exerciseType === 'writing') {
       const tpl =
-        writingTemplates.find(
+        visibleWritingTemplates.find(
           (t) => (t.topic || 'خط النسخ (الأساسيات)').trim() === cleanTopic
-        ) || writingTemplates[0] || null;
+        ) || visibleWritingTemplates[0] || null;
       setSelectedWritingTemplate(tpl);
       setAppMode('writing');
       setCurrentView('practice');
@@ -1905,8 +2024,8 @@ export default function App() {
 
     if (ref.exerciseType === 'catch') {
       const subj =
-        catchSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
-        catchSubjects[0];
+        visibleCatchSubjects.find((s) => (s.subjectName || '').trim() === cleanTopic) ||
+        visibleCatchSubjects[0];
       if (subj) {
         setActiveCatchSubjectId(subj.id);
         setActiveCatchExerciseIdx(0);
@@ -1918,13 +2037,13 @@ export default function App() {
 
     if (ref.exerciseType === 'video') {
       const vLesson =
-        (ref.lessonId && videoLessons.find((v) => v.id === ref.lessonId)) ||
-        videoLessons.find(
+        (ref.lessonId && visibleVideoLessons.find((v) => v.id === ref.lessonId)) ||
+        visibleVideoLessons.find(
           (v) =>
             (v.title || '').trim() === cleanTopic ||
             (v.topic || '').trim() === cleanTopic
         ) ||
-        videoLessons[0];
+        visibleVideoLessons[0];
       if (vLesson) {
         setActiveVideoLessonId(vLesson.id);
         setIsVideoResetMode(false);
@@ -2046,7 +2165,9 @@ export default function App() {
   };
 
   const handleNextWord = () => {
-    const nextIdx = (currentIndex + 1) % activeSubjectWords.length;
+    if (activeSubjectWords.length === 0) return;
+    const baseIdx = currentIndex >= 0 ? currentIndex : 0;
+    const nextIdx = (baseIdx + 1) % activeSubjectWords.length;
     setSelectedItem(activeSubjectWords[nextIdx]);
     setEvaluation(null);
     setRecordedAudioUrl(null);
@@ -2054,7 +2175,9 @@ export default function App() {
   };
 
   const handlePrevWord = () => {
-    const prevIdx = (currentIndex - 1 + activeSubjectWords.length) % activeSubjectWords.length;
+    if (activeSubjectWords.length === 0) return;
+    const baseIdx = currentIndex >= 0 ? currentIndex : 0;
+    const prevIdx = (baseIdx - 1 + activeSubjectWords.length) % activeSubjectWords.length;
     setSelectedItem(activeSubjectWords[prevIdx]);
     setEvaluation(null);
     setRecordedAudioUrl(null);
@@ -2735,15 +2858,12 @@ export default function App() {
              ======================================================== */
           <div className="flex flex-col gap-6 animate-in fade-in duration-300">
             {(() => {
-              const resolvedSubject =
-                matchingSubjects.find((s) => s.id === activeMatchingSubjectId) ||
-                matchingSubjects[0] ||
-                null;
-              const resolvedSubjectId = resolvedSubject?.id || '';
+              const resolvedSubject = resolvedMatchingSubject;
+              const resolvedSubjectId = resolvedMatchingSubjectId;
               const totalExercises = resolvedSubject?.exercises.length || 0;
               const safeExIdx =
                 totalExercises > 0
-                  ? Math.min(Math.max(0, activeMatchingExerciseIdx), totalExercises - 1)
+                  ? Math.min(Math.max(0, resolvedMatchingExerciseIdx), totalExercises - 1)
                   : 0;
               const activeExNumber =
                 resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
@@ -2794,7 +2914,7 @@ export default function App() {
                           }}
                           className="bg-transparent font-bold text-purple-950 focus:outline-hidden cursor-pointer max-w-[170px] truncate"
                         >
-                          {matchingSubjects.map((subj) => (
+                          {visibleMatchingSubjects.map((subj) => (
                             <option key={subj.id} value={subj.id}>
                               {getTranslatedMatchingSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
                             </option>
@@ -2844,14 +2964,14 @@ export default function App() {
             })()}
 
             <WordMatchingArena
-              subjects={matchingSubjects}
+              subjects={visibleMatchingSubjects}
               currentStudent={currentStudent}
               webhookUrl={sheetsConfig.webhookUrl}
               currentLang={currentLang}
               translations={translations}
               t={t}
-              activeSubjectId={activeMatchingSubjectId || matchingSubjects[0]?.id}
-              activeExerciseIndex={activeMatchingExerciseIdx}
+              activeSubjectId={resolvedMatchingSubjectId}
+              activeExerciseIndex={resolvedMatchingExerciseIdx}
               onSelectSubjectExercise={(sId, exIdx) => {
                 setActiveMatchingSubjectId(sId);
                 setActiveMatchingExerciseIdx(exIdx);
@@ -2911,15 +3031,12 @@ export default function App() {
              ======================================================== */
           <div className="flex flex-col gap-6 animate-in fade-in duration-300">
             {(() => {
-              const resolvedSubject =
-                dictationSubjects.find((s) => s.id === activeDictationSubjectId) ||
-                dictationSubjects[0] ||
-                null;
-              const resolvedSubjectId = resolvedSubject?.id || '';
+              const resolvedSubject = resolvedDictationSubject;
+              const resolvedSubjectId = resolvedDictationSubjectId;
               const totalExercises = resolvedSubject?.exercises.length || 0;
               const safeExIdx =
                 totalExercises > 0
-                  ? Math.min(Math.max(0, activeDictationExerciseIdx), totalExercises - 1)
+                  ? Math.min(Math.max(0, resolvedDictationExerciseIdx), totalExercises - 1)
                   : 0;
               const activeExNumber =
                 resolvedSubject?.exercises[safeExIdx]?.exerciseNumber || safeExIdx + 1;
@@ -2957,7 +3074,7 @@ export default function App() {
                           }}
                           className="bg-transparent font-bold text-teal-950 focus:outline-hidden cursor-pointer max-w-[190px] truncate"
                         >
-                          {dictationSubjects.map((subj) => (
+                          {visibleDictationSubjects.map((subj) => (
                             <option key={subj.id} value={subj.id}>
                               {getTranslatedDictationSubject(subj.subjectName, currentLang, translations)} ({subj.exercises.length})
                             </option>
@@ -3007,14 +3124,14 @@ export default function App() {
             })()}
 
             <DictationArena
-              subjects={dictationSubjects}
+              subjects={visibleDictationSubjects}
               currentStudent={currentStudent}
               webhookUrl={sheetsConfig.webhookUrl}
               currentLang={currentLang}
               translations={translations}
               t={t}
-              activeSubjectId={activeDictationSubjectId || dictationSubjects[0]?.id}
-              activeExerciseIndex={activeDictationExerciseIdx}
+              activeSubjectId={resolvedDictationSubjectId}
+              activeExerciseIndex={resolvedDictationExerciseIdx}
               onSelectSubjectExercise={(sId, exIdx) => {
                 setActiveDictationSubjectId(sId);
                 setActiveDictationExerciseIdx(exIdx);
@@ -3073,12 +3190,19 @@ export default function App() {
              ======================================================== */
           <div className="w-full animate-in fade-in duration-300">
             <WritingArena
-              allTemplates={writingTemplates}
+              allTemplates={visibleWritingTemplates}
+              isScheduleRestricted={scheduleFiltered.enforceStrictHide}
               onUpdateTemplates={(updated) => {
-                setWritingTemplates(updated);
-                writingSheetService.saveLocalTemplates(updated);
+                const visibleIds = new Set(visibleWritingTemplates.map((t) => t.id));
+                const updatedIds = new Set(updated.map((t) => t.id));
+                const hiddenTemplates = writingTemplates.filter(
+                  (t) => !visibleIds.has(t.id) && !updatedIds.has(t.id)
+                );
+                const merged = [...updated, ...hiddenTemplates];
+                setWritingTemplates(merged);
+                writingSheetService.saveLocalTemplates(merged);
               }}
-              selectedTemplate={selectedWritingTemplate}
+              selectedTemplate={activeSelectedWritingTemplate}
               onSelectTemplate={setSelectedWritingTemplate}
               boardStyle={writingBoardStyle}
               onSelectBoardStyle={setWritingBoardStyle}
@@ -3179,14 +3303,14 @@ export default function App() {
              ======================================================== */
           <div className="w-full animate-in fade-in duration-300">
             <CatchArena
-              subjects={catchSubjects}
+              subjects={visibleCatchSubjects}
               currentStudent={currentStudent}
               webhookUrl={sheetsConfig.webhookUrl}
               currentLang={currentLang}
               translations={translations}
               t={t}
-              activeSubjectId={activeCatchSubjectId || catchSubjects[0]?.id}
-              activeExerciseIndex={activeCatchExerciseIdx}
+              activeSubjectId={resolvedCatchSubjectId}
+              activeExerciseIndex={resolvedCatchExerciseIdx}
               onSelectSubjectExercise={(sId, exIdx) => {
                 setActiveCatchSubjectId(sId);
                 setActiveCatchExerciseIdx(exIdx);
@@ -3252,8 +3376,8 @@ export default function App() {
              ======================================================== */
           <div className="w-full animate-in fade-in duration-300">
             <InteractiveVideoArena
-              lessons={videoLessons}
-              activeLessonId={activeVideoLessonId || videoLessons[0]?.id || ''}
+              lessons={visibleVideoLessons}
+              activeLessonId={resolvedVideoLessonId}
               progressMap={videoProgressMap}
               isResetMode={isVideoResetMode}
               currentStudent={currentStudent}
@@ -3273,6 +3397,69 @@ export default function App() {
               }}
               onRefreshVideo={refreshAllVideoData}
             />
+          </div>
+        ) : !activeSelectedItem ? (
+          /* ========================================================
+             2A. STRICT HIDE EMPTY STATE FOR PRONUNCIATION ARENA
+             ======================================================== */
+          <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentView('landing')}
+                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer shadow-2xs"
+                  title={currentLang === 'ar' ? 'الصفحة الرئيسية' : currentLang === 'th' ? 'หน้าหลัก' : 'Home'}
+                >
+                  <Home className="w-4 h-4 text-slate-700" />
+                </button>
+
+                <button
+                  onClick={openPronunciationLessonsModal}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                  title={t('eval_open_lessons_btn', 'فتح الدروس')}
+                >
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>({t('eval_open_lessons_btn', 'فتح الدروس')})</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center max-w-lg mx-auto my-6 shadow-sm space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto">
+                <Calendar className="w-7 h-7" />
+              </div>
+              <h3 className="text-lg font-extrabold text-slate-900">
+                {t('schedule_no_unlocked_pronunciation_title', 'لا توجد دروس نطق مفتوحة حالياً')}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
+                {t(
+                  'schedule_no_unlocked_lessons_desc',
+                  'لا توجد دروس مفتوحة حالياً في هذا القسم — تفتح الدروس تلقائياً حسب جدول الدورة اليومي.'
+                )}
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                {courseSchedule.days.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeAllLessonModals();
+                      setIsScheduleModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    <span>{t('attendance_view_schedule', 'عرض الجدول')}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('landing')}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  {currentLang === 'ar' ? 'العودة للرئيسية' : 'Home'}
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           /* ========================================================
@@ -3306,21 +3493,21 @@ export default function App() {
                   <span className="text-emerald-700 font-normal">
                     {currentLang === 'ar' ? 'الموضوع:' : currentLang === 'th' ? 'หัวข้อ:' : 'Subject:'}
                   </span>
-                  <span>{selectedItem.lessonSubject || studentSubject}</span>
+                  <span>{activeSelectedItem.lessonSubject || resolvedPronunciationSubject}</span>
                 </span>
-                {selectedItem.category && (
+                {activeSelectedItem.category && (
                   <span className="px-2.5 py-1 rounded-xl bg-sky-50 text-sky-900 font-bold border border-sky-200/80 flex items-center gap-1">
                     <span className="text-sky-700 font-normal">
                       {currentLang === 'ar' ? 'الفئة:' : currentLang === 'th' ? 'หมวดหมู่:' : 'Category:'}
                     </span>
                     <span>
-                      {selectedItem.category === 'الحرف'
+                      {activeSelectedItem.category === 'الحرف'
                         ? t('category_letter', 'الحرف')
-                        : selectedItem.category === 'الكلمة'
+                        : activeSelectedItem.category === 'الكلمة'
                         ? t('category_word', 'الكلمة')
-                        : selectedItem.category === 'الجملة'
+                        : activeSelectedItem.category === 'الجملة'
                         ? t('category_sentence', 'الجملة')
-                        : selectedItem.category}
+                        : activeSelectedItem.category}
                     </span>
                   </span>
                 )}
@@ -3340,7 +3527,7 @@ export default function App() {
             <div className="max-w-2xl mx-auto w-full flex flex-col gap-6">
               {/* Practice Card */}
               <PracticeCard
-                wordItem={selectedItem}
+                wordItem={activeSelectedItem}
                 settings={settings}
                 currentStudent={currentStudent}
                 onEvaluationComplete={handleEvaluationComplete}
@@ -3361,12 +3548,12 @@ export default function App() {
                 webhookUrl={sheetsConfig.webhookUrl}
                 recordedHistoryItem={(() => {
                   if (!currentStudent || !studentHistory.length) return null;
-                  const cleanSel = selectedItem.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
+                  const cleanSel = activeSelectedItem.word.replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
                   return (
                     studentHistory.find((h) => {
-                      if (h.wordId && h.wordId === selectedItem.id) return true;
+                      if (h.wordId && h.wordId === activeSelectedItem.id) return true;
                       const hClean = (h.word || '').replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '').trim();
-                      return h.word === selectedItem.word || hClean === cleanSel;
+                      return h.word === activeSelectedItem.word || hClean === cleanSel;
                     }) || null
                   );
                 })()}
@@ -3379,18 +3566,18 @@ export default function App() {
               {evaluation && (
                 <EvaluationCard
                   evaluation={evaluation}
-                  targetWordItem={selectedItem}
+                  targetWordItem={activeSelectedItem}
                   recordedAudioUrl={recordedAudioUrl}
                   onRetry={() => {
                     if (isCurrentAnswerSubmitted) {
-                      const wordKey = `${(selectedItem.lessonSubject || studentSubject || '').trim()}::${selectedItem.word.trim()}`;
-                      const status = getRetryStatus('pronunciation', currentStudent, wordKey, selectedItem);
+                      const wordKey = `${(activeSelectedItem.lessonSubject || resolvedPronunciationSubject || '').trim()}::${activeSelectedItem.word.trim()}`;
+                      const status = getRetryStatus('pronunciation', currentStudent, wordKey, activeSelectedItem);
                       if (!status.canRetry) return;
                       const outcome = recordStudentRetryAttempt(
                         'pronunciation',
                         currentStudent,
                         wordKey,
-                        selectedItem,
+                        activeSelectedItem,
                         sheetsConfig.webhookUrl
                       );
                       const nextNonce = pronunciationRetryNonce + 1;
@@ -3413,7 +3600,7 @@ export default function App() {
                   webhookUrl={sheetsConfig.webhookUrl}
                   driveFolderId={sheetsConfig.teacherDriveFolderId || sheetsConfig.driveFolderId}
                   studentDriveFolderId={sheetsConfig.studentDriveFolderId || STUDENT_AUDIO_DRIVE_FOLDER_ID}
-                  lessonSubject={selectedItem.lessonSubject || studentSubject}
+                  lessonSubject={activeSelectedItem.lessonSubject || resolvedPronunciationSubject}
                   wordIndex={currentIndex}
                   onRequestLogin={() => setIsLoginModalOpen(true)}
                   onSubmissionSuccess={(submitted) => {
@@ -3550,14 +3737,15 @@ export default function App() {
       <LessonsModal
         isOpen={isLessonsModalOpen}
         onClose={() => setIsLessonsModalOpen(false)}
-        curriculum={curriculum}
-        selectedItem={selectedItem}
+        curriculum={visibleCurriculum}
+        selectedItem={activeSelectedItem || selectedItem}
         onSelectItem={handleSelectWord}
-        subjectsList={allSubjects}
-        selectedSubject={studentSubject}
+        subjectsList={visibleSubjects}
+        selectedSubject={resolvedPronunciationSubject}
         onSelectSubject={setStudentSubject}
         scoresMap={studentScoresMap}
         currentStudent={currentStudent}
+        isScheduleRestricted={scheduleFiltered.enforceStrictHide}
         t={t}
       />
 
@@ -3565,14 +3753,14 @@ export default function App() {
       <MatchingLessonsModal
         isOpen={isMatchingLessonsModalOpen}
         onClose={() => setIsMatchingLessonsModalOpen(false)}
-        subjects={matchingSubjects}
-        activeSubjectId={activeMatchingSubjectId || matchingSubjects[0]?.id}
-        activeExerciseIndex={activeMatchingExerciseIdx}
+        subjects={visibleMatchingSubjects}
+        activeSubjectId={resolvedMatchingSubjectId}
+        activeExerciseIndex={resolvedMatchingExerciseIdx}
         onSelectSubjectExercise={(subjId, exIdx, isRetry) => {
           setActiveMatchingSubjectId(subjId);
           setActiveMatchingExerciseIdx(exIdx);
           if (isRetry) {
-            const subj = matchingSubjects.find((s) => s.id === subjId);
+            const subj = visibleMatchingSubjects.find((s) => s.id === subjId);
             const ex = subj?.exercises[exIdx];
             if (subj && ex) {
               const rKey = `${subj.subjectName.trim()}::ex-${ex.exerciseNumber}`;
@@ -3606,6 +3794,7 @@ export default function App() {
         }}
         matchingHistory={matchingHistory}
         currentStudent={currentStudent}
+        isScheduleRestricted={scheduleFiltered.enforceStrictHide}
         currentLang={currentLang}
         translations={translations}
         t={t}
@@ -3615,14 +3804,14 @@ export default function App() {
       <DictationLessonsModal
         isOpen={isDictationLessonsModalOpen}
         onClose={() => setIsDictationLessonsModalOpen(false)}
-        subjects={dictationSubjects}
-        activeSubjectId={activeDictationSubjectId || dictationSubjects[0]?.id}
-        activeExerciseIndex={activeDictationExerciseIdx}
+        subjects={visibleDictationSubjects}
+        activeSubjectId={resolvedDictationSubjectId}
+        activeExerciseIndex={resolvedDictationExerciseIdx}
         onSelectSubjectExercise={(subjId, exIdx, isRetry) => {
           setActiveDictationSubjectId(subjId);
           setActiveDictationExerciseIdx(exIdx);
           if (isRetry) {
-            const subj = dictationSubjects.find((s) => s.id === subjId);
+            const subj = visibleDictationSubjects.find((s) => s.id === subjId);
             const ex = subj?.exercises[exIdx];
             if (subj && ex) {
               const rKey = `${subj.subjectName.trim()}::ex-${ex.exerciseNumber}`;
@@ -3656,6 +3845,7 @@ export default function App() {
         }}
         dictationHistory={dictationHistory}
         currentStudent={currentStudent}
+        isScheduleRestricted={scheduleFiltered.enforceStrictHide}
         currentLang={currentLang}
         translations={translations}
         t={t}
@@ -3665,14 +3855,14 @@ export default function App() {
       <CatchLessonsModal
         isOpen={isCatchLessonsModalOpen}
         onClose={() => setIsCatchLessonsModalOpen(false)}
-        subjects={catchSubjects}
-        activeSubjectId={activeCatchSubjectId || catchSubjects[0]?.id}
-        activeExerciseIndex={activeCatchExerciseIdx}
+        subjects={visibleCatchSubjects}
+        activeSubjectId={resolvedCatchSubjectId}
+        activeExerciseIndex={resolvedCatchExerciseIdx}
         onSelectSubjectExercise={(subjId, exIdx, isRetry) => {
           setActiveCatchSubjectId(subjId);
           setActiveCatchExerciseIdx(exIdx);
           if (isRetry) {
-            const subj = catchSubjects.find((s) => s.id === subjId);
+            const subj = visibleCatchSubjects.find((s) => s.id === subjId);
             const ex = subj?.exercises[exIdx];
             if (subj && ex) {
               const rKey = `${subj.subjectName.trim()}::ex-${ex.exerciseNumber}`;
@@ -3706,6 +3896,7 @@ export default function App() {
         }}
         catchHistory={catchHistory}
         currentStudent={currentStudent}
+        isScheduleRestricted={scheduleFiltered.enforceStrictHide}
         currentLang={currentLang}
         translations={translations}
         t={t}
@@ -3715,8 +3906,8 @@ export default function App() {
       <VideoLessonsModal
         isOpen={isVideoLessonsModalOpen}
         onClose={() => setIsVideoLessonsModalOpen(false)}
-        lessons={videoLessons}
-        activeLessonId={activeVideoLessonId || videoLessons[0]?.id || ''}
+        lessons={visibleVideoLessons}
+        activeLessonId={resolvedVideoLessonId}
         progressMap={videoProgressMap}
         currentStudent={currentStudent}
         webhookUrl={sheetsConfig.webhookUrl}
@@ -3735,6 +3926,7 @@ export default function App() {
         onUpdateProgress={(lessonId, nextProg) => {
           setVideoProgressMap((prev) => ({ ...prev, [lessonId]: nextProg }));
         }}
+        isScheduleRestricted={scheduleFiltered.enforceStrictHide}
         t={t}
         currentLang={currentLang}
       />
@@ -3745,11 +3937,11 @@ export default function App() {
         webhookUrl={sheetsConfig.webhookUrl}
         studentId={currentStudent?.id || ''}
         studentName={currentStudent?.name || ''}
-        lessons={videoLessons}
+        lessons={visibleVideoLessons}
         progressMap={videoProgressMap}
         selectedLessonTitle={
           appMode === 'video'
-            ? videoLessons.find((l) => l.id === activeVideoLessonId)?.title
+            ? visibleVideoLessons.find((l) => l.id === resolvedVideoLessonId)?.title
             : undefined
         }
         onRefreshProgress={refreshAllVideoData}

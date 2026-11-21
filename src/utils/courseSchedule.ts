@@ -790,6 +790,205 @@ export function evaluateScheduledLessonStatus(
 }
 
 // =========================================================================
+// دوال التصفية الصارمة لقائمة الدروس حسب الجدول والتاريخ (أسلوب الإخفاء التام)
+// =========================================================================
+
+export interface UnlockedScheduleIndex {
+  enforceStrictHide: boolean;
+  pronunciationTopics: Set<string>;
+  matchingTopics: Set<string>;
+  dictationTopics: Set<string>;
+  writingTopics: Set<string>;
+  catchTopics: Set<string>;
+  videoLessonIds: Set<string>;
+  videoFallbackTitles: Set<string>;
+}
+
+/**
+ * Builds an index of lessons unlocked up to today (date <= todayISO).
+ * Future lessons (date > todayISO) and unscheduled lessons are excluded when Strict Hide is active.
+ * Strict Hide is active ONLY when:
+ *   schedule.days.length > 0 && schedule.settings.lockFutureDays !== false && !isAdminAuthenticated
+ */
+export function getUnlockedScheduleIndex(
+  schedule: CourseScheduleData,
+  isAdminAuthenticated: boolean,
+  targetDateISO?: string
+): UnlockedScheduleIndex {
+  const enforceStrictHide = Boolean(
+    schedule &&
+      Array.isArray(schedule.days) &&
+      schedule.days.length > 0 &&
+      schedule.settings?.lockFutureDays !== false &&
+      !isAdminAuthenticated
+  );
+
+  const index: UnlockedScheduleIndex = {
+    enforceStrictHide,
+    pronunciationTopics: new Set<string>(),
+    matchingTopics: new Set<string>(),
+    dictationTopics: new Set<string>(),
+    writingTopics: new Set<string>(),
+    catchTopics: new Set<string>(),
+    videoLessonIds: new Set<string>(),
+    videoFallbackTitles: new Set<string>(),
+  };
+
+  if (!enforceStrictHide) {
+    return index;
+  }
+
+  const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO();
+  const groupMap = new Map<string, CourseGroup>();
+  for (const grp of schedule.groups || []) {
+    if (grp?.id) groupMap.set(grp.id, grp);
+  }
+
+  for (const day of schedule.days) {
+    if (!day?.date || day.date > todayISO) continue;
+    const gIds = day.groupIds?.length
+      ? day.groupIds
+      : day.groupId
+      ? [day.groupId]
+      : [];
+
+    for (const gid of gIds) {
+      const grp = groupMap.get(gid);
+      if (!grp || !Array.isArray(grp.lessons)) continue;
+
+      for (const ref of grp.lessons) {
+        if (!ref) continue;
+        const cleanTopic = (ref.topicName || '').trim();
+        switch (ref.exerciseType) {
+          case 'pronunciation':
+            if (cleanTopic) index.pronunciationTopics.add(cleanTopic);
+            break;
+          case 'matching':
+            if (cleanTopic) index.matchingTopics.add(cleanTopic);
+            break;
+          case 'dictation':
+            if (cleanTopic) index.dictationTopics.add(cleanTopic);
+            break;
+          case 'writing':
+            if (cleanTopic) index.writingTopics.add(cleanTopic);
+            break;
+          case 'catch':
+            if (cleanTopic) index.catchTopics.add(cleanTopic);
+            break;
+          case 'video': {
+            const cleanId = (ref.lessonId || '').trim();
+            if (cleanId) {
+              index.videoLessonIds.add(cleanId);
+            } else if (cleanTopic) {
+              index.videoFallbackTitles.add(cleanTopic);
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return index;
+}
+
+export interface ScheduleFilteredContent {
+  enforceStrictHide: boolean;
+  unlockedIndex: UnlockedScheduleIndex;
+  curriculum: WordItem[];
+  subjects: string[];
+  matchingSubjects: MatchingLessonSubject[];
+  dictationSubjects: DictationLessonSubject[];
+  writingTemplates: DrawingTemplate[];
+  catchSubjects: CatchLessonSubject[];
+  videoLessons: VideoLesson[];
+}
+
+export function filterLessonsBySchedule(params: {
+  schedule: CourseScheduleData;
+  isAdminAuthenticated: boolean;
+  curriculum: WordItem[];
+  subjects: string[];
+  matchingSubjects: MatchingLessonSubject[];
+  dictationSubjects: DictationLessonSubject[];
+  writingTemplates: DrawingTemplate[];
+  catchSubjects: CatchLessonSubject[];
+  videoLessons: VideoLesson[];
+  targetDateISO?: string;
+}): ScheduleFilteredContent {
+  const unlockedIndex = getUnlockedScheduleIndex(
+    params.schedule,
+    params.isAdminAuthenticated,
+    params.targetDateISO
+  );
+
+  if (!unlockedIndex.enforceStrictHide) {
+    return {
+      enforceStrictHide: false,
+      unlockedIndex,
+      curriculum: params.curriculum,
+      subjects: params.subjects,
+      matchingSubjects: params.matchingSubjects,
+      dictationSubjects: params.dictationSubjects,
+      writingTemplates: params.writingTemplates,
+      catchSubjects: params.catchSubjects,
+      videoLessons: params.videoLessons,
+    };
+  }
+
+  const filteredCurriculum = params.curriculum.filter((w) =>
+    unlockedIndex.pronunciationTopics.has((w.lessonSubject || 'دروس عامة').trim())
+  );
+
+  const unlockedSubjectsSet = new Set(
+    filteredCurriculum.map((w) => (w.lessonSubject || 'دروس عامة').trim())
+  );
+  const filteredSubjects = params.subjects.filter((s) => {
+    const clean = (s || '').trim();
+    return unlockedIndex.pronunciationTopics.has(clean) && unlockedSubjectsSet.has(clean);
+  });
+
+  const filteredMatchingSubjects = params.matchingSubjects.filter((s) =>
+    unlockedIndex.matchingTopics.has((s.subjectName || '').trim())
+  );
+
+  const filteredDictationSubjects = params.dictationSubjects.filter((s) =>
+    unlockedIndex.dictationTopics.has((s.subjectName || '').trim())
+  );
+
+  const filteredWritingTemplates = params.writingTemplates.filter((tpl) =>
+    unlockedIndex.writingTopics.has((tpl.topic || 'خط النسخ (الأساسيات)').trim())
+  );
+
+  const filteredCatchSubjects = params.catchSubjects.filter((s) =>
+    unlockedIndex.catchTopics.has((s.subjectName || '').trim())
+  );
+
+  const filteredVideoLessons = params.videoLessons.filter((v) => {
+    const vId = (v.id || '').trim();
+    if (vId && unlockedIndex.videoLessonIds.has(vId)) return true;
+    const vTitle = (v.title || '').trim();
+    const vTopic = (v.topic || '').trim();
+    return (
+      (vTitle && unlockedIndex.videoFallbackTitles.has(vTitle)) ||
+      (vTopic && unlockedIndex.videoFallbackTitles.has(vTopic))
+    );
+  });
+
+  return {
+    enforceStrictHide: true,
+    unlockedIndex,
+    curriculum: filteredCurriculum,
+    subjects: filteredSubjects,
+    matchingSubjects: filteredMatchingSubjects,
+    dictationSubjects: filteredDictationSubjects,
+    writingTemplates: filteredWritingTemplates,
+    catchSubjects: filteredCatchSubjects,
+    videoLessons: filteredVideoLessons,
+  };
+}
+
+// =========================================================================
 // دوال تأكيد حضور الحصة اليومية وسجل الحضور (سجل_الحضور)
 // =========================================================================
 

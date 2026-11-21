@@ -26,6 +26,7 @@ interface LessonsModalProps {
   onSelectSubject: (subject: string) => void;
   scoresMap: Record<string, number>;
   currentStudent?: StudentRegistrant | null;
+  isScheduleRestricted?: boolean;
   t?: (id: string, fallback?: string) => string;
 }
 
@@ -40,6 +41,7 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
   onSelectSubject,
   scoresMap,
   currentStudent,
+  isScheduleRestricted = false,
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
@@ -231,6 +233,16 @@ export const LessonsModal: React.FC<LessonsModalProps> = ({
                     {tr(
                       'lessons_all_completed_hint',
                       'أتممت جميع دروس هذا القسم! اضغط على أيقونة العين أعلاه لإظهارها أو إعادتها.'
+                    )}
+                  </p>
+                </div>
+              ) : isScheduleRestricted && curriculum.length === 0 ? (
+                <div className="inline-flex flex-col items-center gap-2 max-w-md mx-auto p-4 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900">
+                  <Lock className="w-6 h-6 text-amber-600" />
+                  <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                    {tr(
+                      'schedule_no_unlocked_lessons_desc',
+                      'لا توجد دروس مفتوحة حالياً في هذا القسم — تفتح الدروس تلقائياً حسب جدول الدورة اليومي'
                     )}
                   </p>
                 </div>

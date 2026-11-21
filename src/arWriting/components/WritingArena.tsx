@@ -72,6 +72,7 @@ interface WritingArenaProps {
   onRefreshWritingHistory?: () => void;
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
+  isScheduleRestricted?: boolean;
 }
 
 export const WritingArena: React.FC<WritingArenaProps> = ({
@@ -99,6 +100,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
   onRefreshWritingHistory,
   currentLang = 'ar',
   translations = DEFAULT_TRANSLATIONS,
+  isScheduleRestricted = false,
 }) => {
   const tr = useCallback(
     (id: string, fallback: string) =>
@@ -750,6 +752,7 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
         currentStudent={currentStudent}
         currentLang={currentLang}
         translations={translations}
+        isScheduleRestricted={isScheduleRestricted}
         onSelectTemplate={(tpl, isRetry) => {
           if (isRetry) {
             const rKey = buildWritingRetryKey(tpl);
@@ -780,7 +783,6 @@ export const WritingArena: React.FC<WritingArenaProps> = ({
         onAddCustomTemplate={(customTpl) => {
           const updated = [customTpl, ...allTemplates];
           onUpdateTemplates(updated);
-          sheetService.saveLocalTemplates(updated);
         }}
       />
     </div>

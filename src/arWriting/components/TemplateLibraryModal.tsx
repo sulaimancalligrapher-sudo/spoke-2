@@ -41,6 +41,7 @@ interface TemplateLibraryModalProps {
   currentStudent?: StudentRegistrant | null;
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
+  isScheduleRestricted?: boolean;
 }
 
 export function buildWritingRetryKey(tpl: DrawingTemplate): string {
@@ -78,6 +79,7 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
   currentStudent = null,
   currentLang = 'ar',
   translations = DEFAULT_TRANSLATIONS,
+  isScheduleRestricted = false,
 }) => {
   const allTemplates = templates || [];
   const tr = (id: string, fallback: string) =>
@@ -695,20 +697,37 @@ export const TemplateLibraryModal: React.FC<TemplateLibraryModalProps> = ({
             </div>
           ) : filteredLessons.length === 0 && (
             <div className="p-12 text-center text-slate-400 bg-slate-950/40 rounded-2xl border border-slate-800 space-y-2">
-              <BookOpen className="w-8 h-8 mx-auto text-slate-500" />
-              <p className="text-sm font-bold text-slate-300">
-                {allTemplates.length === 0
-                  ? tr('writing_lib_no_lessons', 'لا توجد دروس مضافة بعد في تمرين الكتابة')
-                  : tr('writing_lib_no_lessons_in_cat', 'لا توجد دروس في الفئة "{category}"').replace(
-                      '{category}',
-                      translatedSelectedCat
+              {isScheduleRestricted && allTemplates.length === 0 ? (
+                <>
+                  <Lock className="w-8 h-8 mx-auto text-amber-400" />
+                  <p className="text-sm font-bold text-amber-300">
+                    {tr('schedule_no_unlocked_lessons_title', 'لا توجد دروس مفتوحة حالياً')}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {tr(
+                      'schedule_no_unlocked_lessons_desc',
+                      'لا توجد دروس مفتوحة حالياً في هذا القسم — تفتح الدروس تلقائياً حسب جدول الدورة اليومي'
                     )}
-              </p>
-              <p className="text-xs text-slate-500">
-                {allTemplates.length === 0
-                  ? tr('writing_lib_no_lessons_hint', 'يمكنك إضافة الدروس من لوحة الإدارة في تبويب «تمرين الكتابة» أو مزامنتها من ورقة ArabicLessons.')
-                  : tr('writing_lib_switch_cat_hint', 'يمكنك التبديل إلى فئة أخرى أو اختيار موضوع مختلف من القائمة بالأعلى.')}
-              </p>
+                  </p>
+                </>
+              ) : (
+                <>
+                  <BookOpen className="w-8 h-8 mx-auto text-slate-500" />
+                  <p className="text-sm font-bold text-slate-300">
+                    {allTemplates.length === 0
+                      ? tr('writing_lib_no_lessons', 'لا توجد دروس مضافة بعد في تمرين الكتابة')
+                      : tr('writing_lib_no_lessons_in_cat', 'لا توجد دروس في الفئة "{category}"').replace(
+                          '{category}',
+                          translatedSelectedCat
+                        )}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {allTemplates.length === 0
+                      ? tr('writing_lib_no_lessons_hint', 'يمكنك إضافة الدروس من لوحة الإدارة في تبويب «تمرين الكتابة» أو مزامنتها من ورقة ArabicLessons.')
+                      : tr('writing_lib_switch_cat_hint', 'يمكنك التبديل إلى فئة أخرى أو اختيار موضوع مختلف من القائمة بالأعلى.')}
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>

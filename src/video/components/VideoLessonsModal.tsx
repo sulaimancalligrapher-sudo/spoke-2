@@ -39,6 +39,7 @@ interface VideoLessonsModalProps {
   onUpdateProgress: (lessonId: string, nextProgress: VideoStudentProgress) => void;
   t?: (id: string, fallback?: string) => string;
   currentLang?: SupportedLang;
+  isScheduleRestricted?: boolean;
 }
 
 export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
@@ -54,6 +55,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
   onRefreshLessons,
   onUpdateProgress,
   t,
+  isScheduleRestricted = false,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
 
@@ -226,6 +228,11 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
               <div>
                 {hideCompleted && completedCount > 0
                   ? tr('video_all_completed_hidden', 'أحسنت! تم إكمال جميع الدروس المتاحة حالياً وإخفاؤها من القائمة.')
+                  : isScheduleRestricted && lessons.length === 0
+                  ? tr(
+                      'schedule_no_unlocked_lessons_desc',
+                      'لا توجد دروس مفتوحة حالياً في هذا القسم — تفتح الدروس تلقائياً حسب جدول الدورة اليومي'
+                    )
                   : tr('video_no_matching_lessons', 'لا توجد دروس فيديو مطابقة للتصفية الحالية.')}
               </div>
               {hideCompleted && completedCount > 0 && (
