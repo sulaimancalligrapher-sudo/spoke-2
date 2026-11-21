@@ -161,7 +161,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   });
   const [genWeekdays, setGenWeekdays] = useState<number[]>([0, 1, 2, 3, 4]);
   const [genDayType, setGenDayType] = useState<ScheduleDayType>('lesson');
-  const [genGroupsPerDay, setGenGroupsPerDay] = useState<number>(1);
+  const [genGroupsPerDay, setGenGroupsPerDay] = useState<string>('');
   const [genMode, setGenMode] = useState<'replace' | 'append'>('replace');
   const [singleDayDate, setSingleDayDate] = useState<string>(todayISO);
   const [daysUndoSnapshot, setDaysUndoSnapshot] = useState<CourseScheduleDay[] | null>(null);
@@ -595,7 +595,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       return;
     }
 
-    const perDay = Math.max(1, Math.floor(Number(genGroupsPerDay) || 1));
+    const perDay =
+      genGroupsPerDay.trim() === ''
+        ? 1
+        : Math.max(0, Math.min(99, Math.floor(Number(genGroupsPerDay) || 0)));
     const otherProgramsDays = normalizedSchedule.days.filter(
       (d) => (d.programId || defaultProgramId) !== activeProgram.id
     );
@@ -666,7 +669,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       });
       return;
     }
-    const perDay = Math.max(1, Math.floor(Number(genGroupsPerDay) || 1));
+    const perDay =
+      genGroupsPerDay.trim() === ''
+        ? 1
+        : Math.max(1, Math.min(99, Math.floor(Number(genGroupsPerDay) || 1)));
     setDaysUndoSnapshot(normalizedSchedule.days);
 
     let cursor = 0;
@@ -1702,7 +1708,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               <span>مولّد أيام وتواريخ الدورة التلقائي</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto] gap-3 items-end">
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-600">
                   تاريخ البداية
@@ -1744,20 +1750,24 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-600">
-                  عدد المجموعات في اليوم الواحد
+                <label className="text-[11px] font-bold text-slate-600 block whitespace-nowrap">
+                  عدد المجموعات في اليوم
                 </label>
                 <input
-                  type="number"
-                  min={1}
-                  max={10}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={2}
                   value={genGroupsPerDay}
-                  onChange={(e) =>
-                    setGenGroupsPerDay(
-                      Math.max(1, Math.min(10, Number(e.target.value) || 1))
-                    )
-                  }
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono font-extrabold text-center bg-indigo-50/40"
+                  onChange={(e) => {
+                    const ascii = e.target.value
+                      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+                      .replace(/\D/g, '')
+                      .slice(0, 2);
+                    setGenGroupsPerDay(ascii);
+                  }}
+                  placeholder=""
+                  title="عدد المجموعات في اليوم الواحد (فارغ = 1 افتراضياً)"
+                  className="w-14 px-2 py-2 rounded-xl border border-slate-300 text-xs font-mono font-extrabold text-center bg-indigo-50/40 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>

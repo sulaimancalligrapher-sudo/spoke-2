@@ -643,9 +643,9 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
         </div>
 
         {/* Right: Subscribers List */}
-        <div className="lg:col-span-2 bg-white rounded-3xl p-5 shadow-sm border border-slate-200/80 space-y-4">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-3 sm:p-4 shadow-sm border border-slate-200/80 space-y-3">
           {/* Search + Filter */}
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between pb-2.5 border-b border-slate-100">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
               <input
@@ -653,11 +653,11 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="بحث برقم ID أو اسم المشترك أو المدينة..."
-                className="w-full pr-9 pl-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full pr-9 pl-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1">
               {(
                 [
                   { key: 'all', label: 'الكل' },
@@ -670,7 +670,7 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
                   key={tab.key}
                   type="button"
                   onClick={() => setStatusFilter(tab.key)}
-                  className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
                     statusFilter === tab.key
                       ? 'bg-indigo-600 text-white'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -684,278 +684,276 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
 
           {/* List */}
           {loading && registrants.length === 0 ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
+            <div className="py-10 flex flex-col items-center justify-center gap-2 text-slate-500 text-xs">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
               <span>جاري تحميل قائمة المشتركين...</span>
             </div>
           ) : filteredRegistrants.length === 0 ? (
-            <div className="py-12 text-center text-xs text-slate-400">
+            <div className="py-10 text-center text-xs text-slate-400">
               لا توجد نتائج مطابقة لبحثك.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {filteredRegistrants.map((student) => {
                 const disabled = isDisabledStatus(student.status);
                 const maxDev = student.maxDevices || 1;
                 const devices = student.devices || [];
                 const isBusy = busyRowId === student.id;
                 const isExpanded = expandedDevicesId === student.id;
+                const stuProg =
+                  (student.programId &&
+                    programsList.find((p) => p.id === student.programId)) ||
+                  defaultProgram;
+                const pCol = PROGRAM_COLOR_META[stuProg?.color || 'emerald'];
 
                 return (
                   <div
                     key={student.id}
-                    className={`rounded-2xl border p-4 transition-all ${
+                    className={`rounded-xl border px-3 py-2.5 transition-all ${
                       disabled
                         ? 'bg-rose-50/40 border-rose-200/80'
                         : 'bg-slate-50/60 border-slate-200/90 hover:border-indigo-200'
                     }`}
                   >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      {/* Identity & Status */}
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="px-2.5 py-1.5 rounded-xl bg-slate-900 text-amber-300 font-mono font-bold text-xs shrink-0">
-                          #{student.id}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-extrabold text-sm text-slate-900 truncate">
-                              {student.name}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => handleToggleStatus(student)}
-                              title="انقر لتبديل حالة التفعيل"
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold cursor-pointer transition-all disabled:opacity-50 ${
-                                disabled
-                                  ? 'bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-200'
-                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200'
-                              }`}
-                            >
-                              {disabled ? (
-                                <>
-                                  <Ban className="w-3 h-3" />
-                                  <span>معطّل</span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  <span>مفعّل</span>
-                                </>
-                              )}
-                            </button>
-
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                student.requireLocation
-                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                  : 'bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                            >
-                              <MapPin className="w-3 h-3" />
-                              <span>{student.requireLocation ? 'الموقع إجباري' : 'الموقع مسموح'}</span>
-                            </span>
-
-                            {(() => {
-                              const stuProg =
-                                (student.programId &&
-                                  programsList.find((p) => p.id === student.programId)) ||
-                                defaultProgram;
-                              const pCol = PROGRAM_COLOR_META[stuProg?.color || 'emerald'];
-                              return (
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${pCol.pillBg} ${pCol.pillText} ${pCol.pillBorder}`}
-                                >
-                                  <Layers className="w-3 h-3" />
-                                  <span>{stuProg?.name || 'البرنامج الافتراضي'}</span>
-                                </span>
-                              );
-                            })()}
-                          </div>
-
-                          {/* Devices summary */}
-                          <div className="flex flex-wrap items-center gap-2.5 mt-1.5 text-[11px] text-slate-600">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedDevicesId(isExpanded ? null : student.id)
-                              }
-                              className="inline-flex items-center gap-1 font-bold text-indigo-700 hover:underline cursor-pointer"
-                            >
-                              <Smartphone className="w-3.5 h-3.5" />
-                              <span>
-                                الأجهزة: {devices.length} / {maxDev}
-                              </span>
-                            </button>
-
-                            {devices.length > 0 && devices[devices.length - 1]?.location && (
-                              <span className="inline-flex items-center gap-1 text-slate-500">
-                                <MapPin className="w-3 h-3 text-emerald-600" />
-                                <span>{devices[devices.length - 1].location}</span>
-                              </span>
+                    <div className="flex flex-col gap-2">
+                      {/* Row 1: Identity, Name, Status & Details */}
+                      <div className="flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-amber-300 font-mono font-bold text-[11px] shrink-0">
+                            #{student.id}
+                          </span>
+                          <span className="font-extrabold text-[13px] text-slate-900 leading-snug">
+                            {student.name}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleToggleStatus(student)}
+                            title="انقر لتبديل حالة التفعيل"
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold cursor-pointer transition-all disabled:opacity-50 ${
+                              disabled
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200 hover:bg-rose-200'
+                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200'
+                            }`}
+                          >
+                            {disabled ? (
+                              <>
+                                <Ban className="w-3 h-3" />
+                                <span>معطّل</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>مفعّل</span>
+                              </>
                             )}
-                          </div>
+                          </button>
+
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              student.requireLocation
+                                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}
+                          >
+                            <MapPin className="w-3 h-3" />
+                            <span>{student.requireLocation ? 'الموقع إجباري' : 'الموقع مسموح'}</span>
+                          </span>
+
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${pCol.pillBg} ${pCol.pillText} ${pCol.pillBorder}`}
+                          >
+                            <Layers className="w-3 h-3" />
+                            <span>{stuProg?.name || 'البرنامج الافتراضي'}</span>
+                          </span>
+                        </div>
+
+                        {/* Devices & Last Location Summary */}
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedDevicesId(isExpanded ? null : student.id)
+                            }
+                            className="inline-flex items-center gap-1 font-bold text-indigo-700 hover:underline cursor-pointer"
+                          >
+                            <Smartphone className="w-3.5 h-3.5" />
+                            <span>
+                              الأجهزة: {devices.length} / {maxDev}
+                            </span>
+                          </button>
+
+                          {devices.length > 0 && devices[devices.length - 1]?.location && (
+                            <span className="inline-flex items-center gap-1 text-slate-500">
+                              <MapPin className="w-3 h-3 text-emerald-600" />
+                              <span>{devices[devices.length - 1].location}</span>
+                            </span>
+                          )}
                         </div>
                       </div>
 
-                      {/* Controls */}
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        {programsList.length > 1 && (
-                          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-xl border border-slate-200">
-                            <span className="text-[10px] font-bold text-slate-500">البرنامج:</span>
+                      {/* Row 2: Controls & Action Buttons */}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1.5 border-t border-slate-200/70">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {programsList.length > 1 && (
+                            <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-slate-200">
+                              <span className="text-[10px] font-bold text-slate-500">البرنامج:</span>
+                              <select
+                                disabled={isBusy}
+                                value={student.programId || ''}
+                                onChange={(e) =>
+                                  handleChangeProgram(student, e.target.value)
+                                }
+                                className="text-[11px] font-extrabold text-indigo-800 bg-transparent focus:outline-none cursor-pointer max-w-[140px]"
+                              >
+                                <option value="">
+                                  افتراضي ({defaultProgram?.name})
+                                </option>
+                                {programsList.map((prog) => (
+                                  <option key={prog.id} value={prog.id}>
+                                    {prog.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-500">الأجهزة:</span>
                             <select
                               disabled={isBusy}
-                              value={student.programId || ''}
+                              value={maxDev}
                               onChange={(e) =>
-                                handleChangeProgram(student, e.target.value)
+                                handleChangeMaxDevices(student, Number(e.target.value))
                               }
-                              className="text-[11px] font-extrabold text-indigo-800 bg-transparent focus:outline-none cursor-pointer max-w-[130px]"
+                              className="text-[11px] font-extrabold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
                             >
-                              <option value="">
-                                افتراضي ({defaultProgram?.name})
-                              </option>
-                              {programsList.map((prog) => (
-                                <option key={prog.id} value={prog.id}>
-                                  {prog.name}
+                              {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                                <option key={n} value={n}>
+                                  {n}
                                 </option>
                               ))}
                             </select>
                           </div>
-                        )}
-
-                        <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-xl border border-slate-200">
-                          <span className="text-[10px] font-bold text-slate-500">الحد:</span>
-                          <select
-                            disabled={isBusy}
-                            value={maxDev}
-                            onChange={(e) =>
-                              handleChangeMaxDevices(student, Number(e.target.value))
-                            }
-                            className="text-xs font-extrabold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
-                          >
-                            {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
-                              <option key={n} value={n}>
-                                {n}
-                              </option>
-                            ))}
-                          </select>
                         </div>
 
-                        {confirmResetId === student.id ? (
-                          <div className="flex items-center gap-1 bg-amber-100 px-2 py-1 rounded-xl border border-amber-300">
-                            <button
-                              type="button"
-                              onClick={() => handleResetDevices(student)}
-                              className="text-[11px] font-extrabold text-amber-900 px-1.5 cursor-pointer"
-                            >
-                              تأكيد التصفير
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmResetId(null)}
-                              className="text-[11px] text-slate-600 px-1 cursor-pointer"
-                            >
-                              إلغاء
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isBusy}
-                            onClick={() => setConfirmResetId(student.id)}
-                            title="تصفير الأجهزة المسجلة للطالب"
-                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>تصفير الأجهزة</span>
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopyAutoLoginLink(student)}
-                          title="نسخ رابط الدخول المباشر"
-                          className="p-1.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 transition-all cursor-pointer"
-                        >
-                          {copiedRowLinkId === student.id ? (
-                            <Check className="w-4 h-4 text-emerald-600" />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {confirmResetId === student.id ? (
+                            <div className="flex items-center gap-1 bg-amber-100 px-2 py-1 rounded-lg border border-amber-300">
+                              <button
+                                type="button"
+                                onClick={() => handleResetDevices(student)}
+                                className="text-[11px] font-extrabold text-amber-900 px-1 cursor-pointer"
+                              >
+                                تأكيد التصفير
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmResetId(null)}
+                                className="text-[11px] text-slate-600 px-1 cursor-pointer"
+                              >
+                                إلغاء
+                              </button>
+                            </div>
                           ) : (
-                            <Link2 className="w-4 h-4" />
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => setConfirmResetId(student.id)}
+                              title="تصفير الأجهزة المسجلة للطالب"
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span>تصفير الأجهزة</span>
+                            </button>
                           )}
-                        </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleOpenQrModal(student)}
-                          title="بطاقة QR ورابط الدخول المباشر"
-                          className="p-1.5 rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-all cursor-pointer"
-                        >
-                          <QrCode className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingRow({
-                              originalId: student.id,
-                              id: student.id,
-                              name: student.name,
-                              status: disabled ? 'معطّل' : 'مفعّل',
-                              maxDevices: maxDev,
-                              requireLocation: Boolean(student.requireLocation),
-                              programId: student.programId || '',
-                            })
-                          }
-                          title="تعديل البيانات"
-                          className="p-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-all cursor-pointer"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-
-                        {confirmDeleteId === student.id ? (
-                          <div className="flex items-center gap-1 bg-rose-100 px-2 py-1 rounded-xl border border-rose-300">
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteSubscriber(student)}
-                              className="text-[11px] font-extrabold text-rose-800 px-1.5 cursor-pointer"
-                            >
-                              حذف؟
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="text-[11px] text-slate-600 px-1 cursor-pointer"
-                            >
-                              لا
-                            </button>
-                          </div>
-                        ) : (
                           <button
                             type="button"
-                            disabled={isBusy}
-                            onClick={() => setConfirmDeleteId(student.id)}
-                            title="حذف المشترك"
-                            className="p-1.5 rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 transition-all cursor-pointer disabled:opacity-50"
+                            onClick={() => handleCopyAutoLoginLink(student)}
+                            title="نسخ رابط الدخول المباشر"
+                            className="p-1.5 rounded-lg bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 transition-all cursor-pointer"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {copiedRowLinkId === student.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Link2 className="w-3.5 h-3.5" />
+                            )}
                           </button>
-                        )}
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenQrModal(student)}
+                            title="بطاقة QR ورابط الدخول المباشر"
+                            className="p-1.5 rounded-lg bg-white hover:bg-indigo-50 text-indigo-700 border border-slate-200 transition-all cursor-pointer"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingRow({
+                                originalId: student.id,
+                                id: student.id,
+                                name: student.name,
+                                status: disabled ? 'معطّل' : 'مفعّل',
+                                maxDevices: maxDev,
+                                requireLocation: Boolean(student.requireLocation),
+                                programId: student.programId || '',
+                              })
+                            }
+                            title="تعديل البيانات"
+                            className="p-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 transition-all cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {confirmDeleteId === student.id ? (
+                            <div className="flex items-center gap-1 bg-rose-100 px-2 py-1 rounded-lg border border-rose-300">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSubscriber(student)}
+                                className="text-[11px] font-extrabold text-rose-800 px-1 cursor-pointer"
+                              >
+                                حذف؟
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="text-[11px] text-slate-600 px-1 cursor-pointer"
+                              >
+                                لا
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => setConfirmDeleteId(student.id)}
+                              title="حذف المشترك"
+                              className="p-1.5 rounded-lg bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     {/* Expanded Devices Detail */}
                     {isExpanded && (
-                      <div className="mt-3 pt-3 border-t border-slate-200/80 space-y-2">
+                      <div className="mt-2 pt-2 border-t border-slate-200/80 space-y-1.5">
                         {devices.length === 0 ? (
                           <div className="text-[11px] text-slate-500">
                             لم يقم هذا الطالب بتسجيل الدخول من أي جهاز بعد.
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                             {devices.map((dev, idx) => (
                               <div
                                 key={dev.deviceId + '_' + idx}
-                                className="p-2.5 rounded-xl bg-white border border-slate-200 text-[11px] space-y-1"
+                                className="p-2 rounded-lg bg-white border border-slate-200 text-[11px] space-y-0.5"
                               >
                                 <div className="flex items-center justify-between">
                                   <span className="font-bold text-slate-800 flex items-center gap-1">
