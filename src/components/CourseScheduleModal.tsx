@@ -15,6 +15,12 @@ import {
   BarChart3,
   ListChecks,
   AlertCircle,
+  FileText,
+  Award,
+  Printer,
+  Download,
+  Loader2,
+  Star,
 } from 'lucide-react';
 import {
   WordItem,
@@ -27,6 +33,7 @@ import {
   CatchHistoryItem,
   WritingHistoryItem,
   StudentRegistrant,
+  PdfReportSettings,
 } from '../types';
 import { DrawingTemplate } from '../arWriting/types/drawing';
 import { VideoLesson, VideoStudentProgress } from '../video/videoSheets';
@@ -39,20 +46,134 @@ import {
   getTranslatedWritingTopic,
 } from '../utils/translations';
 import {
+  AttendanceRecord,
   CourseGroup,
   CourseScheduleData,
   CourseScheduleDay,
+  DEFAULT_PDF_REPORT_SETTINGS,
   PROGRAM_COLOR_META,
   SCHEDULE_DAY_TYPE_META,
   SCHEDULE_EXERCISE_META,
   ScheduleLessonRef,
   ScheduledLessonProgressStatus,
+  buildCertificateHtml,
+  buildFullReportHtml,
+  buildStudentFullReportSummary,
   evaluateScheduledLessonStatus,
+  evaluateStudentPdfAccess,
   formatScheduleDateLabel,
   getScheduleForProgram,
   getTodayLocalISO,
   normalizeCourseScheduleData,
+  printHtmlViaIframe,
 } from '../utils/courseSchedule';
+
+export interface PdfPreviewModalProps {
+  isOpen: boolean;
+  title: string;
+  html: string;
+  orientation?: 'portrait' | 'landscape';
+  onClose: () => void;
+}
+
+export const PdfPreviewModal: React.FC<PdfPreviewModalProps> = ({
+  isOpen,
+  title,
+  html,
+  orientation = 'portrait',
+  onClose,
+}) => {
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handlePrintPdf = async () => {
+    if (isPrinting) return;
+    setIsPrinting(true);
+    try {
+      await printHtmlViaIframe(html);
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleDownloadHtml = () => {
+    try {
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(title || 'report').replace(/[^\w\u0600-\u06FF-]+/g, '_')}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {}
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[130] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150"
+      dir="rtl"
+    >
+      <div className="bg-slate-100 rounded-3xl max-w-5xl w-full h-[92dvh] shadow-2xl border border-slate-300 flex flex-col overflow-hidden font-cairo">
+        <div className="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center shrink-0">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm sm:text-base font-extrabold truncate">{title}</h3>
+              <p className="text-[11px] text-slate-300">
+                معاينة A4 ({orientation === 'landscape' ? 'أفقي Landscape' : 'عمودي Portrait'}) · اختر «حفظ بتنسيق PDF» من نافذة الطباعة
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadHtml}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">تنزيل HTML</span>
+            </button>
+            <button
+              type="button"
+              onClick={handlePrintPdf}
+              disabled={isPrinting}
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              {isPrinting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Printer className="w-4 h-4" />
+              )}
+              <span>{isPrinting ? 'جاري التحضير...' : 'طباعة / حفظ كـ PDF'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+              title="إغلاق"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 p-2 sm:p-4 overflow-hidden bg-slate-200/80">
+          <iframe
+            title={title}
+            srcDoc={html}
+            className="w-full h-full bg-white rounded-2xl shadow-lg border border-slate-300"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface CourseScheduleModalProps {
   isOpen: boolean;
@@ -77,6 +198,10 @@ interface CourseScheduleModalProps {
   videoLessons: VideoLesson[];
   videoProgressMap: Record<string, VideoStudentProgress>;
   onOpenScheduledLesson: (ref: ScheduleLessonRef) => void;
+  pdfSettings?: PdfReportSettings;
+  attendanceRecords?: AttendanceRecord[];
+  homeLogoUrl?: string;
+  platformTitle?: string;
 }
 
 type ScheduleTab = 'calendar' | 'days' | 'report';
@@ -149,12 +274,21 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   videoLessons,
   videoProgressMap,
   onOpenScheduledLesson,
+  pdfSettings = DEFAULT_PDF_REPORT_SETTINGS,
+  attendanceRecords = [],
+  homeLogoUrl,
+  platformTitle,
 }) => {
   const [activeTab, setActiveTab] = useState<ScheduleTab>('calendar');
   const [expandedDayId, setExpandedDayId] = useState<string | null>(null);
   const [adminSelectedProgramId, setAdminSelectedProgramId] = useState<string>(
     initialProgramId || ''
   );
+  const [pdfPreview, setPdfPreview] = useState<{
+    title: string;
+    html: string;
+    orientation: 'portrait' | 'landscape';
+  } | null>(null);
   const todayISO = getTodayLocalISO();
 
   useEffect(() => {
@@ -332,6 +466,62 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
       notStartedLessons,
     };
   }, [reportDays]);
+
+  const studentFullSummary = useMemo(
+    () =>
+      buildStudentFullReportSummary({
+        student: {
+          id: currentStudent?.id || (isAdminAuthenticated ? 'معاينة' : '—'),
+          name: currentStudent?.name || (isAdminAuthenticated ? 'طالب (معاينة المعلم)' : 'طالب'),
+          programId: activeProgram.id,
+        },
+        schedule: normalizedSchedule,
+        attendanceRecords,
+        curriculum,
+        studentHistory,
+        matchingSubjects,
+        matchingHistory,
+        dictationSubjects,
+        dictationHistory,
+        writingTemplates,
+        writingHistory,
+        catchSubjects,
+        catchHistory,
+        videoLessons,
+        videoProgressMap,
+      }),
+    [
+      currentStudent,
+      isAdminAuthenticated,
+      activeProgram.id,
+      normalizedSchedule,
+      attendanceRecords,
+      curriculum,
+      studentHistory,
+      matchingSubjects,
+      matchingHistory,
+      dictationSubjects,
+      dictationHistory,
+      writingTemplates,
+      writingHistory,
+      catchSubjects,
+      catchHistory,
+      videoLessons,
+      videoProgressMap,
+    ]
+  );
+
+  const studentPdfAccess = useMemo(
+    () =>
+      evaluateStudentPdfAccess({
+        pdfSettings,
+        student: currentStudent,
+        isAdmin: isAdminAuthenticated,
+        scheduleCompletionPct: overallStats.pct,
+        todayISO,
+      }),
+    [pdfSettings, currentStudent, isAdminAuthenticated, overallStats.pct, todayISO]
+  );
 
   // Build calendar cells for current month (Saturday-first grid: 6,0,1,2,3,4,5)
   const calendarGridCells = useMemo(() => {
@@ -999,10 +1189,111 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
               )}
 
               {/* ==================================================
-                  TAB 3: PAST & TODAY ACHIEVEMENT REPORT
+                  TAB 3: PAST & TODAY ACHIEVEMENT REPORT + PDF EXPORT
                  ================================================== */}
               {activeTab === 'report' && (
                 <div className="space-y-4">
+                  {/* End-of-Program 10-Star Summary & PDF Report / Certificate Card */}
+                  <div className="bg-gradient-to-br from-emerald-900 via-emerald-800 to-slate-900 text-white rounded-3xl p-4 sm:p-5 shadow-md space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-white/15 text-[11px] font-extrabold text-emerald-100">
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>تقرير نهاية البرنامج الشامل والشهادة</span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-extrabold">
+                          {studentFullSummary.encouragementTitle}
+                        </h3>
+                        <p className="text-xs text-emerald-100/90 leading-relaxed">
+                          {studentFullSummary.encouragementMessage}
+                        </p>
+                      </div>
+
+                      <div className="px-4 py-2.5 rounded-2xl bg-white/10 border border-white/20 text-center shrink-0">
+                        <div className="text-2xl font-extrabold font-mono">
+                          {studentFullSummary.overallPct}%
+                        </div>
+                        <div className="text-[11px] font-bold text-amber-300">
+                          {studentFullSummary.gradeLabelAr}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 10-Star Rating Row */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 bg-black/20 rounded-2xl px-3.5 py-2">
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: 10 }, (_, idx) => (
+                          <Star
+                            key={idx}
+                            className={`w-4 h-4 ${
+                              idx < studentFullSummary.starsOutOf10
+                                ? 'text-amber-400 fill-amber-400'
+                                : 'text-slate-500'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-[11px] font-bold text-emerald-100">
+                        التقييم العام: {studentFullSummary.starsOutOf10} / 10 نجوم · الحضور:{' '}
+                        {studentFullSummary.attendanceList.length} يوماً
+                      </span>
+                    </div>
+
+                    {/* PDF Buttons or Lock Banner */}
+                    {!studentPdfAccess.canViewReport && !studentPdfAccess.canViewCertificate ? (
+                      <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-300/40 flex items-center gap-2 text-xs font-bold text-amber-100">
+                        <Lock className="w-4 h-4 text-amber-300 shrink-0" />
+                        <span>{studentPdfAccess.lockReasonAr}</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {studentPdfAccess.canViewReport && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPdfPreview({
+                                title: `التقرير الشامل - ${studentFullSummary.studentName}`,
+                                orientation: 'portrait',
+                                html: buildFullReportHtml({
+                                  summary: studentFullSummary,
+                                  pdfSettings,
+                                  platformTitle,
+                                  homeLogoUrl,
+                                }),
+                              })
+                            }
+                            className="flex-1 min-w-[180px] py-2.5 px-4 rounded-2xl bg-white hover:bg-emerald-50 text-emerald-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all"
+                          >
+                            <FileText className="w-4 h-4 text-emerald-700" />
+                            <span>معاينة وتصدير التقرير الشامل (PDF)</span>
+                          </button>
+                        )}
+
+                        {studentPdfAccess.canViewCertificate && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPdfPreview({
+                                title: `شهادة إتمام البرنامج - ${studentFullSummary.studentName}`,
+                                orientation: pdfSettings.certificate.orientation,
+                                html: buildCertificateHtml({
+                                  summary: studentFullSummary,
+                                  pdfSettings,
+                                  platformTitle,
+                                  homeLogoUrl,
+                                }),
+                              })
+                            }
+                            className="flex-1 min-w-[180px] py-2.5 px-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all"
+                          >
+                            <Award className="w-4 h-4 text-slate-900" />
+                            <span>معاينة وتصدير الشهادة (PDF)</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {reportDays.length === 0 ? (
                     <div className="bg-white rounded-3xl p-10 border border-slate-200 text-center space-y-2">
                       <BarChart3 className="w-10 h-10 text-slate-300 mx-auto" />
@@ -1182,6 +1473,14 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
           )}
         </div>
       </div>
+
+      <PdfPreviewModal
+        isOpen={Boolean(pdfPreview)}
+        title={pdfPreview?.title || ''}
+        html={pdfPreview?.html || ''}
+        orientation={pdfPreview?.orientation || 'portrait'}
+        onClose={() => setPdfPreview(null)}
+      />
     </div>
   );
 };

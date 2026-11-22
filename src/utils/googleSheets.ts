@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxmqLtrmLWg__n8UCSEqCiOxaR03sFlU5wy3xS2FdT0zsJ-Sdzft-NQFusE9RlCdGWBZg/exec';
+  'https://script.google.com/macros/s/AKfycbzTfQzCVxV7gqhtnR9IQFXQkhV8P3rFxZ0Ornb5iZzrmfxOOKSoTCMRBr7nZcPoe0meqQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4915,6 +4915,53 @@ function writeHomeContentBlocksGS(ss, blocks) {
   sheet.getRange(2, 1, rows.length, 13).setValues(rows);
 }
 
+function getPdfSettingsSheetGS(ss) {
+  var sheet = ss.getSheetByName("إعدادات_PDF");
+  if (!sheet) {
+    sheet = ss.insertSheet("إعدادات_PDF");
+    var headers = ["المفتاح", "القيمة JSON", "آخر تحديث"];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#e6f4ea");
+    sheet.setFrozenRows(1);
+    sheet.setRightToLeft(true);
+  }
+  return sheet;
+}
+
+function readPdfSettingsGS(ss) {
+  var sheet = ss.getSheetByName("إعدادات_PDF");
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(3, sheet.getLastColumn())).getValues();
+  for (var i = 0; i < rows.length; i++) {
+    var k = String(rows[i][0] || "").trim();
+    if (k === "pdf_report_settings") {
+      try {
+        return JSON.parse(String(rows[i][1] || "{}"));
+      } catch (e) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function writePdfSettingsGS(ss, settingsObj) {
+  var sheet = getPdfSettingsSheetGS(ss);
+  var jsonStr = JSON.stringify(settingsObj || {});
+  var nowStr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Riyadh", "yyyy/MM/dd HH:mm:ss");
+  var lastR = sheet.getLastRow();
+  if (lastR >= 2) {
+    var rows = sheet.getRange(2, 1, lastR - 1, 1).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || "").trim() === "pdf_report_settings") {
+        sheet.getRange(i + 2, 1, 1, 3).setValues([["pdf_report_settings", jsonStr, nowStr]]);
+        return;
+      }
+    }
+  }
+  sheet.appendRow(["pdf_report_settings", jsonStr, nowStr]);
+}
+
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
@@ -4937,6 +4984,15 @@ function doGet(e) {
         success: true,
         homeContentHandled: true,
         blocks: readHomeContentBlocksGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (أ-3) جلب إعدادات تقارير PDF والشهادات من ورقة "إعدادات_PDF"
+    if (e && e.parameter && e.parameter.action === "get_pdf_settings") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        pdfSettingsHandled: true,
+        settings: readPdfSettingsGS(ss)
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -6597,6 +6653,25 @@ function doPost(e) {
         homeContentSaved: true,
         blocks: readHomeContentBlocksGS(ss),
         message: "تم حفظ ومزامنة محتوى الصفحة الرئيسية في ورقة محتوى_الرئيسية بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (-1-ج) جلب وحفظ إعدادات تقارير PDF والشهادات في ورقة "إعدادات_PDF"
+    if (data.action === "get_pdf_settings") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        pdfSettingsHandled: true,
+        settings: readPdfSettingsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_pdf_settings") {
+      writePdfSettingsGS(ss, data.settings || {});
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        pdfSettingsSaved: true,
+        settings: readPdfSettingsGS(ss),
+        message: "تم حفظ ومزامنة إعدادات تقارير PDF والشهادات في ورقة إعدادات_PDF بنجاح!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

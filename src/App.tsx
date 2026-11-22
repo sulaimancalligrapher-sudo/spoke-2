@@ -18,6 +18,7 @@ import {
   WritingHistoryItem,
   HomeContentBlock,
   HomeNavbarControls,
+  PdfReportSettings,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -60,15 +61,18 @@ import {
   checkInAttendance,
   fetchAttendanceRecordsFromSheets,
   fetchCourseScheduleFromSheets,
+  fetchPdfSettingsFromSheets,
   filterLessonsBySchedule,
   formatScheduleDateLabel,
   getLocalAttendanceRecords,
   getLocalCourseSchedule,
+  getLocalPdfReportSettings,
   getScheduleForProgram,
   getTodayLocalISO,
   getTodayScheduleSummary,
   normalizeCourseScheduleData,
   saveLocalCourseSchedule,
+  saveLocalPdfReportSettings,
 } from './utils/courseSchedule';
 import {
   VideoLesson,
@@ -230,7 +234,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -344,6 +348,9 @@ export default function App() {
   // Course Groups & Daily Schedule State (مجموعات_الجدول / الجدول_اليومي)
   const [courseSchedule, setCourseSchedule] = useState<CourseScheduleData>(() =>
     getLocalCourseSchedule()
+  );
+  const [pdfSettings, setPdfSettings] = useState<PdfReportSettings>(() =>
+    getLocalPdfReportSettings()
   );
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [schedulePreviewProgramId, setSchedulePreviewProgramId] = useState<string | undefined>(
@@ -560,7 +567,7 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes] =
+    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes, pdfRes] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
@@ -574,6 +581,7 @@ export default function App() {
         writingSheetService.fetchARRewardsFromSheet().catch(() => null),
         fetchVideoLessonsFromSheets(url).catch(() => null),
         fetchCourseScheduleFromSheets(url).catch(() => null),
+        fetchPdfSettingsFromSheets(url).catch(() => null),
       ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -704,6 +712,9 @@ export default function App() {
     // 9. Update course groups & daily schedule from sheets "مجموعات_الجدول" & "الجدول_اليومي"
     if (scheduleRes) {
       setCourseSchedule(scheduleRes);
+    }
+    if (pdfRes?.settings) {
+      setPdfSettings(pdfRes.settings);
     }
     if (currentStudent && url) {
       fetchStudentVideoProgress(url, currentStudent.id, currentStudent.name)
@@ -1178,6 +1189,13 @@ export default function App() {
         fetchCourseScheduleFromSheets(activeConfig.webhookUrl)
           .then((sched) => {
             if (sched) setCourseSchedule(sched);
+          })
+          .catch(() => {});
+
+        // Auto-fetch End-of-Program PDF & Certificate Settings ("إعدادات_PDF")
+        fetchPdfSettingsFromSheets(activeConfig.webhookUrl)
+          .then((res) => {
+            if (res?.settings) setPdfSettings(res.settings);
           })
           .catch(() => {});
       }
@@ -2445,6 +2463,13 @@ export default function App() {
             setHomeNavbarControls(next);
             saveLocalHomeNavbarControls(next);
           }}
+          pdfSettings={pdfSettings}
+          onUpdatePdfSettings={(next) => {
+            setPdfSettings(next);
+            saveLocalPdfReportSettings(next);
+          }}
+          homeLogoUrl={homeConfig?.logoUrl}
+          platformTitle={homeConfig?.title}
         />
 
         <SettingsModal
@@ -4102,6 +4127,10 @@ export default function App() {
         videoLessons={videoLessons}
         videoProgressMap={videoProgressMap}
         onOpenScheduledLesson={handleOpenScheduledLesson}
+        pdfSettings={pdfSettings}
+        attendanceRecords={attendanceRecords}
+        homeLogoUrl={homeConfig?.logoUrl}
+        platformTitle={homeConfig?.title}
       />
 
       {/* Student Login & Registration Verification Modal (Mandatory when not logged in) */}

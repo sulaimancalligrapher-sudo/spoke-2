@@ -8,6 +8,14 @@ import {
   CatchLessonSubject,
   CatchHistoryItem,
   WritingHistoryItem,
+  StudentRegistrant,
+  PdfReportSettings,
+  PdfReleaseControlMode,
+  PdfFontFamily,
+  PdfTextAlign,
+  PdfSignatureConfig,
+  PdfStampConfig,
+  PdfProgramReleaseOverride,
 } from '../types';
 import { DrawingTemplate } from '../arWriting/types/drawing';
 import {
@@ -15,6 +23,7 @@ import {
   VideoStudentProgress,
   evaluateVideoLessonCompletion,
 } from '../video/videoSheets';
+import { getDirectImageUrl } from './mediaUrl';
 
 export type ScheduleExerciseType =
   | 'pronunciation'
@@ -1637,3 +1646,1662 @@ export async function deleteAttendanceRecordFromSheets(
     };
   }
 }
+
+// =========================================================================
+// نظام تقارير نهاية البرنامج والشهادات التفاعلية (تصدير PDF من المتصفح)
+// =========================================================================
+
+export const STORAGE_KEY_PDF_SETTINGS = 'faseeh_pdf_report_settings_v1';
+
+export const DEFAULT_PDF_REPORT_SETTINGS: PdfReportSettings = {
+  allowStudentFullReport: true,
+  allowStudentCertificate: true,
+  releaseMode: 'always_on',
+  releaseDate: '',
+  programReleaseOverrides: {},
+  studentAllowOverrides: {},
+  backgroundUrl: '',
+  logoUrl: '',
+  headerTitle: 'تقرير الأداء الشامل لنهاية البرنامج التدريبي',
+  headerSubtitle: 'خلاصة التقييمات عبر التمارين الستة وسجل الحضور والخطة اليومية',
+  footerNote: 'تم إصدار هذا التقرير آلياً من منصة التعليم والتقييم الذكي.',
+  coverImageBeforeUrl: '',
+  closingImageAfterUrl: '',
+  accentColor: 'emerald',
+  includeSections: {
+    overallSummary: true,
+    encouragement: true,
+    attendance: true,
+    scheduleProgress: true,
+    pronunciation: true,
+    matching: true,
+    dictation: true,
+    writing: true,
+    catchAr: true,
+    video: true,
+  },
+  certificate: {
+    enabled: true,
+    orientation: 'landscape',
+    backgroundUrl: '',
+    frameUrl: '',
+    footerImageUrl: '',
+    footerImageHeight: 46,
+    subjectText: 'شهادة إتمام وإنجاز البرنامج التدريبي',
+    subjectFontSize: 34,
+    subjectAlign: 'center',
+    subjectFontFamily: 'Amiri',
+    subjectColor: '#065f46',
+    bodyText:
+      'تشهد إدارة البرنامج التدريبي بأن الطالب/ة ({{اسم_الطالب}}) رقم المشترك ({{رقم_الطالب}})\nقد أتمّ متطلبات ({{اسم_البرنامج}}) بتقدير ({{التقدير}}) وبنسبة إجمالية ({{النسبة_العامة}})،\nوأنجز {{عدد_الدروس_المكتملة}} درساً بمعدل حضور {{ايام_الحضور}} يوماً.\nسائلين الله له/لها دوام التوفيق والتميّز.\nصدر بتاريخ: {{تاريخ_الاصدار}}',
+    bodyFontSize: 19,
+    bodyAlign: 'center',
+    bodyFontFamily: 'Cairo',
+    bodyColor: '#1e293b',
+    marginTop: 54,
+    marginSide: 60,
+    marginBottom: 42,
+    signatures: [
+      { id: 'sig_1', title: 'مدير البرنامج / المعلم المشرف', url: '', width: 120 },
+    ],
+    stamps: [{ id: 'stp_1', title: 'الختم الرسمي', url: '', width: 95 }],
+  },
+};
+
+const VALID_RELEASE_MODES = new Set<PdfReleaseControlMode>([
+  'always_on',
+  'always_off',
+  'after_date',
+  'on_completion',
+]);
+const VALID_PDF_FONTS = new Set<PdfFontFamily>(['Cairo', 'Amiri', 'Aref Ruqaa']);
+const VALID_PDF_ALIGNS = new Set<PdfTextAlign>(['right', 'center', 'left']);
+
+export function normalizePdfReportSettings(raw: any): PdfReportSettings {
+  const def = DEFAULT_PDF_REPORT_SETTINGS;
+  if (!raw || typeof raw !== 'object') {
+    return JSON.parse(JSON.stringify(def));
+  }
+
+  const releaseMode: PdfReleaseControlMode = VALID_RELEASE_MODES.has(raw.releaseMode)
+    ? raw.releaseMode
+    : def.releaseMode;
+
+  const programReleaseOverrides: Record<string, PdfProgramReleaseOverride> = {};
+  if (raw.programReleaseOverrides && typeof raw.programReleaseOverrides === 'object') {
+    for (const [pid, val] of Object.entries(raw.programReleaseOverrides)) {
+      if (!pid || !val || typeof val !== 'object') continue;
+      const vObj = val as any;
+      if (VALID_RELEASE_MODES.has(vObj.releaseMode)) {
+        programReleaseOverrides[pid] = {
+          releaseMode: vObj.releaseMode,
+          releaseDate: normalizeDateISO(vObj.releaseDate || '') || '',
+        };
+      }
+    }
+  }
+
+  const studentAllowOverrides: Record<string, 'allow' | 'deny'> = {};
+  if (raw.studentAllowOverrides && typeof raw.studentAllowOverrides === 'object') {
+    for (const [sid, val] of Object.entries(raw.studentAllowOverrides)) {
+      const cleanId = normalizeAttDigits(sid);
+      if (cleanId && (val === 'allow' || val === 'deny')) {
+        studentAllowOverrides[cleanId] = val;
+      }
+    }
+  }
+
+  const rawSec = raw.includeSections || {};
+  const defSec = def.includeSections;
+  const rawCert = raw.certificate || {};
+  const defCert = def.certificate;
+
+  const signatures: PdfSignatureConfig[] = Array.isArray(rawCert.signatures)
+    ? rawCert.signatures
+        .filter((s: any) => s && typeof s === 'object')
+        .map((s: any, idx: number) => ({
+          id: String(s.id || `sig_${idx + 1}`),
+          title: String(s.title || ''),
+          url: String(s.url || ''),
+          width: Math.max(40, Math.min(320, Number(s.width) || 120)),
+        }))
+    : defCert.signatures.map((s) => ({ ...s }));
+
+  const stamps: PdfStampConfig[] = Array.isArray(rawCert.stamps)
+    ? rawCert.stamps
+        .filter((s: any) => s && typeof s === 'object')
+        .map((s: any, idx: number) => ({
+          id: String(s.id || `stp_${idx + 1}`),
+          title: String(s.title || ''),
+          url: String(s.url || ''),
+          width: Math.max(40, Math.min(300, Number(s.width) || 95)),
+        }))
+    : defCert.stamps.map((s) => ({ ...s }));
+
+  const accentRaw = String(raw.accentColor || def.accentColor);
+  const accentColor: PdfReportSettings['accentColor'] =
+    accentRaw === 'indigo' || accentRaw === 'amber' || accentRaw === 'slate'
+      ? accentRaw
+      : 'emerald';
+
+  return {
+    allowStudentFullReport:
+      raw.allowStudentFullReport !== undefined
+        ? Boolean(raw.allowStudentFullReport)
+        : def.allowStudentFullReport,
+    allowStudentCertificate:
+      raw.allowStudentCertificate !== undefined
+        ? Boolean(raw.allowStudentCertificate)
+        : def.allowStudentCertificate,
+    releaseMode,
+    releaseDate: normalizeDateISO(raw.releaseDate || '') || '',
+    programReleaseOverrides,
+    studentAllowOverrides,
+    backgroundUrl: String(raw.backgroundUrl || ''),
+    logoUrl: String(raw.logoUrl || ''),
+    headerTitle:
+      raw.headerTitle !== undefined ? String(raw.headerTitle) : def.headerTitle,
+    headerSubtitle:
+      raw.headerSubtitle !== undefined
+        ? String(raw.headerSubtitle)
+        : def.headerSubtitle,
+    footerNote:
+      raw.footerNote !== undefined ? String(raw.footerNote) : def.footerNote,
+    coverImageBeforeUrl: String(raw.coverImageBeforeUrl || ''),
+    closingImageAfterUrl: String(raw.closingImageAfterUrl || ''),
+    accentColor,
+    includeSections: {
+      overallSummary:
+        rawSec.overallSummary !== undefined
+          ? Boolean(rawSec.overallSummary)
+          : defSec.overallSummary,
+      encouragement:
+        rawSec.encouragement !== undefined
+          ? Boolean(rawSec.encouragement)
+          : defSec.encouragement,
+      attendance:
+        rawSec.attendance !== undefined
+          ? Boolean(rawSec.attendance)
+          : defSec.attendance,
+      scheduleProgress:
+        rawSec.scheduleProgress !== undefined
+          ? Boolean(rawSec.scheduleProgress)
+          : defSec.scheduleProgress,
+      pronunciation:
+        rawSec.pronunciation !== undefined
+          ? Boolean(rawSec.pronunciation)
+          : defSec.pronunciation,
+      matching:
+        rawSec.matching !== undefined ? Boolean(rawSec.matching) : defSec.matching,
+      dictation:
+        rawSec.dictation !== undefined
+          ? Boolean(rawSec.dictation)
+          : defSec.dictation,
+      writing:
+        rawSec.writing !== undefined ? Boolean(rawSec.writing) : defSec.writing,
+      catchAr:
+        rawSec.catchAr !== undefined ? Boolean(rawSec.catchAr) : defSec.catchAr,
+      video: rawSec.video !== undefined ? Boolean(rawSec.video) : defSec.video,
+    },
+    certificate: {
+      enabled:
+        rawCert.enabled !== undefined ? Boolean(rawCert.enabled) : defCert.enabled,
+      orientation: rawCert.orientation === 'portrait' ? 'portrait' : 'landscape',
+      backgroundUrl: String(rawCert.backgroundUrl || ''),
+      frameUrl: String(rawCert.frameUrl || ''),
+      footerImageUrl: String(rawCert.footerImageUrl || ''),
+      footerImageHeight: Math.max(
+        20,
+        Math.min(180, Number(rawCert.footerImageHeight) || defCert.footerImageHeight)
+      ),
+      subjectText:
+        rawCert.subjectText !== undefined
+          ? String(rawCert.subjectText)
+          : defCert.subjectText,
+      subjectFontSize: Math.max(
+        16,
+        Math.min(72, Number(rawCert.subjectFontSize) || defCert.subjectFontSize)
+      ),
+      subjectAlign: VALID_PDF_ALIGNS.has(rawCert.subjectAlign)
+        ? rawCert.subjectAlign
+        : defCert.subjectAlign,
+      subjectFontFamily: VALID_PDF_FONTS.has(rawCert.subjectFontFamily)
+        ? rawCert.subjectFontFamily
+        : defCert.subjectFontFamily,
+      subjectColor: String(rawCert.subjectColor || defCert.subjectColor),
+      bodyText:
+        rawCert.bodyText !== undefined ? String(rawCert.bodyText) : defCert.bodyText,
+      bodyFontSize: Math.max(
+        11,
+        Math.min(42, Number(rawCert.bodyFontSize) || defCert.bodyFontSize)
+      ),
+      bodyAlign: VALID_PDF_ALIGNS.has(rawCert.bodyAlign)
+        ? rawCert.bodyAlign
+        : defCert.bodyAlign,
+      bodyFontFamily: VALID_PDF_FONTS.has(rawCert.bodyFontFamily)
+        ? rawCert.bodyFontFamily
+        : defCert.bodyFontFamily,
+      bodyColor: String(rawCert.bodyColor || defCert.bodyColor),
+      marginTop: Math.max(
+        10,
+        Math.min(200, Number(rawCert.marginTop) || defCert.marginTop)
+      ),
+      marginSide: Math.max(
+        10,
+        Math.min(200, Number(rawCert.marginSide) || defCert.marginSide)
+      ),
+      marginBottom: Math.max(
+        10,
+        Math.min(200, Number(rawCert.marginBottom) || defCert.marginBottom)
+      ),
+      signatures,
+      stamps,
+    },
+  };
+}
+
+export function getLocalPdfReportSettings(): PdfReportSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PDF_SETTINGS);
+    if (!raw) return normalizePdfReportSettings(null);
+    return normalizePdfReportSettings(JSON.parse(raw));
+  } catch {
+    return normalizePdfReportSettings(null);
+  }
+}
+
+export function saveLocalPdfReportSettings(settings: PdfReportSettings): void {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY_PDF_SETTINGS,
+      JSON.stringify(normalizePdfReportSettings(settings))
+    );
+  } catch {}
+}
+
+export async function fetchPdfSettingsFromSheets(
+  webhookUrl: string
+): Promise<{ settings: PdfReportSettings | null; scriptSupported: boolean }> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { settings: getLocalPdfReportSettings(), scriptSupported: true };
+  }
+  try {
+    const cleanUrl = webhookUrl.trim();
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const res = await fetch(
+      `${cleanUrl}${sep}action=get_pdf_settings&_t=${Date.now()}`,
+      { method: 'GET', headers: { Accept: 'application/json' } }
+    );
+    const json = await res.json();
+    if (json && json.pdfSettingsHandled) {
+      if (json.settings && typeof json.settings === 'object') {
+        const normalized = normalizePdfReportSettings(json.settings);
+        saveLocalPdfReportSettings(normalized);
+        return { settings: normalized, scriptSupported: true };
+      }
+      return { settings: null, scriptSupported: true };
+    }
+    return { settings: null, scriptSupported: false };
+  } catch {
+    return { settings: null, scriptSupported: true };
+  }
+}
+
+export async function savePdfSettingsToSheets(
+  webhookUrl: string,
+  settings: PdfReportSettings
+): Promise<{
+  success: boolean;
+  cloudSaved: boolean;
+  needsScriptUpdate?: boolean;
+  message: string;
+}> {
+  const normalized = normalizePdfReportSettings(settings);
+  saveLocalPdfReportSettings(normalized);
+
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return {
+      success: true,
+      cloudSaved: false,
+      message: 'تم حفظ إعدادات PDF محلياً في المتصفح فقط.',
+    };
+  }
+
+  try {
+    const res = await fetch(webhookUrl.trim(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'save_pdf_settings',
+        settings: normalized,
+      }),
+    });
+    const json = await res.json();
+    if (json && json.pdfSettingsSaved) {
+      return {
+        success: true,
+        cloudSaved: true,
+        message:
+          json.message ||
+          'تم حفظ ومزامنة إعدادات تقارير PDF والشهادات إلى Google Sheets بنجاح!',
+      };
+    }
+    return {
+      success: true,
+      cloudSaved: false,
+      needsScriptUpdate: true,
+      message:
+        'تم الحفظ محلياً، لكن كود Google Apps Script المنشور قديم. حدّث الكود وانشر إصداراً جديداً لحفظ ورقة إعدادات_PDF.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      cloudSaved: false,
+      message: err?.message || 'حدث خطأ أثناء الاتصال بـ Google Sheets.',
+    };
+  }
+}
+
+export interface StudentPdfAccessEvaluation {
+  canViewReport: boolean;
+  canViewCertificate: boolean;
+  releaseLabelAr: string;
+  lockReasonAr: string;
+}
+
+export function evaluateStudentPdfAccess(params: {
+  pdfSettings: PdfReportSettings;
+  student?: StudentRegistrant | null;
+  isAdmin?: boolean;
+  scheduleCompletionPct?: number;
+  todayISO?: string;
+}): StudentPdfAccessEvaluation {
+  const { pdfSettings, student, isAdmin = false } = params;
+  if (isAdmin) {
+    return {
+      canViewReport: true,
+      canViewCertificate: true,
+      releaseLabelAr: 'معاينة الإدارة مفتوحة دائماً',
+      lockReasonAr: '',
+    };
+  }
+
+  const today = normalizeDateISO(params.todayISO) || getTodayLocalISO();
+  const cleanId = normalizeAttDigits(student?.id || '');
+  const override = cleanId ? pdfSettings.studentAllowOverrides?.[cleanId] : undefined;
+
+  if (override === 'deny') {
+    return {
+      canViewReport: false,
+      canViewCertificate: false,
+      releaseLabelAr: 'مغلق لهذا الحساب',
+      lockReasonAr: 'تم إغلاق إتاحة التقرير والشهادة لهذا الحساب من قِبل المعلم.',
+    };
+  }
+
+  if (override === 'allow') {
+    return {
+      canViewReport: true,
+      canViewCertificate: Boolean(pdfSettings.certificate?.enabled),
+      releaseLabelAr: 'استثناء مفتوح للطالب',
+      lockReasonAr: '',
+    };
+  }
+
+  const progId = (student?.programId || '').trim();
+  const progRule =
+    (progId && pdfSettings.programReleaseOverrides?.[progId]) || null;
+  const effectiveMode: PdfReleaseControlMode =
+    progRule?.releaseMode || pdfSettings.releaseMode || 'always_on';
+  const effectiveDate =
+    normalizeDateISO(progRule?.releaseDate || pdfSettings.releaseDate || '') || '';
+
+  let ruleOpen = true;
+  let releaseLabelAr = 'مفتوح دائماً';
+  let lockReasonAr = '';
+
+  if (effectiveMode === 'always_off') {
+    ruleOpen = false;
+    releaseLabelAr = 'مغلق حالياً';
+    lockReasonAr = 'التقرير الشامل والشهادة غير متاحين حالياً بناءً على إعدادات المعلم.';
+  } else if (effectiveMode === 'after_date') {
+    releaseLabelAr = effectiveDate
+      ? `يُفتح من تاريخ ${effectiveDate}`
+      : 'معلق لحين تحديد التاريخ';
+    if (!effectiveDate || today < effectiveDate) {
+      ruleOpen = false;
+      lockReasonAr = effectiveDate
+        ? `سيُتاح التقرير والشهادة تلقائياً بدءاً من تاريخ (${effectiveDate}).`
+        : 'بانتظار تحديد تاريخ فتح التقرير من قِبل المعلم.';
+    }
+  } else if (effectiveMode === 'on_completion') {
+    releaseLabelAr = 'عند إتمام 100% من خطة البرنامج';
+    const pct = Number(params.scheduleCompletionPct ?? 0);
+    if (pct < 100) {
+      ruleOpen = false;
+      lockReasonAr = `يُفتح التقرير والشهادة تلقائياً عند إتمام 100% من خطة البرنامج (إنجازك الحالي: ${pct}%).`;
+    }
+  }
+
+  const canReport = ruleOpen && Boolean(pdfSettings.allowStudentFullReport);
+  const canCert =
+    ruleOpen &&
+    Boolean(pdfSettings.allowStudentCertificate) &&
+    Boolean(pdfSettings.certificate?.enabled);
+
+  if (ruleOpen && !canReport && !canCert) {
+    lockReasonAr = 'قام المعلم بإخفاء التقرير والشهادة مؤقتاً عن حسابات الطلاب.';
+  }
+
+  return {
+    canViewReport: canReport,
+    canViewCertificate: canCert,
+    releaseLabelAr,
+    lockReasonAr,
+  };
+}
+
+function safeExtractPct(text?: string, fallback?: unknown): number {
+  const num = Number(fallback);
+  if (text) {
+    const eqMatch = String(text).match(/=\s*(\d+(?:\.\d+)?)\s*%/);
+    if (eqMatch) return Math.round(Number(eqMatch[1]));
+    const pctMatch = String(text).match(/(\d+(?:\.\d+)?)\s*%/);
+    if (pctMatch) return Math.round(Number(pctMatch[1]));
+  }
+  return Number.isFinite(num) ? Math.round(num) : 0;
+}
+
+export interface StudentReportScheduleDayRow {
+  date: string;
+  formattedDate: string;
+  weekday: string;
+  dayTypeLabelAr: string;
+  groupNames: string;
+  completedCount: number;
+  totalCount: number;
+}
+
+export interface StudentFullReportSummary {
+  studentId: string;
+  studentName: string;
+  programId: string;
+  programName: string;
+  issuedDateFormatted: string;
+  overallPct: number;
+  starsOutOf10: number;
+  gradeLabelAr: string;
+  encouragementTitle: string;
+  encouragementMessage: string;
+  totalScheduleDays: number;
+  totalScheduledLessons: number;
+  completedScheduledLessons: number;
+  scheduleCompletionPct: number;
+  scheduleDayRows: StudentReportScheduleDayRow[];
+  attendanceList: AttendanceRecord[];
+  pronunciationAvg: number;
+  pronunciationRows: {
+    word: string;
+    spokenText: string;
+    score: number;
+    grade: string;
+  }[];
+  matchingAvg: number;
+  matchingRows: {
+    subject: string;
+    exercisesCount: number;
+    avgPct: number;
+    status: string;
+  }[];
+  dictationAvg: number;
+  dictationRows: {
+    subject: string;
+    exercisesCount: number;
+    avgPct: number;
+    status: string;
+  }[];
+  writingAvg: number;
+  writingRows: {
+    topic: string;
+    boardsCount: number;
+    avgScore: number;
+    status: string;
+  }[];
+  catchAvg: number;
+  catchRows: {
+    subject: string;
+    exercisesCount: number;
+    avgPct: number;
+    status: string;
+  }[];
+  videoCompletedCount: number;
+  videoRows: {
+    title: string;
+    videoDone: boolean;
+    imageStatus: string;
+    audioStatus: string;
+    completed: boolean;
+    pct: number;
+  }[];
+}
+
+export function buildStudentFullReportSummary(params: {
+  student: { id: string; name: string; programId?: string };
+  schedule: CourseScheduleData;
+  attendanceRecords: AttendanceRecord[];
+  curriculum: WordItem[];
+  studentHistory: PracticeHistoryItem[];
+  matchingSubjects: MatchingLessonSubject[];
+  matchingHistory: MatchingHistoryItem[];
+  dictationSubjects: DictationLessonSubject[];
+  dictationHistory: DictationHistoryItem[];
+  writingTemplates: DrawingTemplate[];
+  writingHistory: WritingHistoryItem[];
+  catchSubjects: CatchLessonSubject[];
+  catchHistory: CatchHistoryItem[];
+  videoLessons: VideoLesson[];
+  videoProgressMap: Record<string, VideoStudentProgress>;
+}): StudentFullReportSummary {
+  const cleanId = normalizeAttDigits(params.student.id || '');
+  const cleanName = (params.student.name || 'طالب').trim();
+  const { activeProgram, scopedSchedule } = getScheduleForProgram(
+    params.schedule,
+    params.student.programId
+  );
+
+  // 1. Attendance for this student
+  const attendanceList = (params.attendanceRecords || [])
+    .filter((r) => !cleanId || normalizeAttDigits(r.studentId) === cleanId)
+    .slice()
+    .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  // 2. Schedule days progress
+  const evalCtx = {
+    curriculum: params.curriculum,
+    studentHistory: params.studentHistory,
+    matchingSubjects: params.matchingSubjects,
+    matchingHistory: params.matchingHistory,
+    dictationSubjects: params.dictationSubjects,
+    dictationHistory: params.dictationHistory,
+    writingTemplates: params.writingTemplates,
+    writingHistory: params.writingHistory,
+    catchSubjects: params.catchSubjects,
+    catchHistory: params.catchHistory,
+    videoLessons: params.videoLessons,
+    videoProgressMap: params.videoProgressMap,
+  };
+
+  let totalScheduledLessons = 0;
+  let completedScheduledLessons = 0;
+
+  const scheduleDayRows: StudentReportScheduleDayRow[] = scopedSchedule.days.map(
+    (day) => {
+      const gIds = day.groupIds?.length
+        ? day.groupIds
+        : day.groupId
+        ? [day.groupId]
+        : [];
+      const grps = gIds
+        .map((gid) => scopedSchedule.groups.find((g) => g.id === gid))
+        .filter((g): g is CourseGroup => Boolean(g));
+      const refs = grps.flatMap((g) => g.lessons || []);
+      let done = 0;
+      for (const ref of refs) {
+        if (evaluateScheduledLessonStatus(ref, evalCtx).completed) done++;
+      }
+      totalScheduledLessons += refs.length;
+      completedScheduledLessons += done;
+      const dLbl = formatScheduleDateLabel(day.date, 'ar');
+      return {
+        date: day.date,
+        formattedDate: dLbl.formattedDate,
+        weekday: dLbl.weekday,
+        dayTypeLabelAr:
+          SCHEDULE_DAY_TYPE_META[day.dayType]?.labelAr || 'درس عادي',
+        groupNames:
+          grps.map((g) => g.name).join(' + ') || day.customTitle || '—',
+        completedCount: done,
+        totalCount: refs.length,
+      };
+    }
+  );
+
+  const scheduleCompletionPct =
+    totalScheduledLessons > 0
+      ? Math.round((completedScheduledLessons / totalScheduledLessons) * 100)
+      : 0;
+
+  // 3. Pronunciation (answers 1)
+  const pronunciationRows = (params.studentHistory || []).map((h) => ({
+    word: h.word || '',
+    spokenText: h.spokenText || '—',
+    score: Math.round(Number(h.score) || 0),
+    grade: h.grade || '',
+  }));
+  const pronunciationAvg =
+    pronunciationRows.length > 0
+      ? Math.round(
+          pronunciationRows.reduce((acc, r) => acc + r.score, 0) /
+            pronunciationRows.length
+        )
+      : 0;
+
+  // 4. Matching (answers 2)
+  const matchingRows = (params.matchingHistory || []).map((m) => {
+    const exs = m.exercises || [];
+    const avgPct =
+      exs.length > 0
+        ? Math.round(
+            exs.reduce(
+              (acc, ex) => acc + safeExtractPct(ex.formulaString, ex.percentage),
+              0
+            ) / exs.length
+          )
+        : safeExtractPct(m.completionStatus, 0);
+    return {
+      subject: m.lessonSubject || '',
+      exercisesCount: exs.length,
+      avgPct,
+      status: m.completionStatus || '',
+    };
+  });
+  const matchingAvg =
+    matchingRows.length > 0
+      ? Math.round(
+          matchingRows.reduce((acc, r) => acc + r.avgPct, 0) / matchingRows.length
+        )
+      : 0;
+
+  // 5. Dictation (answers 3)
+  const dictationRows = (params.dictationHistory || []).map((d) => {
+    const exs = d.exercises || [];
+    const avgPct =
+      exs.length > 0
+        ? Math.round(
+            exs.reduce(
+              (acc, ex) => acc + safeExtractPct(ex.formulaString, ex.percentage),
+              0
+            ) / exs.length
+          )
+        : safeExtractPct(d.completionStatus, 0);
+    return {
+      subject: d.lessonSubject || '',
+      exercisesCount: exs.length,
+      avgPct,
+      status: d.completionStatus || '',
+    };
+  });
+  const dictationAvg =
+    dictationRows.length > 0
+      ? Math.round(
+          dictationRows.reduce((acc, r) => acc + r.avgPct, 0) / dictationRows.length
+        )
+      : 0;
+
+  // 6. Writing (answers 4)
+  const writingRows = (params.writingHistory || []).map((w) => {
+    const exs = w.exercises || [];
+    const avgScore =
+      exs.length > 0
+        ? Math.round(
+            exs.reduce((acc, ex) => acc + (Number(ex.score) || 0), 0) / exs.length
+          )
+        : safeExtractPct(w.completionStatus, 0);
+    return {
+      topic: w.topic || '',
+      boardsCount: exs.length,
+      avgScore,
+      status: w.completionStatus || '',
+    };
+  });
+  const writingAvg =
+    writingRows.length > 0
+      ? Math.round(
+          writingRows.reduce((acc, r) => acc + r.avgScore, 0) / writingRows.length
+        )
+      : 0;
+
+  // 7. AR Catch (اجابات صيد)
+  const catchRows = (params.catchHistory || []).map((c) => {
+    const exs = c.exercises || [];
+    const avgPct =
+      exs.length > 0
+        ? Math.round(
+            exs.reduce(
+              (acc, ex) => acc + safeExtractPct(ex.formulaString, ex.percentage),
+              0
+            ) / exs.length
+          )
+        : safeExtractPct(c.completionStatus, 0);
+    return {
+      subject: c.lessonSubject || '',
+      exercisesCount: exs.length,
+      avgPct,
+      status: c.completionStatus || '',
+    };
+  });
+  const catchAvg =
+    catchRows.length > 0
+      ? Math.round(
+          catchRows.reduce((acc, r) => acc + r.avgPct, 0) / catchRows.length
+        )
+      : 0;
+
+  // 8. Video lessons
+  const videoRows = (params.videoLessons || []).map((vl) => {
+    const prog = params.videoProgressMap?.[vl.id];
+    const ev = evaluateVideoLessonCompletion(vl, prog);
+    const totalParts = 1 + (ev.imageRequired ? 1 : 0) + (ev.audioRequired ? 1 : 0);
+    const doneParts =
+      (ev.videoDone ? 1 : 0) +
+      (ev.imageRequired && ev.imageDone ? 1 : 0) +
+      (ev.audioRequired && ev.audioDone ? 1 : 0);
+    const pct = totalParts > 0 ? Math.round((doneParts / totalParts) * 100) : 0;
+    return {
+      title: vl.title || vl.topic || vl.id,
+      videoDone: ev.videoDone,
+      imageStatus: ev.imageRequired
+        ? ev.imageDone
+          ? 'تم الإرسال ✓'
+          : 'مطلوب'
+        : 'غير مطلوب',
+      audioStatus: ev.audioRequired
+        ? ev.audioDone
+          ? prog?.explainAudioScore
+            ? `تم (${prog.explainAudioScore}%)`
+            : 'تم الإرسال ✓'
+          : 'مطلوب'
+        : 'غير مطلوب',
+      completed: ev.isFullyCompleted,
+      pct,
+    };
+  });
+  const videoCompletedCount = videoRows.filter((v) => v.completed).length;
+  const activeVideoRows = videoRows.filter((v) => v.pct > 0);
+  const videoAvg =
+    activeVideoRows.length > 0
+      ? Math.round(
+          activeVideoRows.reduce((acc, v) => acc + v.pct, 0) /
+            activeVideoRows.length
+        )
+      : 0;
+
+  // Overall average across categories where student has recorded progress
+  const activeScores: number[] = [];
+  if (pronunciationRows.length > 0) activeScores.push(pronunciationAvg);
+  if (matchingRows.length > 0) activeScores.push(matchingAvg);
+  if (dictationRows.length > 0) activeScores.push(dictationAvg);
+  if (writingRows.length > 0) activeScores.push(writingAvg);
+  if (catchRows.length > 0) activeScores.push(catchAvg);
+  if (activeVideoRows.length > 0) activeScores.push(videoAvg);
+  if (activeScores.length === 0 && scheduleCompletionPct > 0) {
+    activeScores.push(scheduleCompletionPct);
+  }
+
+  const overallPct =
+    activeScores.length > 0
+      ? Math.round(
+          activeScores.reduce((acc, s) => acc + s, 0) / activeScores.length
+        )
+      : 0;
+  const starsOutOf10 =
+    activeScores.length > 0
+      ? Math.max(1, Math.min(10, Math.round(overallPct / 10)))
+      : 0;
+
+  let gradeLabelAr = 'مشارك نشيط';
+  let encouragementTitle = 'انطلاقة موفّقة نحو الإتقان';
+  let encouragementMessage =
+    'استمر في التدريب اليومي المنتظم عبر التمارين الصوتية والكتابية لتحقيق أعلى مستويات الفصاحة والإتقان.';
+
+  if (overallPct >= 90) {
+    gradeLabelAr = 'ممتاز مع مرتبة الشرف';
+    encouragementTitle = 'أداء استثنائي ومستوى رفيع!';
+    encouragementMessage =
+      'ما شاء الله! حققت نتائج باهرة ومتميزة في مختلف مهارات النطق والكتابة والاستيعاب. نفخر بتفانيك وانضباطك طوال البرنامج.';
+  } else if (overallPct >= 80) {
+    gradeLabelAr = 'ممتاز';
+    encouragementTitle = 'تقدّم رائع وإتقان واضح!';
+    encouragementMessage =
+      'أحسنت! أظهرت التزاماً عالياً وجودة لافتة في النطق والإملاء والخط العربي. واصل بهذا الحماس نحو القمة.';
+  } else if (overallPct >= 70) {
+    gradeLabelAr = 'جيد جداً';
+    encouragementTitle = 'إنجاز طيّب وخطى ثابتة!';
+    encouragementMessage =
+      'جهد مشكور وتطور ملحوظ في إتمام المهام المطلوبة. بمزيد من المراجعة والتكرار ستصل إلى الدرجات الكاملة بإذن الله.';
+  } else if (overallPct >= 50) {
+    gradeLabelAr = 'جيد';
+    encouragementTitle = 'خطوة جميلة على طريق التعلّم!';
+    encouragementMessage =
+      'بداية إيجابية ومثابرة تستحق التشجيع. ننصح بمراجعة الدروس السابقة وإعادة التمارين التي لم تكتمل بعد.';
+  }
+
+  return {
+    studentId: params.student.id || '—',
+    studentName: cleanName,
+    programId: activeProgram.id,
+    programName: activeProgram.name,
+    issuedDateFormatted: formatScheduleDateLabel(getTodayLocalISO(), 'ar')
+      .formattedDate,
+    overallPct,
+    starsOutOf10,
+    gradeLabelAr,
+    encouragementTitle,
+    encouragementMessage,
+    totalScheduleDays: scopedSchedule.days.length,
+    totalScheduledLessons,
+    completedScheduledLessons,
+    scheduleCompletionPct,
+    scheduleDayRows,
+    attendanceList,
+    pronunciationAvg,
+    pronunciationRows,
+    matchingAvg,
+    matchingRows,
+    dictationAvg,
+    dictationRows,
+    writingAvg,
+    writingRows,
+    catchAvg,
+    catchRows,
+    videoCompletedCount,
+    videoRows,
+  };
+}
+
+function escapePdfHtml(raw: unknown): string {
+  return String(raw ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function resolvePdfImageSrc(url?: string): string {
+  const clean = (url || '').trim();
+  if (!clean) return '';
+  return getDirectImageUrl(clean);
+}
+
+const PDF_THEME_PALETTE: Record<
+  PdfReportSettings['accentColor'],
+  { primary: string; primaryDark: string; softBg: string; border: string }
+> = {
+  emerald: {
+    primary: '#059669',
+    primaryDark: '#064e3b',
+    softBg: '#ecfdf5',
+    border: '#a7f3d0',
+  },
+  indigo: {
+    primary: '#4f46e5',
+    primaryDark: '#312e81',
+    softBg: '#eef2ff',
+    border: '#c7d2fe',
+  },
+  amber: {
+    primary: '#d97706',
+    primaryDark: '#78350f',
+    softBg: '#fffbeb',
+    border: '#fde68a',
+  },
+  slate: {
+    primary: '#334155',
+    primaryDark: '#0f172a',
+    softBg: '#f8fafc',
+    border: '#cbd5e1',
+  },
+};
+
+export function buildFullReportHtml(params: {
+  summary: StudentFullReportSummary;
+  pdfSettings: PdfReportSettings;
+  platformTitle?: string;
+  homeLogoUrl?: string;
+}): string {
+  const { summary, pdfSettings } = params;
+  const palette = PDF_THEME_PALETTE[pdfSettings.accentColor] || PDF_THEME_PALETTE.emerald;
+  const sec = pdfSettings.includeSections;
+
+  const logoSrc = resolvePdfImageSrc(pdfSettings.logoUrl || params.homeLogoUrl);
+  const bgSrc = resolvePdfImageSrc(pdfSettings.backgroundUrl);
+  const coverBeforeSrc = resolvePdfImageSrc(pdfSettings.coverImageBeforeUrl);
+  const closingAfterSrc = resolvePdfImageSrc(pdfSettings.closingImageAfterUrl);
+
+  const starsHtml = Array.from({ length: 10 }, (_, idx) => {
+    const filled = idx < summary.starsOutOf10;
+    return `<span style="font-size:20px;color:${filled ? '#f59e0b' : '#cbd5e1'};margin:0 1px;">★</span>`;
+  }).join('');
+
+  const sectionTable = (
+    title: string,
+    headers: string[],
+    rowsHtml: string,
+    emptyText: string,
+    badge?: string
+  ) => `
+    <section class="card">
+      <div class="section-head">
+        <h3>${escapePdfHtml(title)}</h3>
+        ${badge ? `<span class="badge">${escapePdfHtml(badge)}</span>` : ''}
+      </div>
+      ${
+        rowsHtml
+          ? `<table>
+              <thead><tr>${headers
+                .map((h) => `<th>${escapePdfHtml(h)}</th>`)
+                .join('')}</tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>`
+          : `<div class="empty">${escapePdfHtml(emptyText)}</div>`
+      }
+    </section>
+  `;
+
+  const attendanceRowsHtml = summary.attendanceList
+    .map(
+      (a, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td class="mono">${escapePdfHtml(a.date)}</td>
+        <td class="mono">${escapePdfHtml(a.time || '—')}</td>
+        <td>${escapePdfHtml(a.sessionTitle || 'حصة')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const scheduleRowsHtml = summary.scheduleDayRows
+    .map(
+      (d) => `<tr>
+        <td class="mono">${escapePdfHtml(d.formattedDate)}</td>
+        <td>${escapePdfHtml(d.weekday)}</td>
+        <td>${escapePdfHtml(d.dayTypeLabelAr)}</td>
+        <td>${escapePdfHtml(d.groupNames)}</td>
+        <td class="mono">${d.completedCount} / ${d.totalCount}</td>
+      </tr>`
+    )
+    .join('');
+
+  const pronRowsHtml = summary.pronunciationRows
+    .map(
+      (p, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td class="amiri bold">${escapePdfHtml(p.word)}</td>
+        <td class="amiri">${escapePdfHtml(p.spokenText)}</td>
+        <td class="mono bold">${p.score}%</td>
+        <td>${escapePdfHtml(p.grade || '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const matchingRowsHtml = summary.matchingRows
+    .map(
+      (m, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td>${escapePdfHtml(m.subject)}</td>
+        <td class="mono">${m.exercisesCount}</td>
+        <td class="mono bold">${m.avgPct}%</td>
+        <td>${escapePdfHtml(m.status || '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const dictationRowsHtml = summary.dictationRows
+    .map(
+      (d, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td>${escapePdfHtml(d.subject)}</td>
+        <td class="mono">${d.exercisesCount}</td>
+        <td class="mono bold">${d.avgPct}%</td>
+        <td>${escapePdfHtml(d.status || '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const writingRowsHtml = summary.writingRows
+    .map(
+      (w, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td>${escapePdfHtml(w.topic)}</td>
+        <td class="mono">${w.boardsCount}</td>
+        <td class="mono bold">${w.avgScore}%</td>
+        <td>${escapePdfHtml(w.status || '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const catchRowsHtml = summary.catchRows
+    .map(
+      (c, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td>${escapePdfHtml(c.subject)}</td>
+        <td class="mono">${c.exercisesCount}</td>
+        <td class="mono bold">${c.avgPct}%</td>
+        <td>${escapePdfHtml(c.status || '—')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const videoRowsHtml = summary.videoRows
+    .map(
+      (v, idx) => `<tr>
+        <td>${idx + 1}</td>
+        <td>${escapePdfHtml(v.title)}</td>
+        <td>${v.videoDone ? 'مكتمل ✓' : 'لم يُنجز'}</td>
+        <td>${escapePdfHtml(v.imageStatus)}</td>
+        <td>${escapePdfHtml(v.audioStatus)}</td>
+        <td class="mono bold">${v.pct}%</td>
+      </tr>`
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapePdfHtml(pdfSettings.headerTitle)} - ${escapePdfHtml(summary.studentName)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Aref+Ruqaa:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Cairo', sans-serif;
+      color: #0f172a;
+      background: #ffffff;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .page-bg {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      opacity: 0.1;
+      pointer-events: none;
+      ${bgSrc ? `background-image: url('${escapePdfHtml(bgSrc)}'); background-size: cover; background-position: center;` : ''}
+    }
+    .cover-img-page {
+      page-break-after: always;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 265mm;
+    }
+    .closing-img-page {
+      page-break-before: always;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 265mm;
+    }
+    .full-img {
+      max-width: 100%;
+      max-height: 265mm;
+      border-radius: 12px;
+      object-fit: contain;
+    }
+    .container { padding: 4px; }
+    .header {
+      background: linear-gradient(135deg, ${palette.primaryDark}, ${palette.primary});
+      color: #ffffff;
+      border-radius: 16px;
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+    .header-brand { display: flex; align-items: center; gap: 14px; }
+    .header-logo {
+      width: 60px;
+      height: 60px;
+      border-radius: 12px;
+      object-fit: contain;
+      background: #ffffff;
+      padding: 4px;
+    }
+    .header h1 { margin: 0; font-size: 19px; font-weight: 800; }
+    .header p { margin: 4px 0 0; font-size: 12px; opacity: 0.92; }
+    .score-pill {
+      background: rgba(255,255,255,0.16);
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 14px;
+      padding: 10px 16px;
+      text-align: center;
+      min-width: 110px;
+    }
+    .score-pill .num { font-size: 24px; font-weight: 800; line-height: 1.1; }
+    .score-pill .lbl { font-size: 11px; opacity: 0.95; }
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .info-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 9px 11px;
+    }
+    .info-box .k { font-size: 10px; color: #64748b; font-weight: 700; }
+    .info-box .v { font-size: 13px; color: #0f172a; font-weight: 800; margin-top: 2px; }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      break-inside: avoid;
+    }
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 9px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .section-head h3 { margin: 0; font-size: 14px; font-weight: 800; color: ${palette.primaryDark}; }
+    .badge {
+      background: ${palette.softBg};
+      color: ${palette.primaryDark};
+      border: 1px solid ${palette.border};
+      border-radius: 999px;
+      padding: 2px 10px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .kpi-item {
+      background: ${palette.softBg};
+      border: 1px solid ${palette.border};
+      border-radius: 10px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .kpi-item .name { font-size: 11px; font-weight: 700; color: #334155; }
+    .kpi-item .val { font-size: 14px; font-weight: 800; color: ${palette.primaryDark}; font-family: monospace; }
+    .stars-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 12px;
+      padding: 9px 14px;
+      margin-bottom: 10px;
+    }
+    .encourage {
+      background: ${palette.softBg};
+      border-right: 4px solid ${palette.primary};
+      border-radius: 12px;
+      padding: 11px 14px;
+      margin-bottom: 12px;
+      break-inside: avoid;
+    }
+    .encourage h4 { margin: 0 0 4px; font-size: 13px; font-weight: 800; color: ${palette.primaryDark}; }
+    .encourage p { margin: 0; font-size: 12px; color: #334155; line-height: 1.7; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: right; }
+    th { background: #f1f5f9; font-weight: 800; color: #334155; }
+    tr:nth-child(even) td { background: #fafcff; }
+    .mono { font-family: monospace; direction: ltr; text-align: center; }
+    .amiri { font-family: 'Amiri', serif; font-size: 14px; }
+    .bold { font-weight: 800; }
+    .empty { font-size: 11px; color: #94a3b8; padding: 6px 0; }
+    .footer {
+      margin-top: 14px;
+      padding-top: 8px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body>
+  ${bgSrc ? '<div class="page-bg"></div>' : ''}
+  ${coverBeforeSrc ? `<div class="cover-img-page"><img src="${escapePdfHtml(coverBeforeSrc)}" class="full-img" alt="غلاف" /></div>` : ''}
+  <div class="container">
+    <header class="header">
+      <div class="header-brand">
+        ${logoSrc ? `<img src="${escapePdfHtml(logoSrc)}" class="header-logo" alt="شعار" />` : ''}
+        <div>
+          <h1>${escapePdfHtml(pdfSettings.headerTitle || 'تقرير الأداء الشامل')}</h1>
+          <p>${escapePdfHtml(pdfSettings.headerSubtitle || params.platformTitle || '')}</p>
+        </div>
+      </div>
+      <div class="score-pill">
+        <div class="num">${summary.overallPct}%</div>
+        <div class="lbl">${escapePdfHtml(summary.gradeLabelAr)}</div>
+      </div>
+    </header>
+
+    <div class="info-grid">
+      <div class="info-box"><div class="k">اسم المشترك</div><div class="v">${escapePdfHtml(summary.studentName)}</div></div>
+      <div class="info-box"><div class="k">رقم المشترك (ID)</div><div class="v">${escapePdfHtml(summary.studentId)}</div></div>
+      <div class="info-box"><div class="k">البرنامج التدريبي</div><div class="v">${escapePdfHtml(summary.programName)}</div></div>
+      <div class="info-box"><div class="k">تاريخ التقرير</div><div class="v">${escapePdfHtml(summary.issuedDateFormatted)}</div></div>
+    </div>
+
+    ${
+      sec.overallSummary
+        ? `<section class="card">
+            <div class="section-head">
+              <h3>الملخص العام والتقييم بالنجوم</h3>
+              <span class="badge">${summary.starsOutOf10} / 10 نجوم</span>
+            </div>
+            <div class="stars-box">
+              <div>${starsHtml}</div>
+              <div style="font-size:12px;font-weight:800;color:#92400e;">إنجاز الخطة: ${summary.completedScheduledLessons} / ${summary.totalScheduledLessons} (${summary.scheduleCompletionPct}%)</div>
+            </div>
+            <div class="kpi-grid">
+              <div class="kpi-item"><span class="name">تدريب النطق</span><span class="val">${summary.pronunciationAvg}%</span></div>
+              <div class="kpi-item"><span class="name">تمارين الوصل</span><span class="val">${summary.matchingAvg}%</span></div>
+              <div class="kpi-item"><span class="name">تمرين الإملاء</span><span class="val">${summary.dictationAvg}%</span></div>
+              <div class="kpi-item"><span class="name">تمرين الكتابة</span><span class="val">${summary.writingAvg}%</span></div>
+              <div class="kpi-item"><span class="name">تحدي الصيد AR</span><span class="val">${summary.catchAvg}%</span></div>
+              <div class="kpi-item"><span class="name">الفيديو التفاعلي</span><span class="val">${summary.videoCompletedCount}/${summary.videoRows.length}</span></div>
+            </div>
+          </section>`
+        : ''
+    }
+
+    ${
+      sec.encouragement
+        ? `<div class="encourage">
+            <h4>${escapePdfHtml(summary.encouragementTitle)}</h4>
+            <p>${escapePdfHtml(summary.encouragementMessage)}</p>
+          </div>`
+        : ''
+    }
+
+    ${
+      sec.attendance
+        ? sectionTable(
+            'سجل حضور الحصص اليومية',
+            ['#', 'التاريخ', 'الوقت', 'عنوان الحصة'],
+            attendanceRowsHtml,
+            'لم تُسجل أيام حضور بعد.',
+            `${summary.attendanceList.length} حضور`
+          )
+        : ''
+    }
+
+    ${
+      sec.scheduleProgress
+        ? sectionTable(
+            'التقدم حسب أيام الجدول الدراسي',
+            ['التاريخ', 'اليوم', 'النوع', 'المجموعة', 'الإنجاز'],
+            scheduleRowsHtml,
+            'لا توجد أيام مجدولة في هذا البرنامج.',
+            `${summary.scheduleCompletionPct}%`
+          )
+        : ''
+    }
+
+    ${
+      sec.pronunciation
+        ? sectionTable(
+            'نتائج تدريب النطق (answers 1)',
+            ['#', 'الكلمة المستهدفة', 'النطق المرصود', 'الدرجة', 'التقدير'],
+            pronRowsHtml,
+            'لا توجد محاولات نطق مسجلة حتى الآن.',
+            `المتوسط: ${summary.pronunciationAvg}%`
+          )
+        : ''
+    }
+
+    ${
+      sec.matching
+        ? sectionTable(
+            'نتائج تمارين الوصل (answers 2)',
+            ['#', 'موضوع الدرس', 'عدد التمارين', 'النسبة', 'الحالة'],
+            matchingRowsHtml,
+            'لا توجد نتائج في تمارين الوصل.',
+            `المتوسط: ${summary.matchingAvg}%`
+          )
+        : ''
+    }
+
+    ${
+      sec.dictation
+        ? sectionTable(
+            'نتائج تمارين الإملاء (answers 3)',
+            ['#', 'موضوع الدرس', 'عدد الكلمات', 'النسبة', 'الحالة'],
+            dictationRowsHtml,
+            'لا توجد نتائج في تمارين الإملاء.',
+            `المتوسط: ${summary.dictationAvg}%`
+          )
+        : ''
+    }
+
+    ${
+      sec.writing
+        ? sectionTable(
+            'نتائج تمارين الخط والكتابة (answers 4)',
+            ['#', 'الموضوع', 'عدد اللوحات', 'المتوسط', 'الحالة'],
+            writingRowsHtml,
+            'لا توجد نتائج في تمارين الكتابة.',
+            `المتوسط: ${summary.writingAvg}%`
+          )
+        : ''
+    }
+
+    ${
+      sec.catchAr
+        ? sectionTable(
+            'نتائج تحدي صيد الكلمات AR (اجابات صيد)',
+            ['#', 'موضوع الدرس', 'عدد الجولات', 'النسبة', 'الحالة'],
+            catchRowsHtml,
+            'لا توجد نتائج في تحدي الصيد AR.',
+            `المتوسط: ${summary.catchAvg}%`
+          )
+        : ''
+    }
+
+    ${
+      sec.video
+        ? sectionTable(
+            'نتائج دروس الفيديو التفاعلي والواجبات',
+            ['#', 'الدرس', 'الفيديو', 'واجب الصورة', 'الواجب الصوتي', 'الإنجاز'],
+            videoRowsHtml,
+            'لا توجد دروس فيديو مسجلة.',
+            `${summary.videoCompletedCount} / ${summary.videoRows.length}`
+          )
+        : ''
+    }
+
+    <footer class="footer">
+      <span>${escapePdfHtml(pdfSettings.footerNote || '')}</span>
+      <span>${escapePdfHtml(params.platformTitle || '')} · ${escapePdfHtml(summary.issuedDateFormatted)}</span>
+    </footer>
+  </div>
+  ${closingAfterSrc ? `<div class="closing-img-page"><img src="${escapePdfHtml(closingAfterSrc)}" class="full-img" alt="خاتمة" /></div>` : ''}
+</body>
+</html>`;
+}
+
+function interpolateCertificatePlaceholders(
+  template: string,
+  summary: StudentFullReportSummary
+): string {
+  return String(template || '')
+    .replace(/\{\{اسم_الطالب\}\}/g, summary.studentName)
+    .replace(/\{\{رقم_الطالب\}\}/g, summary.studentId)
+    .replace(/\{\{اسم_البرنامج\}\}/g, summary.programName)
+    .replace(/\{\{النسبة_العامة\}\}/g, `${summary.overallPct}%`)
+    .replace(/\{\{التقدير\}\}/g, summary.gradeLabelAr)
+    .replace(/\{\{تاريخ_الاصدار\}\}/g, summary.issuedDateFormatted)
+    .replace(/\{\{ايام_الحضور\}\}/g, String(summary.attendanceList.length))
+    .replace(/\{\{عدد_الدروس_المكتملة\}\}/g, String(summary.completedScheduledLessons));
+}
+
+export function buildCertificateHtml(params: {
+  summary: StudentFullReportSummary;
+  pdfSettings: PdfReportSettings;
+  platformTitle?: string;
+  homeLogoUrl?: string;
+}): string {
+  const { summary, pdfSettings } = params;
+  const cert = pdfSettings.certificate;
+  const isLandscape = cert.orientation !== 'portrait';
+  const pageW = isLandscape ? '297mm' : '210mm';
+  const pageH = isLandscape ? '210mm' : '297mm';
+
+  const bgSrc = resolvePdfImageSrc(cert.backgroundUrl);
+  const frameSrc = resolvePdfImageSrc(cert.frameUrl);
+  const footerSrc = resolvePdfImageSrc(cert.footerImageUrl);
+  const logoSrc = resolvePdfImageSrc(pdfSettings.logoUrl || params.homeLogoUrl);
+
+  const subjectText = interpolateCertificatePlaceholders(cert.subjectText, summary);
+  const bodyText = interpolateCertificatePlaceholders(cert.bodyText, summary);
+
+  const sigsHtml = (cert.signatures || [])
+    .map((sig) => {
+      const sSrc = resolvePdfImageSrc(sig.url);
+      return `<div class="sig-item">
+        ${sSrc ? `<img src="${escapePdfHtml(sSrc)}" style="width:${sig.width}px;max-height:70px;object-fit:contain;" alt="${escapePdfHtml(sig.title)}" />` : '<div class="sig-line"></div>'}
+        <div class="sig-title">${escapePdfHtml(sig.title)}</div>
+      </div>`;
+    })
+    .join('');
+
+  const stampsHtml = (cert.stamps || [])
+    .map((stp) => {
+      const stSrc = resolvePdfImageSrc(stp.url);
+      if (!stSrc) return '';
+      return `<div class="stamp-item">
+        <img src="${escapePdfHtml(stSrc)}" style="width:${stp.width}px;max-height:95px;object-fit:contain;" alt="${escapePdfHtml(stp.title)}" />
+        ${stp.title ? `<div class="sig-title">${escapePdfHtml(stp.title)}</div>` : ''}
+      </div>`;
+    })
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapePdfHtml(subjectText)} - ${escapePdfHtml(summary.studentName)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Aref+Ruqaa:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    @page { size: A4 ${isLandscape ? 'landscape' : 'portrait'}; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .sheet {
+      position: relative;
+      width: ${pageW};
+      height: ${pageH};
+      overflow: hidden;
+      background: #fffdf8;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: ${cert.marginTop}px ${cert.marginSide}px ${cert.marginBottom}px;
+      ${!frameSrc ? 'border: 14px double #b45309; outline: 3px solid #065f46; outline-offset: -22px;' : ''}
+    }
+    .layer-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+    .layer-frame {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      z-index: 1;
+      pointer-events: none;
+    }
+    .content {
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .top-brand {
+      text-align: center;
+      min-height: 44px;
+    }
+    .top-brand img {
+      max-height: 62px;
+      max-width: 160px;
+      object-fit: contain;
+    }
+    .subject {
+      font-family: '${cert.subjectFontFamily}', serif;
+      font-size: ${cert.subjectFontSize}px;
+      text-align: ${cert.subjectAlign};
+      color: ${escapePdfHtml(cert.subjectColor)};
+      font-weight: 700;
+      margin: 4px 0;
+      line-height: 1.35;
+    }
+    .body-text {
+      font-family: '${cert.bodyFontFamily}', sans-serif;
+      font-size: ${cert.bodyFontSize}px;
+      text-align: ${cert.bodyAlign};
+      color: ${escapePdfHtml(cert.bodyColor)};
+      white-space: pre-line;
+      line-height: 1.85;
+      font-weight: 600;
+      margin: auto 0;
+    }
+    .bottom-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-around;
+      gap: 24px;
+      margin-top: 12px;
+    }
+    .sig-item, .stamp-item {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+    }
+    .sig-line {
+      width: 130px;
+      height: 26px;
+      border-bottom: 1.5px dashed #64748b;
+    }
+    .sig-title {
+      font-family: 'Cairo', sans-serif;
+      font-size: 12px;
+      font-weight: 800;
+      color: #334155;
+    }
+    .footer-img-wrap {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .footer-img-wrap img {
+      max-width: 100%;
+      height: ${cert.footerImageHeight}px;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    ${bgSrc ? `<img src="${escapePdfHtml(bgSrc)}" class="layer-bg" alt="" />` : ''}
+    ${frameSrc ? `<img src="${escapePdfHtml(frameSrc)}" class="layer-frame" alt="" />` : ''}
+    <div class="content">
+      <div class="top-brand">
+        ${logoSrc ? `<img src="${escapePdfHtml(logoSrc)}" alt="الشعار" />` : ''}
+      </div>
+      <h1 class="subject">${escapePdfHtml(subjectText)}</h1>
+      <div class="body-text">${escapePdfHtml(bodyText)}</div>
+      ${
+        sigsHtml || stampsHtml
+          ? `<div class="bottom-row">${sigsHtml}${stampsHtml}</div>`
+          : ''
+      }
+    </div>
+    ${footerSrc ? `<div class="footer-img-wrap"><img src="${escapePdfHtml(footerSrc)}" alt="" /></div>` : ''}
+  </div>
+</body>
+</html>`;
+}
+
+export async function printHtmlViaIframe(html: string): Promise<void> {
+  return new Promise((resolve) => {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      setTimeout(() => {
+        try {
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        } catch {}
+        resolve();
+      }, 600);
+    };
+
+    const triggerPrint = async () => {
+      try {
+        const doc = iframe.contentDocument;
+        if (doc?.fonts?.ready) {
+          await Promise.race([
+            doc.fonts.ready,
+            new Promise((r) => setTimeout(r, 1100)),
+          ]);
+        }
+        const imgs = Array.from(doc?.images || []);
+        if (imgs.length > 0) {
+          await Promise.race([
+            Promise.all(
+              imgs.map((img) =>
+                img.complete
+                  ? Promise.resolve()
+                  : new Promise<void>((r) => {
+                      img.addEventListener('load', () => r(), { once: true });
+                      img.addEventListener('error', () => r(), { once: true });
+                    })
+              )
+            ),
+            new Promise((r) => setTimeout(r, 1500)),
+          ]);
+        }
+        const win = iframe.contentWindow;
+        if (win) {
+          win.addEventListener('afterprint', cleanup, { once: true });
+          win.focus();
+          win.print();
+          setTimeout(cleanup, 2500);
+        } else {
+          cleanup();
+        }
+      } catch {
+        cleanup();
+      }
+    };
+
+    iframe.onload = () => {
+      void triggerPrint();
+    };
+    document.body.appendChild(iframe);
+    iframe.srcdoc = html;
+  });
+}
+

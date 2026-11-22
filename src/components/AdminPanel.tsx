@@ -73,6 +73,7 @@ import {
   Users,
   Bot,
   LayoutGrid,
+  FileText,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
@@ -89,6 +90,7 @@ import { CourseScheduleAdmin } from './CourseScheduleAdmin';
 import { SubscribersAdminManager } from './SubscribersAdminManager';
 import { TelegramAdminManager } from './TelegramAdminManager';
 import { HomeContentAdminManager } from './HomeContentManager';
+import { PdfSettingsAdminPanel } from './StatsModal';
 import {
   CourseScheduleData,
   createEmptyCourseSchedule,
@@ -97,7 +99,7 @@ import {
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
-import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock, HomeNavbarControls } from '../types';
+import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock, HomeNavbarControls, PdfReportSettings } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -187,7 +189,11 @@ interface AdminPanelProps {
   onUpdateHomeContentBlocks?: (blocks: HomeContentBlock[]) => void;
   homeNavbarControls?: HomeNavbarControls;
   onUpdateHomeNavbarControls?: (controls: HomeNavbarControls) => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  pdfSettings?: PdfReportSettings;
+  onUpdatePdfSettings?: (next: PdfReportSettings) => void;
+  homeLogoUrl?: string;
+  platformTitle?: string;
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -267,9 +273,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateHomeContentBlocks,
   homeNavbarControls,
   onUpdateHomeNavbarControls,
+  pdfSettings,
+  onUpdatePdfSettings,
+  homeLogoUrl,
+  platformTitle,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1278,6 +1288,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <LayoutGrid className={`w-4 h-4 ${activeTab === 'homeContent' ? 'text-white' : 'text-emerald-600'}`} />
             <span>محتوى الصفحة الرئيسية</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('pdf')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'pdf'
+                ? 'bg-amber-500 text-slate-950 shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <FileText className={`w-4 h-4 ${activeTab === 'pdf' ? 'text-slate-950' : 'text-amber-600'}`} />
+            <span>تقارير PDF والشهادات</span>
           </button>
 
           <button
@@ -3033,6 +3055,24 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 courseSchedule || createEmptyCourseSchedule()
               ).programs
             }
+          />
+        )}
+
+        {/* TAB 14: END-OF-PROGRAM PDF REPORTS & CERTIFICATES */}
+        {activeTab === 'pdf' && (
+          <PdfSettingsAdminPanel
+            settings={pdfSettings}
+            onUpdateSettings={(next) => onUpdatePdfSettings?.(next)}
+            webhookUrl={sheetsConfig.webhookUrl}
+            courseSchedule={courseSchedule}
+            curriculum={curriculum}
+            matchingSubjects={matchingSubjects}
+            dictationSubjects={dictationSubjects}
+            writingTemplates={writingTemplates}
+            catchSubjects={catchSubjects}
+            videoLessons={videoLessons}
+            homeLogoUrl={homeLogoUrl}
+            platformTitle={platformTitle}
           />
         )}
 

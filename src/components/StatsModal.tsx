@@ -1,12 +1,45 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   CatchHistoryItem,
+  CatchLessonSubject,
   DictationHistoryItem,
+  DictationLessonSubject,
   MatchingHistoryItem,
+  MatchingLessonSubject,
+  PdfFontFamily,
+  PdfReleaseControlMode,
+  PdfReportSectionsConfig,
+  PdfReportSettings,
+  PdfTextAlign,
   PracticeHistoryItem,
   StudentRegistrant,
+  WordItem,
 } from '../types';
-import { X, Award, Play, Pause, User, Loader2, Link2, CheckCircle2, Clock, Sparkles, Target } from 'lucide-react';
+import {
+  X,
+  Award,
+  Play,
+  Pause,
+  User,
+  Loader2,
+  Link2,
+  CheckCircle2,
+  Clock,
+  Sparkles,
+  Target,
+  FileText,
+  Save,
+  RefreshCw,
+  RotateCcw,
+  Shield,
+  Sliders,
+  Plus,
+  Trash2,
+  Eye,
+  Lock,
+  Image as ImageIcon,
+  Calendar,
+} from 'lucide-react';
 import {
   SupportedLang,
   TranslationItem,
@@ -17,8 +50,32 @@ import {
   translateMatchingCompletionStatus,
   translateMatchingFormulaString,
 } from '../utils/translations';
-import { extractPercentageFromMatchingText } from '../utils/googleSheets';
-import { getAlternativeAudioUrls } from '../utils/mediaUrl';
+import {
+  extractPercentageFromMatchingText,
+  fetchIDRegistrants,
+  fetchStudentCatchHistory,
+  fetchStudentDictationHistory,
+  fetchStudentMatchingHistory,
+  fetchStudentSubmissionsFromSheet,
+  fetchStudentWritingHistory,
+} from '../utils/googleSheets';
+import { getAlternativeAudioUrls, getDirectImageUrl } from '../utils/mediaUrl';
+import {
+  CourseScheduleData,
+  DEFAULT_PDF_REPORT_SETTINGS,
+  buildCertificateHtml,
+  buildFullReportHtml,
+  buildStudentFullReportSummary,
+  createEmptyCourseSchedule,
+  fetchAttendanceRecordsFromSheets,
+  fetchPdfSettingsFromSheets,
+  normalizeCourseScheduleData,
+  normalizePdfReportSettings,
+  savePdfSettingsToSheets,
+} from '../utils/courseSchedule';
+import { DrawingTemplate } from '../arWriting/types/drawing';
+import { VideoLesson, fetchStudentVideoProgress } from '../video/videoSheets';
+import { PdfPreviewModal } from './CourseScheduleModal';
 
 interface StatsModalProps {
   isOpen: boolean;
@@ -890,4 +947,1378 @@ export const StatsModal: React.FC<StatsModalProps> = ({
     </div>
   );
 };
+
+// =========================================================================
+// لوحة تحكم تقارير نهاية البرنامج والشهادات التفاعلية (PDF) في لوحة الإدارة
+// =========================================================================
+
+export interface PdfSettingsAdminPanelProps {
+  settings?: PdfReportSettings;
+  onUpdateSettings: (next: PdfReportSettings) => void;
+  webhookUrl: string;
+  courseSchedule?: CourseScheduleData;
+  curriculum?: WordItem[];
+  matchingSubjects?: MatchingLessonSubject[];
+  dictationSubjects?: DictationLessonSubject[];
+  writingTemplates?: DrawingTemplate[];
+  catchSubjects?: CatchLessonSubject[];
+  videoLessons?: VideoLesson[];
+  homeLogoUrl?: string;
+  platformTitle?: string;
+}
+
+type PdfAdminSubTab = 'access' | 'report' | 'certificate';
+
+const RELEASE_MODE_OPTIONS: { value: PdfReleaseControlMode; label: string }[] = [
+  { value: 'always_on', label: 'مفتوح دائماً للطلاب' },
+  { value: 'always_off', label: 'مغلق حالياً عن الطلاب' },
+  { value: 'after_date', label: 'يُفتح بدءاً من تاريخ محدد' },
+  { value: 'on_completion', label: 'يُفتح عند إتمام 100% من خطة البرنامج' },
+];
+
+const PDF_SECTION_LABELS: { key: keyof PdfReportSectionsConfig; label: string }[] = [
+  { key: 'overallSummary', label: 'الملخص العام والنجوم (من 10)' },
+  { key: 'encouragement', label: 'رسالة التشجيع والتقدير' },
+  { key: 'attendance', label: 'سجل حضور الحصص اليومية' },
+  { key: 'scheduleProgress', label: 'التقدم حسب أيام الجدول الدراسي' },
+  { key: 'pronunciation', label: 'نتائج تدريب النطق (answers 1)' },
+  { key: 'matching', label: 'نتائج تمارين الوصل (answers 2)' },
+  { key: 'dictation', label: 'نتائج تمرين الإملاء (answers 3)' },
+  { key: 'writing', label: 'نتائج الخط والكتابة (answers 4)' },
+  { key: 'catchAr', label: 'نتائج تحدي الصيد AR (اجابات صيد)' },
+  { key: 'video', label: 'نتائج الفيديو التفاعلي والواجبات' },
+];
+
+const CERT_PLACEHOLDERS: { token: string; label: string }[] = [
+  { token: '{{اسم_الطالب}}', label: 'اسم الطالب' },
+  { token: '{{رقم_الطالب}}', label: 'رقم المشترك' },
+  { token: '{{اسم_البرنامج}}', label: 'اسم البرنامج' },
+  { token: '{{النسبة_العامة}}', label: 'النسبة العامة' },
+  { token: '{{التقدير}}', label: 'التقدير' },
+  { token: '{{تاريخ_الاصدار}}', label: 'تاريخ الإصدار' },
+  { token: '{{ايام_الحضور}}', label: 'أيام الحضور' },
+  { token: '{{عدد_الدروس_المكتملة}}', label: 'الدروس المكتملة' },
+];
+
+export const PdfSettingsAdminPanel: React.FC<PdfSettingsAdminPanelProps> = ({
+  settings,
+  onUpdateSettings,
+  webhookUrl,
+  courseSchedule,
+  curriculum = [],
+  matchingSubjects = [],
+  dictationSubjects = [],
+  writingTemplates = [],
+  catchSubjects = [],
+  videoLessons = [],
+  homeLogoUrl,
+  platformTitle,
+}) => {
+  const [draft, setDraft] = useState<PdfReportSettings>(() =>
+    normalizePdfReportSettings(settings || DEFAULT_PDF_REPORT_SETTINGS)
+  );
+  const [subTab, setSubTab] = useState<PdfAdminSubTab>('access');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPulling, setIsPulling] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<{
+    type: 'success' | 'warn' | 'error';
+    text: string;
+  } | null>(null);
+
+  const [registrants, setRegistrants] = useState<StudentRegistrant[]>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState<string>('__sample__');
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<{
+    title: string;
+    html: string;
+    orientation: 'portrait' | 'landscape';
+  } | null>(null);
+
+  const [overrideStudentIdInput, setOverrideStudentIdInput] = useState('');
+  const [overrideStudentAction, setOverrideStudentAction] = useState<'allow' | 'deny'>('allow');
+
+  useEffect(() => {
+    if (settings) {
+      setDraft(normalizePdfReportSettings(settings));
+    }
+  }, [settings]);
+
+  useEffect(() => {
+    if (!webhookUrl) return;
+    fetchIDRegistrants(webhookUrl)
+      .then((list) => {
+        if (Array.isArray(list)) setRegistrants(list);
+      })
+      .catch(() => {});
+  }, [webhookUrl]);
+
+  const normalizedSchedule = normalizeCourseScheduleData(
+    courseSchedule || createEmptyCourseSchedule()
+  );
+  const programs = normalizedSchedule.programs || [];
+
+  const updateDraft = (updater: (prev: PdfReportSettings) => PdfReportSettings) => {
+    setDraft((prev) => {
+      const next = updater(prev);
+      onUpdateSettings(next);
+      return next;
+    });
+  };
+
+  const handleSaveToSheets = async () => {
+    setIsSaving(true);
+    setStatusMsg(null);
+    try {
+      const normalized = normalizePdfReportSettings(draft);
+      onUpdateSettings(normalized);
+      const res = await savePdfSettingsToSheets(webhookUrl, normalized);
+      setStatusMsg({
+        type: res.cloudSaved ? 'success' : res.needsScriptUpdate ? 'warn' : 'error',
+        text: res.message,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handlePullFromSheets = async () => {
+    if (!webhookUrl) return;
+    setIsPulling(true);
+    setStatusMsg(null);
+    try {
+      const res = await fetchPdfSettingsFromSheets(webhookUrl);
+      if (!res.scriptSupported) {
+        setStatusMsg({
+          type: 'warn',
+          text: 'كود Google Apps Script المنشور قديم ولا يدعم إعدادات_PDF بعد. انسخ الكود المحدث وانشر إصداراً جديداً.',
+        });
+      } else if (res.settings) {
+        setDraft(res.settings);
+        onUpdateSettings(res.settings);
+        setStatusMsg({
+          type: 'success',
+          text: 'تم جلب إعدادات تقارير PDF والشهادات من Google Sheets بنجاح!',
+        });
+      } else {
+        setStatusMsg({
+          type: 'warn',
+          text: 'لا توجد إعدادات محفوظة في ورقة إعدادات_PDF بعد — اضغط حفظ لرفع الإعدادات الحالية.',
+        });
+      }
+    } finally {
+      setIsPulling(false);
+    }
+  };
+
+  const handleResetDefaults = () => {
+    const def = normalizePdfReportSettings(DEFAULT_PDF_REPORT_SETTINGS);
+    setDraft(def);
+    onUpdateSettings(def);
+    setStatusMsg({
+      type: 'warn',
+      text: 'تمت استعادة الإعدادات الافتراضية محلياً. اضغط «حفظ ومزامنة» لتثبيتها في الشيت.',
+    });
+  };
+
+  const handleOpenPreview = async (kind: 'report' | 'certificate') => {
+    setIsPreviewLoading(true);
+    try {
+      let studentObj: { id: string; name: string; programId?: string } = {
+        id: '1001',
+        name: 'أحمد بن سالم النموذجي',
+        programId: programs[0]?.id,
+      };
+      let stuPron: PracticeHistoryItem[] = [
+        {
+          id: 'p1',
+          wordId: 'w1',
+          word: 'مَدْرَسَةٌ',
+          score: 94,
+          grade: 'ممتاز',
+          timestamp: Date.now(),
+          spokenText: 'مَدْرَسَةٌ',
+        },
+        {
+          id: 'p2',
+          wordId: 'w2',
+          word: 'قَلَمٌ',
+          score: 88,
+          grade: 'جيد جداً',
+          timestamp: Date.now(),
+          spokenText: 'قَلَمٌ',
+        },
+      ];
+      let stuMatch: MatchingHistoryItem[] = [
+        {
+          id: 'm1',
+          timestamp: '2026/01/10',
+          studentId: '1001',
+          studentName: studentObj.name,
+          lessonSubject: matchingSubjects[0]?.subjectName || 'الدرس الأول',
+          completionStatus: 'مكتمل (92%)',
+          exercises: [{ exerciseNumber: 1, formulaString: '(5 - 5 صحيح - 0 خطأ = 100%)', percentage: 100 }],
+        },
+      ];
+      let stuDict: DictationHistoryItem[] = [];
+      let stuWrite: any[] = [];
+      let stuCatch: CatchHistoryItem[] = [];
+      let stuVideo: Record<string, any> = {};
+      let stuAtt: any[] = [
+        {
+          date: new Date().toISOString().slice(0, 10),
+          time: '09:00',
+          studentId: '1001',
+          studentName: studentObj.name,
+          sessionTitle: 'الحصة التأسيسية الأولى',
+        },
+      ];
+
+      if (selectedStudentId !== '__sample__') {
+        const reg = registrants.find((r) => r.id === selectedStudentId);
+        if (reg) {
+          studentObj = { id: reg.id, name: reg.name, programId: reg.programId };
+          if (webhookUrl) {
+            const [sh, mh, dh, wh, ch, vp, att] = await Promise.all([
+              fetchStudentSubmissionsFromSheet(webhookUrl, reg.id, reg.name).catch(() => []),
+              fetchStudentMatchingHistory(webhookUrl, reg.id, reg.name).catch(() => []),
+              fetchStudentDictationHistory(webhookUrl, reg.id, reg.name).catch(() => []),
+              fetchStudentWritingHistory(webhookUrl, reg.id, reg.name).catch(() => []),
+              fetchStudentCatchHistory(webhookUrl, reg.id, reg.name).catch(() => []),
+              fetchStudentVideoProgress(webhookUrl, reg.id, reg.name).catch(() => ({})),
+              fetchAttendanceRecordsFromSheets(webhookUrl, { studentId: reg.id }).catch(() => ({
+                records: [],
+              })),
+            ]);
+            stuPron = sh || [];
+            stuMatch = mh || [];
+            stuDict = dh || [];
+            stuWrite = wh || [];
+            stuCatch = ch || [];
+            stuVideo = vp || {};
+            stuAtt = att?.records || [];
+          } else {
+            stuPron = [];
+            stuMatch = [];
+            stuAtt = [];
+          }
+        }
+      }
+
+      const summary = buildStudentFullReportSummary({
+        student: studentObj,
+        schedule: normalizedSchedule,
+        attendanceRecords: stuAtt,
+        curriculum,
+        studentHistory: stuPron,
+        matchingSubjects,
+        matchingHistory: stuMatch,
+        dictationSubjects,
+        dictationHistory: stuDict,
+        writingTemplates,
+        writingHistory: stuWrite,
+        catchSubjects,
+        catchHistory: stuCatch,
+        videoLessons,
+        videoProgressMap: stuVideo,
+      });
+
+      if (kind === 'report') {
+        setPreviewDoc({
+          title: `معاينة التقرير الشامل - ${summary.studentName}`,
+          orientation: 'portrait',
+          html: buildFullReportHtml({
+            summary,
+            pdfSettings: draft,
+            platformTitle,
+            homeLogoUrl,
+          }),
+        });
+      } else {
+        setPreviewDoc({
+          title: `معاينة الشهادة - ${summary.studentName}`,
+          orientation: draft.certificate.orientation,
+          html: buildCertificateHtml({
+            summary,
+            pdfSettings: draft,
+            platformTitle,
+            homeLogoUrl,
+          }),
+        });
+      }
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const appendCertToken = (token: string) => {
+    updateDraft((prev) => ({
+      ...prev,
+      certificate: {
+        ...prev.certificate,
+        bodyText: prev.certificate.bodyText
+          ? `${prev.certificate.bodyText} ${token}`
+          : token,
+      },
+    }));
+  };
+
+  return (
+    <div className="space-y-5" dir="rtl">
+      {/* Top Toolbar */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+              <FileText className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
+                نظام تقارير نهاية البرنامج والشهادات التفاعلية (PDF)
+              </h2>
+              <p className="text-xs text-slate-500">
+                تحكم كامل من المتصفح في تصميم التقرير الشامل والشهادات وصلاحيات الفتح والطباعة بجودة A4 عالية
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSaveToSheets}
+              disabled={isSaving}
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>{isSaving ? 'جاري الحفظ...' : 'حفظ ومزامنة للشيت'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handlePullFromSheets}
+              disabled={isPulling || !webhookUrl}
+              className="px-3.5 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-800 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isPulling ? 'animate-spin' : ''}`} />
+              <span>جلب من الشيت</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetDefaults}
+              className="px-3 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>افتراضي</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Live Student Picker + Instant PDF Preview */}
+        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            <span className="text-xs font-extrabold text-slate-700 shrink-0">
+              معاينة وتصدير لطالب:
+            </span>
+            <select
+              value={selectedStudentId}
+              onChange={(e) => setSelectedStudentId(e.target.value)}
+              className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-800 min-w-[200px] flex-1 sm:flex-initial"
+            >
+              <option value="__sample__">طالب تجريبي (بيانات نموذجية للمعاينة)</option>
+              {registrants.map((reg) => (
+                <option key={reg.id} value={reg.id}>
+                  {reg.name} (#{reg.id})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleOpenPreview('report')}
+              disabled={isPreviewLoading}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+            >
+              {isPreviewLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>معاينة التقرير الشامل (PDF)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleOpenPreview('certificate')}
+              disabled={isPreviewLoading}
+              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+            >
+              {isPreviewLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Award className="w-3.5 h-3.5" />}
+              <span>معاينة الشهادة (PDF)</span>
+            </button>
+          </div>
+        </div>
+
+        {statusMsg && (
+          <div
+            className={`p-3 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
+              statusMsg.type === 'success'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                : statusMsg.type === 'warn'
+                ? 'bg-amber-50 border-amber-300 text-amber-950'
+                : 'bg-rose-50 border-rose-300 text-rose-900'
+            }`}
+          >
+            <span>{statusMsg.text}</span>
+          </div>
+        )}
+
+        {/* Sub-tabs */}
+        <div className="grid grid-cols-3 gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setSubTab('access')}
+            className={`py-2.5 px-3 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+              subTab === 'access'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span>الصلاحيات والإتاحة</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('report')}
+            className={`py-2.5 px-3 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+              subTab === 'report'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            <span>تصميم التقرير (A4)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('certificate')}
+            className={`py-2.5 px-3 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all ${
+              subTab === 'certificate'
+                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Award className="w-4 h-4" />
+            <span>مصمم الشهادات</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ============================================================
+          SUB-TAB 1: ACCESS & RELEASE CONTROLS
+         ============================================================ */}
+      {subTab === 'access' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 space-y-4">
+            <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+              <Lock className="w-4 h-4 text-indigo-600" />
+              <span>الضوابط العامة لفتح التقرير والشهادة للطلاب</span>
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3 cursor-pointer">
+                <span className="text-xs font-extrabold text-slate-800">
+                  السماح للطلاب بتصدير التقرير الشامل (PDF)
+                </span>
+                <input
+                  type="checkbox"
+                  checked={draft.allowStudentFullReport}
+                  onChange={(e) =>
+                    updateDraft((p) => ({ ...p, allowStudentFullReport: e.target.checked }))
+                  }
+                  className="w-4 h-4 accent-emerald-600"
+                />
+              </label>
+
+              <label className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3 cursor-pointer">
+                <span className="text-xs font-extrabold text-slate-800">
+                  السماح للطلاب بتصدير شهادة إتمام البرنامج
+                </span>
+                <input
+                  type="checkbox"
+                  checked={draft.allowStudentCertificate}
+                  onChange={(e) =>
+                    updateDraft((p) => ({ ...p, allowStudentCertificate: e.target.checked }))
+                  }
+                  className="w-4 h-4 accent-amber-500"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">قاعدة التفعيل الافتراضية</label>
+                <select
+                  value={draft.releaseMode}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      releaseMode: e.target.value as PdfReleaseControlMode,
+                    }))
+                  }
+                  className="w-full px-3 py-2.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900"
+                >
+                  {RELEASE_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {draft.releaseMode === 'after_date' && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>تاريخ فتح التقرير والشهادة</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={draft.releaseDate}
+                    onChange={(e) =>
+                      updateDraft((p) => ({ ...p, releaseDate: e.target.value }))
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-mono"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Per-program rules */}
+          {programs.length > 0 && (
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 space-y-3">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                تخصيص موعد الفتح لكل برنامج تدريبي (اختياري)
+              </h3>
+              <div className="space-y-2.5">
+                {programs.map((prog) => {
+                  const rule = draft.programReleaseOverrides?.[prog.id];
+                  return (
+                    <div
+                      key={prog.id}
+                      className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                    >
+                      <div className="text-xs font-extrabold text-slate-800">{prog.name}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={rule?.releaseMode || '__inherit__'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            updateDraft((p) => {
+                              const nextMap = { ...(p.programReleaseOverrides || {}) };
+                              if (val === '__inherit__') {
+                                delete nextMap[prog.id];
+                              } else {
+                                nextMap[prog.id] = {
+                                  releaseMode: val as PdfReleaseControlMode,
+                                  releaseDate: rule?.releaseDate || '',
+                                };
+                              }
+                              return { ...p, programReleaseOverrides: nextMap };
+                            });
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+                        >
+                          <option value="__inherit__">اتباع الإعداد العام</option>
+                          {RELEASE_MODE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                        {rule?.releaseMode === 'after_date' && (
+                          <input
+                            type="date"
+                            value={rule.releaseDate || ''}
+                            onChange={(e) =>
+                              updateDraft((p) => ({
+                                ...p,
+                                programReleaseOverrides: {
+                                  ...(p.programReleaseOverrides || {}),
+                                  [prog.id]: {
+                                    releaseMode: 'after_date',
+                                    releaseDate: e.target.value,
+                                  },
+                                },
+                              }))
+                            }
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-mono"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Per-student allow / deny overrides */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 space-y-3">
+            <h3 className="text-sm font-extrabold text-slate-900">
+              استثناءات مخصصة لرقم المشترك (ID)
+            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                list="pdf_registrant_ids_list"
+                value={overrideStudentIdInput}
+                onChange={(e) => setOverrideStudentIdInput(e.target.value)}
+                placeholder="أدخل أو اختر رقم المشترك ID"
+                className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-300 text-xs font-mono min-w-[190px]"
+              />
+              <datalist id="pdf_registrant_ids_list">
+                {registrants.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </datalist>
+
+              <select
+                value={overrideStudentAction}
+                onChange={(e) => setOverrideStudentAction(e.target.value as 'allow' | 'deny')}
+                className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+              >
+                <option value="allow">فتح فوري لهذا الطالب</option>
+                <option value="deny">منع التقرير عن هذا الطالب</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const clean = overrideStudentIdInput.trim();
+                  if (!clean) return;
+                  updateDraft((p) => ({
+                    ...p,
+                    studentAllowOverrides: {
+                      ...(p.studentAllowOverrides || {}),
+                      [clean]: overrideStudentAction,
+                    },
+                  }));
+                  setOverrideStudentIdInput('');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>إضافة استثناء</span>
+              </button>
+            </div>
+
+            {Object.keys(draft.studentAllowOverrides || {}).length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {Object.entries(draft.studentAllowOverrides).map(([sid, mode]) => {
+                  const stuName = registrants.find((r) => r.id === sid)?.name;
+                  return (
+                    <div
+                      key={sid}
+                      className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                        mode === 'allow'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-rose-50 border-rose-300 text-rose-900'
+                      }`}
+                    >
+                      <span>
+                        #{sid} {stuName ? `(${stuName})` : ''} — {mode === 'allow' ? 'مفتوح' : 'مغلق'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateDraft((p) => {
+                            const next = { ...(p.studentAllowOverrides || {}) };
+                            delete next[sid];
+                            return { ...p, studentAllowOverrides: next };
+                          })
+                        }
+                        className="text-slate-500 hover:text-rose-700 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          SUB-TAB 2: GENERAL A4 REPORT DESIGN & SECTIONS
+         ============================================================ */}
+      {subTab === 'report' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 space-y-4">
+            <h3 className="text-sm font-extrabold text-slate-900">
+              النصوص والهوية البصرية للتقرير الشامل (A4)
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">العنوان الرئيسي للتقرير</label>
+                <input
+                  type="text"
+                  value={draft.headerTitle}
+                  onChange={(e) =>
+                    updateDraft((p) => ({ ...p, headerTitle: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">العنوان الفرعي / الوصف</label>
+                <input
+                  type="text"
+                  value={draft.headerSubtitle}
+                  onChange={(e) =>
+                    updateDraft((p) => ({ ...p, headerSubtitle: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">تذييل الصفحة (Footer)</label>
+                <input
+                  type="text"
+                  value={draft.footerNote}
+                  onChange={(e) =>
+                    updateDraft((p) => ({ ...p, footerNote: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">لون التقرير</label>
+                <select
+                  value={draft.accentColor}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      accentColor: e.target.value as PdfReportSettings['accentColor'],
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white"
+                >
+                  <option value="emerald">أخضر زمردي</option>
+                  <option value="indigo">أزرق نيلي</option>
+                  <option value="amber">ذهبي كهرماني</option>
+                  <option value="slate">رمادي رسمي داكن</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {[
+                { key: 'logoUrl' as const, label: 'رابط الشعار (يدعم Google Drive)' },
+                { key: 'backgroundUrl' as const, label: 'رابط صورة خلفية شفافة (Watermark)' },
+                { key: 'coverImageBeforeUrl' as const, label: 'صفحة غلاف اختيارية قبل التقرير (صورة)' },
+                { key: 'closingImageAfterUrl' as const, label: 'صفحة خاتمة اختيارية بعد التقرير (صورة)' },
+              ].map((fld) => {
+                const rawVal = draft[fld.key];
+                const previewSrc = rawVal ? getDirectImageUrl(rawVal) : '';
+                return (
+                  <div key={fld.key} className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{fld.label}</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={rawVal}
+                        onChange={(e) =>
+                          updateDraft((p) => ({ ...p, [fld.key]: e.target.value }))
+                        }
+                        placeholder="https://..."
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+                      />
+                      {previewSrc && (
+                        <img
+                          src={previewSrc}
+                          alt=""
+                          className="w-9 h-9 rounded-lg border border-slate-200 object-contain bg-slate-50 shrink-0"
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 space-y-3">
+            <h3 className="text-sm font-extrabold text-slate-900">
+              الأقسام المضمّنة في التقرير الشامل
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {PDF_SECTION_LABELS.map((sec) => (
+                <label
+                  key={sec.key}
+                  className="p-3 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-2 cursor-pointer"
+                >
+                  <span className="text-xs font-bold text-slate-800">{sec.label}</span>
+                  <input
+                    type="checkbox"
+                    checked={draft.includeSections[sec.key]}
+                    onChange={(e) =>
+                      updateDraft((p) => ({
+                        ...p,
+                        includeSections: {
+                          ...p.includeSections,
+                          [sec.key]: e.target.checked,
+                        },
+                      }))
+                    }
+                    className="w-4 h-4 accent-emerald-600"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================
+          SUB-TAB 3: CERTIFICATE DESIGNER
+         ============================================================ */}
+      {subTab === 'certificate' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                إعدادات تصميم شهادة إتمام البرنامج
+              </h3>
+              <label className="inline-flex items-center gap-2 text-xs font-extrabold text-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.certificate.enabled}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: { ...p.certificate, enabled: e.target.checked },
+                    }))
+                  }
+                  className="w-4 h-4 accent-amber-500"
+                />
+                <span>تفعيل الشهادة</span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">اتجاه الصفحة</label>
+                <select
+                  value={draft.certificate.orientation}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        orientation: e.target.value === 'portrait' ? 'portrait' : 'landscape',
+                      },
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white"
+                >
+                  <option value="landscape">أفقي (Landscape - الأفضل للشهادات)</option>
+                  <option value="portrait">عمودي (Portrait)</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">الهامش العلوي (px)</label>
+                <input
+                  type="number"
+                  value={draft.certificate.marginTop}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        marginTop: Number(e.target.value) || 40,
+                      },
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">الهوامش الجانبية (px)</label>
+                <input
+                  type="number"
+                  value={draft.certificate.marginSide}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        marginSide: Number(e.target.value) || 50,
+                      },
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">الهامش السفلي (px)</label>
+                <input
+                  type="number"
+                  value={draft.certificate.marginBottom}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        marginBottom: Number(e.target.value) || 40,
+                      },
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Subject Title Controls */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="text-xs font-extrabold text-slate-800">عنوان الشهادة</div>
+              <input
+                type="text"
+                value={draft.certificate.subjectText}
+                onChange={(e) =>
+                  updateDraft((p) => ({
+                    ...p,
+                    certificate: { ...p.certificate, subjectText: e.target.value },
+                  }))
+                }
+                className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+              />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <select
+                  value={draft.certificate.subjectFontFamily}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        subjectFontFamily: e.target.value as PdfFontFamily,
+                      },
+                    }))
+                  }
+                  className="px-2.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+                >
+                  <option value="Amiri">خط Amiri (نسخ كلاسيكي)</option>
+                  <option value="Aref Ruqaa">خط Aref Ruqaa (رقعة)</option>
+                  <option value="Cairo">خط Cairo (حديث)</option>
+                </select>
+                <input
+                  type="number"
+                  value={draft.certificate.subjectFontSize}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        subjectFontSize: Number(e.target.value) || 32,
+                      },
+                    }))
+                  }
+                  className="px-2.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-mono"
+                  title="حجم الخط"
+                />
+                <select
+                  value={draft.certificate.subjectAlign}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        subjectAlign: e.target.value as PdfTextAlign,
+                      },
+                    }))
+                  }
+                  className="px-2.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+                >
+                  <option value="center">توسيط</option>
+                  <option value="right">محاذاة لليمين</option>
+                  <option value="left">محاذاة لليسار</option>
+                </select>
+                <input
+                  type="color"
+                  value={draft.certificate.subjectColor}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: { ...p.certificate, subjectColor: e.target.value },
+                    }))
+                  }
+                  className="w-full h-9 rounded-xl border border-slate-300 bg-white cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Body Text Controls + Placeholders */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-slate-800">نص الشهادة التلقائي</span>
+                <span className="text-[11px] text-slate-500">
+                  انقر على أي متغير لإدراجه في نص الشهادة:
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {CERT_PLACEHOLDERS.map((tok) => (
+                  <button
+                    key={tok.token}
+                    type="button"
+                    onClick={() => appendCertToken(tok.token)}
+                    className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-[11px] font-bold cursor-pointer"
+                  >
+                    + {tok.label}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                rows={4}
+                value={draft.certificate.bodyText}
+                onChange={(e) =>
+                  updateDraft((p) => ({
+                    ...p,
+                    certificate: { ...p.certificate, bodyText: e.target.value },
+                  }))
+                }
+                className="w-full p-3 rounded-xl bg-white border border-slate-300 text-xs leading-relaxed"
+              />
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <select
+                  value={draft.certificate.bodyFontFamily}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        bodyFontFamily: e.target.value as PdfFontFamily,
+                      },
+                    }))
+                  }
+                  className="px-2.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+                >
+                  <option value="Cairo">خط Cairo</option>
+                  <option value="Amiri">خط Amiri</option>
+                  <option value="Aref Ruqaa">خط Aref Ruqaa</option>
+                </select>
+                <input
+                  type="number"
+                  value={draft.certificate.bodyFontSize}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        bodyFontSize: Number(e.target.value) || 18,
+                      },
+                    }))
+                  }
+                  className="px-2.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-mono"
+                />
+                <select
+                  value={draft.certificate.bodyAlign}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        bodyAlign: e.target.value as PdfTextAlign,
+                      },
+                    }))
+                  }
+                  className="px-2.5 py-2 rounded-xl bg-white border border-slate-300 text-xs font-bold"
+                >
+                  <option value="center">توسيط</option>
+                  <option value="right">محاذاة لليمين</option>
+                  <option value="left">محاذاة لليسار</option>
+                </select>
+                <input
+                  type="color"
+                  value={draft.certificate.bodyColor}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: { ...p.certificate, bodyColor: e.target.value },
+                    }))
+                  }
+                  className="w-full h-9 rounded-xl border border-slate-300 bg-white cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Frame, Background, Footer Images */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { key: 'frameUrl' as const, label: 'رابط إطار الشهادة المزخرف (PNG شفاف)' },
+                { key: 'backgroundUrl' as const, label: 'رابط صورة خلفية الشهادة' },
+                { key: 'footerImageUrl' as const, label: 'رابط صورة تذييل الشهادة (اختياري)' },
+              ].map((fld) => {
+                const rawVal = draft.certificate[fld.key];
+                const previewSrc = rawVal ? getDirectImageUrl(rawVal) : '';
+                return (
+                  <div key={fld.key} className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">{fld.label}</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={rawVal}
+                        onChange={(e) =>
+                          updateDraft((p) => ({
+                            ...p,
+                            certificate: { ...p.certificate, [fld.key]: e.target.value },
+                          }))
+                        }
+                        placeholder="https://..."
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+                      />
+                      {previewSrc && (
+                        <img
+                          src={previewSrc}
+                          alt=""
+                          className="w-9 h-9 rounded-lg border border-slate-200 object-contain bg-slate-50 shrink-0"
+                        />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700">ارتفاع صورة التذييل (px)</label>
+                <input
+                  type="number"
+                  value={draft.certificate.footerImageHeight}
+                  onChange={(e) =>
+                    updateDraft((p) => ({
+                      ...p,
+                      certificate: {
+                        ...p.certificate,
+                        footerImageHeight: Number(e.target.value) || 46,
+                      },
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Signatures & Stamps Managers */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+              {/* Signatures */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-900">التواقيع المعتمدة</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateDraft((p) => ({
+                        ...p,
+                        certificate: {
+                          ...p.certificate,
+                          signatures: [
+                            ...p.certificate.signatures,
+                            {
+                              id: `sig_${Date.now()}`,
+                              title: 'توقيع جديد',
+                              url: '',
+                              width: 120,
+                            },
+                          ],
+                        },
+                      }))
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>إضافة توقيع</span>
+                  </button>
+                </div>
+
+                {draft.certificate.signatures.map((sig, sIdx) => (
+                  <div
+                    key={sig.id}
+                    className="p-2.5 rounded-xl bg-white border border-slate-200 space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={sig.title}
+                        onChange={(e) =>
+                          updateDraft((p) => {
+                            const next = p.certificate.signatures.slice();
+                            next[sIdx] = { ...sig, title: e.target.value };
+                            return { ...p, certificate: { ...p.certificate, signatures: next } };
+                          })
+                        }
+                        placeholder="المسمى (مثال: المعلم المشرف)"
+                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-bold"
+                      />
+                      <input
+                        type="number"
+                        value={sig.width}
+                        onChange={(e) =>
+                          updateDraft((p) => {
+                            const next = p.certificate.signatures.slice();
+                            next[sIdx] = { ...sig, width: Number(e.target.value) || 120 };
+                            return { ...p, certificate: { ...p.certificate, signatures: next } };
+                          })
+                        }
+                        className="w-16 px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-mono"
+                        title="العرض px"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateDraft((p) => ({
+                            ...p,
+                            certificate: {
+                              ...p.certificate,
+                              signatures: p.certificate.signatures.filter((_, i) => i !== sIdx),
+                            },
+                          }))
+                        }
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={sig.url}
+                      onChange={(e) =>
+                        updateDraft((p) => {
+                          const next = p.certificate.signatures.slice();
+                          next[sIdx] = { ...sig, url: e.target.value };
+                          return { ...p, certificate: { ...p.certificate, signatures: next } };
+                        })
+                      }
+                      placeholder="رابط صورة التوقيع (PNG/Drive)"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-[11px] font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Stamps */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-900">الأختام الرسمية</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateDraft((p) => ({
+                        ...p,
+                        certificate: {
+                          ...p.certificate,
+                          stamps: [
+                            ...p.certificate.stamps,
+                            {
+                              id: `stp_${Date.now()}`,
+                              title: 'الختم الرسمي',
+                              url: '',
+                              width: 95,
+                            },
+                          ],
+                        },
+                      }))
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>إضافة ختم</span>
+                  </button>
+                </div>
+
+                {draft.certificate.stamps.map((stp, stIdx) => (
+                  <div
+                    key={stp.id}
+                    className="p-2.5 rounded-xl bg-white border border-slate-200 space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={stp.title}
+                        onChange={(e) =>
+                          updateDraft((p) => {
+                            const next = p.certificate.stamps.slice();
+                            next[stIdx] = { ...stp, title: e.target.value };
+                            return { ...p, certificate: { ...p.certificate, stamps: next } };
+                          })
+                        }
+                        placeholder="عنوان الختم"
+                        className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs font-bold"
+                      />
+                      <input
+                        type="number"
+                        value={stp.width}
+                        onChange={(e) =>
+                          updateDraft((p) => {
+                            const next = p.certificate.stamps.slice();
+                            next[stIdx] = { ...stp, width: Number(e.target.value) || 95 };
+                            return { ...p, certificate: { ...p.certificate, stamps: next } };
+                          })
+                        }
+                        className="w-16 px-2 py-1.5 rounded-lg border border-slate-300 text-xs font-mono"
+                        title="العرض px"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateDraft((p) => ({
+                            ...p,
+                            certificate: {
+                              ...p.certificate,
+                              stamps: p.certificate.stamps.filter((_, i) => i !== stIdx),
+                            },
+                          }))
+                        }
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={stp.url}
+                      onChange={(e) =>
+                        updateDraft((p) => {
+                          const next = p.certificate.stamps.slice();
+                          next[stIdx] = { ...stp, url: e.target.value };
+                          return { ...p, certificate: { ...p.certificate, stamps: next } };
+                        })
+                      }
+                      placeholder="رابط صورة الختم (PNG/Drive)"
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-[11px] font-mono"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PdfPreviewModal
+        isOpen={Boolean(previewDoc)}
+        title={previewDoc?.title || ''}
+        html={previewDoc?.html || ''}
+        orientation={previewDoc?.orientation || 'portrait'}
+        onClose={() => setPreviewDoc(null)}
+      />
+    </div>
+  );
+};
+
 

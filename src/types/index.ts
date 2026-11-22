@@ -364,3 +364,88 @@ export interface CatchHistoryItem {
   exercises: CatchExerciseHistoryEntry[];
 }
 
+export type PdfReleaseControlMode =
+  | 'always_on'
+  | 'always_off'
+  | 'after_date'
+  | 'on_completion';
+
+export type PdfFontFamily = 'Cairo' | 'Amiri' | 'Aref Ruqaa';
+export type PdfTextAlign = 'right' | 'center' | 'left';
+
+export interface PdfSignatureConfig {
+  id: string;
+  title: string;
+  url: string;
+  width: number;
+}
+
+export interface PdfStampConfig {
+  id: string;
+  title: string;
+  url: string;
+  width: number;
+}
+
+export interface PdfProgramReleaseOverride {
+  releaseMode: PdfReleaseControlMode;
+  releaseDate?: string;
+}
+
+export interface PdfReportSectionsConfig {
+  overallSummary: boolean;
+  encouragement: boolean;
+  attendance: boolean;
+  scheduleProgress: boolean;
+  pronunciation: boolean;
+  matching: boolean;
+  dictation: boolean;
+  writing: boolean;
+  catchAr: boolean;
+  video: boolean;
+}
+
+export interface PdfCertificateConfig {
+  enabled: boolean;
+  orientation: 'landscape' | 'portrait';
+  backgroundUrl: string;
+  frameUrl: string;
+  footerImageUrl: string;
+  footerImageHeight: number;
+  subjectText: string;
+  subjectFontSize: number;
+  subjectAlign: PdfTextAlign;
+  subjectFontFamily: PdfFontFamily;
+  subjectColor: string;
+  bodyText: string;
+  bodyFontSize: number;
+  bodyAlign: PdfTextAlign;
+  bodyFontFamily: PdfFontFamily;
+  bodyColor: string;
+  marginTop: number;
+  marginSide: number;
+  marginBottom: number;
+  signatures: PdfSignatureConfig[];
+  stamps: PdfStampConfig[];
+}
+
+export interface PdfReportSettings {
+  allowStudentFullReport: boolean;
+  allowStudentCertificate: boolean;
+  releaseMode: PdfReleaseControlMode;
+  releaseDate: string;
+  programReleaseOverrides: Record<string, PdfProgramReleaseOverride>;
+  studentAllowOverrides: Record<string, 'allow' | 'deny'>;
+  backgroundUrl: string;
+  logoUrl: string;
+  headerTitle: string;
+  headerSubtitle: string;
+  footerNote: string;
+  coverImageBeforeUrl: string;
+  closingImageAfterUrl: string;
+  accentColor: 'emerald' | 'indigo' | 'amber' | 'slate';
+  includeSections: PdfReportSectionsConfig;
+  certificate: PdfCertificateConfig;
+}
+
+
