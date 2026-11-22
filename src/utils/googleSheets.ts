@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbymTUtML5ukQ-ng57VOQvYQ5-7OESZZMPudLSLQxW1mq8djXAVABS9ZGZOsjZT94Zzi4w/exec';
+  'https://script.google.com/macros/s/AKfycbxmqLtrmLWg__n8UCSEqCiOxaR03sFlU5wy3xS2FdT0zsJ-Sdzft-NQFusE9RlCdGWBZg/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -1248,6 +1248,32 @@ export function normalizeHomeContentBlocks(rawList: any[]): HomeContentBlock[] {
               linkUrl: sl.linkUrl ? String(sl.linkUrl).trim() : '',
             }))
         : [];
+      const parseProgramIds = (raw: unknown): string[] => {
+        if (Array.isArray(raw)) {
+          return raw
+            .map((v) => String(v || '').trim())
+            .filter((v) => v && v !== 'all' && v !== 'الكل');
+        }
+        if (typeof raw === 'string' && raw.trim()) {
+          const s = raw.trim();
+          if (s === 'all' || s === 'الكل') return [];
+          if (s.startsWith('[')) {
+            try {
+              const arr = JSON.parse(s);
+              if (Array.isArray(arr)) {
+                return arr
+                  .map((v) => String(v || '').trim())
+                  .filter((v) => v && v !== 'all' && v !== 'الكل');
+              }
+            } catch {}
+          }
+          return s
+            .split(',')
+            .map((v) => v.trim())
+            .filter((v) => v && v !== 'all' && v !== 'الكل');
+        }
+        return [];
+      };
       return {
         id: String(b.id || `home_blk_${idx + 1}`).trim(),
         type,
@@ -1265,6 +1291,7 @@ export function normalizeHomeContentBlocks(rawList: any[]): HomeContentBlock[] {
           ? false
           : true,
         sortOrder: isNavCtrl ? 9999 : Number.isFinite(Number(b.sortOrder)) ? Number(b.sortOrder) : idx + 1,
+        programIds: isNavCtrl ? [] : parseProgramIds(b.programIds),
       };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder);
@@ -4784,11 +4811,18 @@ function getHomeContentSheetGS(ss) {
     var headers = [
       "ID", "النوع (announcement/slideshow/video/link)", "العنوان", "النص / الوصف",
       "رابط الوسائط / الفيديو", "الرابط التفاعلي", "نص الزر", "الوسم", "اللون",
-      "مفعّل", "الترتيب", "الشرائح JSON"
+      "مفعّل", "الترتيب", "الشرائح JSON", "البرامج المستهدفة JSON"
     ];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#312e81").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
+  } else {
+    try {
+      var m1 = String(sheet.getRange(1, 13).getValue() || "").trim();
+      if (!m1) {
+        sheet.getRange(1, 13).setValue("البرامج المستهدفة JSON").setBackground("#312e81").setFontColor("#ffffff").setFontWeight("bold");
+      }
+    } catch (e) {}
   }
   return sheet;
 }
@@ -4796,7 +4830,7 @@ function getHomeContentSheetGS(ss) {
 function readHomeContentBlocksGS(ss) {
   var sheet = ss.getSheetByName(HOME_CONTENT_SHEET_NAME);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  var colCount = Math.max(12, sheet.getLastColumn());
+  var colCount = Math.max(13, sheet.getLastColumn());
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, colCount).getValues();
   var list = [];
   for (var i = 0; i < rows.length; i++) {
@@ -4811,6 +4845,27 @@ function readHomeContentBlocksGS(ss) {
     if (!bId && !bTitle && !bBody && !bMedia && !bLink && slidesArr.length === 0) continue;
     var rawEnabled = String(r[9] === undefined || r[9] === null || r[9] === "" ? "true" : r[9]).trim().toLowerCase();
     var isEnabled = rawEnabled !== "false" && rawEnabled !== "0" && rawEnabled !== "لا" && rawEnabled !== "no";
+    var progIdsArr = [];
+    var rawProgCell = r[12] !== undefined && r[12] !== null ? String(r[12]).trim() : "";
+    if (rawProgCell && rawProgCell !== "all" && rawProgCell !== "الكل") {
+      if (rawProgCell.charAt(0) === "[") {
+        try {
+          var parsedPids = JSON.parse(rawProgCell);
+          if (Array.isArray(parsedPids)) {
+            for (var pi = 0; pi < parsedPids.length; pi++) {
+              var pv = String(parsedPids[pi] || "").trim();
+              if (pv && pv !== "all" && pv !== "الكل") progIdsArr.push(pv);
+            }
+          }
+        } catch (e) {}
+      } else {
+        var splitPids = rawProgCell.split(",");
+        for (var si = 0; si < splitPids.length; si++) {
+          var sv = String(splitPids[si] || "").trim();
+          if (sv && sv !== "all" && sv !== "الكل") progIdsArr.push(sv);
+        }
+      }
+    }
     list.push({
       id: bId || ("home_blk_" + (i + 1)),
       type: String(r[1] || "announcement").trim() || "announcement",
@@ -4823,7 +4878,8 @@ function readHomeContentBlocksGS(ss) {
       accentColor: String(r[8] || "emerald").trim() || "emerald",
       enabled: isEnabled,
       sortOrder: Number(r[10]) || (i + 1),
-      slides: Array.isArray(slidesArr) ? slidesArr : []
+      slides: Array.isArray(slidesArr) ? slidesArr : [],
+      programIds: progIdsArr
     });
   }
   list.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
@@ -4833,12 +4889,13 @@ function readHomeContentBlocksGS(ss) {
 function writeHomeContentBlocksGS(ss, blocks) {
   var sheet = getHomeContentSheetGS(ss);
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(12, sheet.getLastColumn())).clearContent();
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(13, sheet.getLastColumn())).clearContent();
   }
   if (!Array.isArray(blocks) || blocks.length === 0) return;
   var rows = [];
   for (var i = 0; i < blocks.length; i++) {
     var b = blocks[i];
+    var pIds = Array.isArray(b.programIds) ? b.programIds : [];
     rows.push([
       String(b.id || ("home_blk_" + (i + 1))),
       String(b.type || "announcement"),
@@ -4851,10 +4908,11 @@ function writeHomeContentBlocksGS(ss, blocks) {
       String(b.accentColor || "emerald"),
       b.enabled === false ? "false" : "true",
       Number(b.sortOrder) || (i + 1),
-      JSON.stringify(Array.isArray(b.slides) ? b.slides : [])
+      JSON.stringify(Array.isArray(b.slides) ? b.slides : []),
+      JSON.stringify(pIds)
     ]);
   }
-  sheet.getRange(2, 1, rows.length, 12).setValues(rows);
+  sheet.getRange(2, 1, rows.length, 13).setValues(rows);
 }
 
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1

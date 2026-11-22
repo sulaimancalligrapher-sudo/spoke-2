@@ -373,6 +373,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
         ...p,
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.description !== undefined ? { description: patch.description } : {}),
+        ...(patch.welcomeTitle !== undefined ? { welcomeTitle: patch.welcomeTitle } : {}),
+        ...(patch.welcomeMessage !== undefined ? { welcomeMessage: patch.welcomeMessage } : {}),
         ...(patch.color !== undefined ? { color: patch.color } : {}),
         settings: nextSettings,
       };
@@ -1243,6 +1245,38 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 })
               }
               className="w-5 h-5 text-amber-600 rounded cursor-pointer shrink-0"
+            />
+          </div>
+        </div>
+
+        {/* Program Home Page Welcome Message & Guidelines */}
+        <div className="p-3.5 rounded-2xl bg-indigo-50/60 border border-indigo-200/80 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-extrabold text-indigo-950">
+              رسالة ونبذة الترحيب الخاصة ببرنامج «{activeProgram.name}» في الصفحة الرئيسية
+            </div>
+            <span className="text-[10px] font-bold text-indigo-700">
+              تظهر تلقائياً لطلاب هذا البرنامج أعلى الصفحة الرئيسية عند الدخول
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            <input
+              type="text"
+              value={activeProgram.welcomeTitle || ''}
+              onChange={(e) =>
+                handleUpdateActiveProgram({ welcomeTitle: e.target.value })
+              }
+              placeholder="عنوان ترحيبي للبرنامج (مثال: أهلاً بك في مسار المبتدئين)"
+              className="px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs font-bold text-slate-900"
+            />
+            <textarea
+              rows={2}
+              value={activeProgram.welcomeMessage || ''}
+              onChange={(e) =>
+                handleUpdateActiveProgram({ welcomeMessage: e.target.value })
+              }
+              placeholder="تفصيل البرنامج، أهدافه، وإرشادات المتابعة الخاصة بطلاب هذا البرنامج..."
+              className="md:col-span-2 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-xs font-semibold text-slate-800 resize-y"
             />
           </div>
         </div>

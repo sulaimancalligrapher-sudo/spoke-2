@@ -128,6 +128,8 @@ export interface CourseProgram {
   id: string;
   name: string;
   description?: string;
+  welcomeTitle?: string;
+  welcomeMessage?: string;
   color?: ProgramColorKey;
   isDefault?: boolean;
   settings: CourseScheduleSettings;
@@ -420,6 +422,8 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
         id: pid,
         name: String(p.name || `برنامج ${idx + 1}`).trim(),
         description: p.description ? String(p.description) : '',
+        welcomeTitle: p.welcomeTitle ? String(p.welcomeTitle) : '',
+        welcomeMessage: p.welcomeMessage ? String(p.welcomeMessage) : '',
         color,
         isDefault: Boolean(p.isDefault),
         settings: {

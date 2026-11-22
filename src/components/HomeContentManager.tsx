@@ -23,6 +23,7 @@ import {
   BookOpen,
   Film,
   Calendar,
+  Layers,
 } from 'lucide-react';
 import { HomeBlockType, HomeContentBlock, HomeNavbarControls, HomeSlideItem } from '../types';
 import {
@@ -35,6 +36,7 @@ import {
   stripSystemHomeBlocks,
   mergeHomeNavbarControlsIntoBlocks,
 } from '../utils/googleSheets';
+import { CourseProgram, PROGRAM_COLOR_META } from '../utils/courseSchedule';
 import { getDirectImageUrl } from '../utils/mediaUrl';
 import { getPlayableVideoInfo } from '../video/videoSheets';
 
@@ -231,13 +233,22 @@ const SlideshowCard: React.FC<{ block: HomeContentBlock }> = ({ block }) => {
   );
 };
 
-export const HomeContentShowcase: React.FC<{ blocks: HomeContentBlock[] }> = ({ blocks }) => {
+export const HomeContentShowcase: React.FC<{
+  blocks: HomeContentBlock[];
+  activeProgramId?: string;
+  programsList?: CourseProgram[];
+}> = ({ blocks, activeProgramId }) => {
   const activeBlocks = useMemo(
     () =>
       [...blocks]
-        .filter((b) => b.enabled && b.id !== NAVBAR_CONTROLS_BLOCK_ID)
+        .filter((b) => {
+          if (!b.enabled || b.id === NAVBAR_CONTROLS_BLOCK_ID) return false;
+          const targets = (b.programIds || []).filter((id) => id && id !== 'all');
+          if (targets.length === 0) return true;
+          return activeProgramId ? targets.includes(activeProgramId) : false;
+        })
         .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
-    [blocks]
+    [blocks, activeProgramId]
   );
 
   if (activeBlocks.length === 0) return null;
@@ -449,6 +460,7 @@ interface HomeContentAdminManagerProps {
   navbarControls?: HomeNavbarControls;
   onUpdateNavbarControls?: (next: HomeNavbarControls) => void;
   webhookUrl: string;
+  coursePrograms?: CourseProgram[];
 }
 
 export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = ({
@@ -457,6 +469,7 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
   navbarControls = DEFAULT_HOME_NAVBAR_CONTROLS,
   onUpdateNavbarControls,
   webhookUrl,
+  coursePrograms = [],
 }) => {
   const userBlocks = useMemo(() => stripSystemHomeBlocks(blocks), [blocks]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -469,6 +482,8 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
   const [badgeText, setBadgeText] = useState('');
   const [accentColor, setAccentColor] = useState<NonNullable<HomeContentBlock['accentColor']>>('emerald');
   const [enabled, setEnabled] = useState(true);
+  const [targetProgramIds, setTargetProgramIds] = useState<string[]>([]);
+  const [previewProgramFilter, setPreviewProgramFilter] = useState<string>('ALL');
   const [slides, setSlides] = useState<HomeSlideItem[]>([]);
   const [newSlideImg, setNewSlideImg] = useState('');
   const [newSlideCaption, setNewSlideCaption] = useState('');
@@ -494,6 +509,7 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
     setBadgeText('');
     setAccentColor('emerald');
     setEnabled(true);
+    setTargetProgramIds([]);
     setSlides([]);
     setNewSlideImg('');
     setNewSlideCaption('');
@@ -511,8 +527,15 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
     setBadgeText(blk.badgeText || '');
     setAccentColor(blk.accentColor || 'emerald');
     setEnabled(blk.enabled);
+    setTargetProgramIds((blk.programIds || []).filter((id) => id && id !== 'all'));
     setSlides(blk.slides ? [...blk.slides] : []);
     setStatusBanner(null);
+  };
+
+  const handleToggleTargetProgram = (progId: string) => {
+    setTargetProgramIds((prev) =>
+      prev.includes(progId) ? prev.filter((id) => id !== progId) : [...prev, progId]
+    );
   };
 
   const handleAddSlide = () => {
@@ -572,6 +595,7 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
       sortOrder: editingId
         ? userBlocks.find((b) => b.id === editingId)?.sortOrder || userBlocks.length + 1
         : userBlocks.length + 1,
+      programIds: targetProgramIds,
     };
 
     const nextList = editingId
@@ -588,7 +612,9 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
     });
   };
 
-  const handleMoveBlock = (index: number, dir: -1 | 1) => {
+  const handleMoveBlock = (blockId: string, dir: -1 | 1) => {
+    const index = userBlocks.findIndex((b) => b.id === blockId);
+    if (index < 0) return;
     const target = index + dir;
     if (target < 0 || target >= userBlocks.length) return;
     const copy = [...userBlocks];
@@ -1062,6 +1088,57 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
             </div>
           </div>
 
+          {/* Target Program Selector (جميع البرامج أو برنامج محدد) */}
+          <div className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-200/80 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-[11px] font-extrabold text-indigo-950 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                <span>البرنامج المستهدف (لمن يظهر هذا المحتوى؟)</span>
+              </label>
+              <span className="text-[10px] font-bold text-indigo-700">
+                {targetProgramIds.length === 0 ? 'يظهر للجميع' : `${targetProgramIds.length} محدد`}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTargetProgramIds([])}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                  targetProgramIds.length === 0
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                    : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                جميع البرامج (افتراضي)
+              </button>
+
+              {coursePrograms.map((prog) => {
+                const selected = targetProgramIds.includes(prog.id);
+                const pCol = PROGRAM_COLOR_META[prog.color || 'emerald'];
+                return (
+                  <button
+                    key={prog.id}
+                    type="button"
+                    onClick={() => handleToggleTargetProgram(prog.id)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                      selected
+                        ? `${pCol.activeBtn} shadow-2xs`
+                        : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                    }`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        selected ? 'bg-white' : pCol.dotBg
+                      }`}
+                    />
+                    <span>{prog.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <label className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer">
             <span className="text-xs font-extrabold text-slate-800">
               إظهار هذه الكتلة في الصفحة الرئيسية
@@ -1083,134 +1160,230 @@ export const HomeContentAdminManager: React.FC<HomeContentAdminManagerProps> = (
           </button>
         </form>
 
-        {/* Blocks List + Live Order Controls */}
+        {/* Blocks List + Preview Filter + Live Order Controls */}
         <div className="lg:col-span-7 space-y-3">
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm space-y-3">
-            <h3 className="text-sm font-extrabold text-slate-900">
-              العناصر المضافة ({userBlocks.length})
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-extrabold text-slate-900">
+                العناصر المضافة ({userBlocks.length})
+              </h3>
+              {previewProgramFilter !== 'ALL' && (
+                <span className="text-[11px] font-bold text-indigo-700">
+                  معاينة مفلترة — التعديل والحفظ يشمل كل العناصر
+                </span>
+              )}
+            </div>
 
-            {userBlocks.length === 0 ? (
-              <div className="py-12 text-center text-xs font-bold text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                لا توجد عناصر مضافة في محتوى الصفحة الرئيسية بعد. أضف أول إعلان أو فيديو أو رابط من النموذج الجانبي.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {userBlocks.map((blk, idx) => {
-                  const tMeta = BLOCK_TYPE_META[blk.type];
-                  const isConfirming = confirmDeleteId === blk.id;
+            {/* Preview Filter Bar by Program */}
+            {coursePrograms.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 p-2.5 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[10px] font-extrabold text-slate-500 px-1">
+                  فلتر المعاينة:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewProgramFilter('ALL')}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer transition-all ${
+                    previewProgramFilter === 'ALL'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  عرض الكل ({userBlocks.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewProgramFilter('GENERAL')}
+                  className={`px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer transition-all ${
+                    previewProgramFilter === 'GENERAL'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  العام فقط
+                </button>
+                {coursePrograms.map((prog) => {
+                  const pCol = PROGRAM_COLOR_META[prog.color || 'emerald'];
+                  const active = previewProgramFilter === prog.id;
                   return (
-                    <div
-                      key={blk.id}
-                      className={`p-4 rounded-2xl border transition-all space-y-2 ${
-                        blk.enabled
-                          ? 'bg-white border-slate-200 shadow-2xs'
-                          : 'bg-slate-50/70 border-slate-200 opacity-65'
+                    <button
+                      key={prog.id}
+                      type="button"
+                      onClick={() => setPreviewProgramFilter(prog.id)}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-all flex items-center gap-1 ${
+                        active
+                          ? pCol.activeBtn
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
                       }`}
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold ${tMeta.pillCls}`}>
-                              {tMeta.labelAr}
-                            </span>
-                            {blk.badgeText && (
-                              <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[10px] font-bold">
-                                {blk.badgeText}
-                              </span>
-                            )}
-                            {!blk.enabled && (
-                              <span className="px-2 py-0.5 rounded-lg bg-slate-200 text-slate-600 text-[10px] font-bold">
-                                مخفي
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-sm font-extrabold text-slate-900">
-                            {blk.title}
-                          </div>
-                          {blk.body && (
-                            <div className="text-xs text-slate-600 line-clamp-2">{blk.body}</div>
-                          )}
-                          {blk.type === 'slideshow' && (
-                            <div className="text-[11px] font-bold text-indigo-700">
-                              عدد الشرائح: {blk.slides?.length || 0}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleMoveBlock(idx, -1)}
-                            disabled={idx === 0}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
-                            title="تحريك للأعلى"
-                          >
-                            <ArrowUp className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleMoveBlock(idx, 1)}
-                            disabled={idx === userBlocks.length - 1}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
-                            title="تحريك للأسفل"
-                          >
-                            <ArrowDown className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleEnabled(blk.id)}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
-                            title={blk.enabled ? 'إخفاء مؤقتاً' : 'إظهار'}
-                          >
-                            {blk.enabled ? (
-                              <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                            ) : (
-                              <EyeOff className="w-3.5 h-3.5 text-slate-400" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleEditBlock(blk)}
-                            className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer"
-                            title="تعديل"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          {isConfirming ? (
-                            <div className="inline-flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteBlock(blk.id)}
-                                className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
-                              >
-                                تأكيد
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(null)}
-                                className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
-                              >
-                                لا
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(blk.id)}
-                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 cursor-pointer"
-                              title="حذف"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          active ? 'bg-white' : pCol.dotBg
+                        }`}
+                      />
+                      <span>معاينة: {prog.name}</span>
+                    </button>
                   );
                 })}
               </div>
             )}
+
+            {(() => {
+              const filteredBlocks = userBlocks.filter((blk) => {
+                const targets = (blk.programIds || []).filter((id) => id && id !== 'all');
+                if (previewProgramFilter === 'ALL') return true;
+                if (previewProgramFilter === 'GENERAL') return targets.length === 0;
+                return targets.length === 0 || targets.includes(previewProgramFilter);
+              });
+
+              if (filteredBlocks.length === 0) {
+                return (
+                  <div className="py-12 text-center text-xs font-bold text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                    {userBlocks.length === 0
+                      ? 'لا توجد عناصر مضافة في محتوى الصفحة الرئيسية بعد. أضف أول إعلان أو فيديو أو رابط من النموذج الجانبي.'
+                      : 'لا توجد عناصر مطابقة لفلتر البرنامج المختار.'}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {filteredBlocks.map((blk) => {
+                    const realIdx = userBlocks.findIndex((x) => x.id === blk.id);
+                    const tMeta = BLOCK_TYPE_META[blk.type];
+                    const isConfirming = confirmDeleteId === blk.id;
+                    const targets = (blk.programIds || []).filter((id) => id && id !== 'all');
+                    return (
+                      <div
+                        key={blk.id}
+                        className={`p-4 rounded-2xl border transition-all space-y-2 ${
+                          blk.enabled
+                            ? 'bg-white border-slate-200 shadow-2xs'
+                            : 'bg-slate-50/70 border-slate-200 opacity-65'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold ${tMeta.pillCls}`}>
+                                {tMeta.labelAr}
+                              </span>
+                              {targets.length === 0 ? (
+                                <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                                  جميع البرامج
+                                </span>
+                              ) : (
+                                targets.map((pid) => {
+                                  const pObj = coursePrograms.find((p) => p.id === pid);
+                                  const pCol = PROGRAM_COLOR_META[pObj?.color || 'indigo'];
+                                  return (
+                                    <span
+                                      key={pid}
+                                      className={`px-2 py-0.5 rounded-lg border text-[10px] font-extrabold ${pCol.pillBg} ${pCol.pillText} ${pCol.pillBorder}`}
+                                    >
+                                      {pObj?.name || pid}
+                                    </span>
+                                  );
+                                })
+                              )}
+                              {blk.badgeText && (
+                                <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[10px] font-bold">
+                                  {blk.badgeText}
+                                </span>
+                              )}
+                              {!blk.enabled && (
+                                <span className="px-2 py-0.5 rounded-lg bg-slate-200 text-slate-600 text-[10px] font-bold">
+                                  مخفي
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm font-extrabold text-slate-900">
+                              {blk.title}
+                            </div>
+                            {blk.body && (
+                              <div className="text-xs text-slate-600 line-clamp-2">{blk.body}</div>
+                            )}
+                            {blk.type === 'slideshow' && (
+                              <div className="text-[11px] font-bold text-indigo-700">
+                                عدد الشرائح: {blk.slides?.length || 0}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleMoveBlock(blk.id, -1)}
+                              disabled={realIdx <= 0}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
+                              title="تحريك للأعلى"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveBlock(blk.id, 1)}
+                              disabled={realIdx < 0 || realIdx >= userBlocks.length - 1}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
+                              title="تحريك للأسفل"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleEnabled(blk.id)}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                              title={blk.enabled ? 'إخفاء مؤقتاً' : 'إظهار'}
+                            >
+                              {blk.enabled ? (
+                                <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleEditBlock(blk)}
+                              className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 cursor-pointer"
+                              title="تعديل"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            {isConfirming ? (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBlock(blk.id)}
+                                  className="px-2 py-1 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
+                                >
+                                  تأكيد
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
+                                >
+                                  لا
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(blk.id)}
+                                className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 cursor-pointer"
+                                title="حذف"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

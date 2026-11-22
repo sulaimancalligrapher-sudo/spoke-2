@@ -2594,6 +2594,40 @@ export default function App() {
              1. INTRODUCTORY LANDING PAGE (الصفحة الرئيسية التعريفية)
              ======================================================== */
           <div className="flex flex-col items-center justify-center animate-in fade-in duration-300 py-2 sm:py-6 gap-5">
+            {/* Admin Program Preview Bar on Home Page */}
+            {isAdminAuthenticated && (activeScopedSchedule.programs?.length || 0) > 1 && (
+              <div className="max-w-4xl w-full mx-auto bg-white rounded-2xl border border-indigo-200 shadow-xs px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-indigo-950">
+                  معاينة الصفحة الرئيسية حسب البرنامج:
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {activeScopedSchedule.programs.map((prog) => {
+                    const isSelected = prog.id === activeScopedSchedule.activeProgram.id;
+                    const pMeta = PROGRAM_COLOR_META[prog.color || 'emerald'];
+                    return (
+                      <button
+                        key={prog.id}
+                        type="button"
+                        onClick={() => setSchedulePreviewProgramId(prog.id)}
+                        className={`px-3 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-all flex items-center gap-1.5 ${
+                          isSelected
+                            ? pMeta.activeBtn
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            isSelected ? 'bg-white' : pMeta.dotBg
+                          }`}
+                        />
+                        <span>{prog.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Main Hero Card - Controlled exclusively by sheet 'الرئيسية' B21:B27 */}
             <div
               className="relative overflow-visible rounded-3xl text-white shadow-2xl border border-slate-800/80 max-w-4xl w-full mx-auto"
@@ -2680,6 +2714,38 @@ export default function App() {
 
               </div>
             </div>
+
+            {/* Dedicated Program Welcome & Guidelines Card */}
+            {(() => {
+              const prog = activeScopedSchedule.activeProgram;
+              const multiProg = (activeScopedSchedule.programs?.length || 0) > 1;
+              const customTitle = (prog.welcomeTitle || '').trim();
+              const customBody = (prog.welcomeMessage || '').trim() || (multiProg ? (prog.description || '').trim() : '');
+              if (!customTitle && !customBody) return null;
+              const pMeta = PROGRAM_COLOR_META[prog.color || 'emerald'];
+              return (
+                <div className="max-w-4xl w-full mx-auto bg-white rounded-3xl border border-slate-200 shadow-md p-5 sm:p-6 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`px-3 py-1 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 ${pMeta.pillBg} ${pMeta.pillText} ${pMeta.pillBorder}`}>
+                        <span className={`w-2 h-2 rounded-full ${pMeta.dotBg}`} />
+                        <span>{prog.name}</span>
+                      </span>
+                      {customTitle && (
+                        <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
+                          {customTitle}
+                        </h2>
+                      )}
+                    </div>
+                  </div>
+                  {customBody && (
+                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line font-semibold">
+                      {customBody}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Today's Class & Attendance Check-in Card (حصة اليوم وتأكيد الحضور - سجل_الحضور) */}
             {(() => {
@@ -2910,8 +2976,12 @@ export default function App() {
               );
             })()}
 
-            {/* Dynamic Home Content Showcase (announcements, slideshows, intro videos, quick links) */}
-            <HomeContentShowcase blocks={homeContentBlocks} />
+            {/* Dynamic Home Content Showcase (filtered by student's active training program) */}
+            <HomeContentShowcase
+              blocks={homeContentBlocks}
+              activeProgramId={activeScopedSchedule.activeProgram.id}
+              programsList={activeScopedSchedule.programs}
+            />
           </div>
         ) : appMode === 'matching' ? (
           /* ========================================================

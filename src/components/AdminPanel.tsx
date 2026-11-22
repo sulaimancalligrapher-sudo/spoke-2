@@ -3028,6 +3028,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             navbarControls={homeNavbarControls}
             onUpdateNavbarControls={(next) => onUpdateHomeNavbarControls?.(next)}
             webhookUrl={sheetsConfig.webhookUrl}
+            coursePrograms={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).programs
+            }
           />
         )}
 

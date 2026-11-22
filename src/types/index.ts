@@ -196,6 +196,7 @@ export interface HomeContentBlock {
   slides?: HomeSlideItem[];
   enabled: boolean;
   sortOrder: number;
+  programIds?: string[]; // فارغ أو ['all'] = جميع البرامج؛ أو مصفوفة معرفات برامج محددة
 }
 
 export interface HomeNavbarControls {
