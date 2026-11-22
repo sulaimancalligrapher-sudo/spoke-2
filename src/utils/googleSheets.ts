@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzTfQzCVxV7gqhtnR9IQFXQkhV8P3rFxZ0Ornb5iZzrmfxOOKSoTCMRBr7nZcPoe0meqQ/exec';
+  'https://script.google.com/macros/s/AKfycbwAUrm--AfP8PN_Kf6C2e7djMN0FUiYlDLN0FkpYOVTfLu1AhtLKo4GBuPK4-ftRSE1-Q/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4962,6 +4962,268 @@ function writePdfSettingsGS(ss, settingsObj) {
   sheet.appendRow(["pdf_report_settings", jsonStr, nowStr]);
 }
 
+// =========================================================================
+// دوال مساعدة مستقلة تماماً للبوابة التعريفية العامة ونظام التسجيل ذي المرحلتين
+// =========================================================================
+var PORTAL_CONTENT_SHEET_NAME = "محتوى_البوابة_العامة";
+var REG_QUESTIONS_SHEET_NAME = "أسئلة_التسجيل";
+var REG_SUBMISSIONS_SHEET_NAME = "طلبات_التسجيل";
+
+function getPortalContentSheetGS(ss) {
+  var sheet = ss.getSheetByName(PORTAL_CONTENT_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(PORTAL_CONTENT_SHEET_NAME);
+    var headers = [
+      "المعرف", "نوع السجل / القسم", "العنوان", "العنوان الفرعي", "الوصف والمحتوى",
+      "رابط الوسائط", "الرابط الإضافي", "نص الزر", "شارة / تصنيف",
+      "بيان إضافي 1", "بيان إضافي 2", "مفعّل", "الترتيب", "بيانات JSON"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    sheet.setRightToLeft(true);
+  }
+  return sheet;
+}
+
+function readPortalDataGS(ss) {
+  var sheet = ss.getSheetByName(PORTAL_CONTENT_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(14, sheet.getLastColumn())).getValues();
+  var settingsObj = null;
+  var items = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var id = String(row[0] || "").trim();
+    var sec = String(row[1] || "").trim();
+    if (!id && !sec) continue;
+    if (id === "__PORTAL_SETTINGS__" || sec === "__SETTINGS__") {
+      try {
+        settingsObj = JSON.parse(String(row[13] || "{}"));
+      } catch (e) {}
+      continue;
+    }
+    var enStr = String(row[11] === undefined || row[11] === "" ? "true" : row[11]).trim().toLowerCase();
+    items.push({
+      id: id || ("pitem_" + i),
+      section: sec || "about",
+      title: String(row[2] || "").trim(),
+      subtitle: String(row[3] || "").trim() || undefined,
+      description: String(row[4] || "").trim(),
+      mediaUrl: String(row[5] || "").trim() || undefined,
+      linkUrl: String(row[6] || "").trim() || undefined,
+      linkLabel: String(row[7] || "").trim() || undefined,
+      badgeText: String(row[8] || "").trim() || undefined,
+      metaPrimary: String(row[9] || "").trim() || undefined,
+      metaSecondary: String(row[10] || "").trim() || undefined,
+      enabled: !(enStr === "false" || enStr === "0" || enStr === "لا"),
+      sortOrder: Number(row[12]) || (i + 1)
+    });
+  }
+  items.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+  return { settings: settingsObj, items: items };
+}
+
+function writePortalDataGS(ss, dataObj) {
+  var sheet = getPortalContentSheetGS(ss);
+  var lastR = sheet.getLastRow();
+  if (lastR > 1) {
+    sheet.getRange(2, 1, lastR - 1, Math.max(14, sheet.getLastColumn())).clearContent();
+  }
+  var rows = [];
+  if (dataObj && dataObj.settings) {
+    rows.push([
+      "__PORTAL_SETTINGS__",
+      "__SETTINGS__",
+      String(dataObj.settings.academyName || ""),
+      String(dataObj.settings.academyTagline || ""),
+      String(dataObj.settings.heroTitle || ""),
+      String(dataObj.settings.heroMediaUrl || ""),
+      String(dataObj.settings.telegramBotUsername || ""),
+      String(dataObj.settings.stage1DefaultProgramId || "prog_default"),
+      "",
+      "",
+      "",
+      "true",
+      0,
+      JSON.stringify(dataObj.settings)
+    ]);
+  }
+  var list = (dataObj && Array.isArray(dataObj.items)) ? dataObj.items : [];
+  for (var i = 0; i < list.length; i++) {
+    var it = list[i] || {};
+    rows.push([
+      String(it.id || ("pitem_" + (i + 1))),
+      String(it.section || "about"),
+      String(it.title || ""),
+      String(it.subtitle || ""),
+      String(it.description || ""),
+      String(it.mediaUrl || ""),
+      String(it.linkUrl || ""),
+      String(it.linkLabel || ""),
+      String(it.badgeText || ""),
+      String(it.metaPrimary || ""),
+      String(it.metaSecondary || ""),
+      it.enabled === false ? "false" : "true",
+      Number(it.sortOrder) || (i + 1),
+      ""
+    ]);
+  }
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, 14).setValues(rows);
+  }
+}
+
+function getRegistrationQuestionsSheetGS(ss) {
+  var sheet = ss.getSheetByName(REG_QUESTIONS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(REG_QUESTIONS_SHEET_NAME);
+    var headers = [
+      "المعرف", "السؤال (عربي)", "السؤال (إنجليزي)", "السؤال (تايلندي)",
+      "نوع الحقل", "إلزامي", "الخيارات JSON", "نص توضيحي",
+      "رابط شرح", "مفعّل", "الترتيب"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#0f766e").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    sheet.setRightToLeft(true);
+  }
+  return sheet;
+}
+
+function readRegistrationQuestionsGS(ss) {
+  var sheet = ss.getSheetByName(REG_QUESTIONS_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(11, sheet.getLastColumn())).getValues();
+  var list = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var label = String(row[1] || "").trim();
+    if (!label) continue;
+    var opts = [];
+    try {
+      var parsedOpts = JSON.parse(String(row[6] || "[]"));
+      if (Array.isArray(parsedOpts)) opts = parsedOpts;
+    } catch (e) {
+      var rawOpt = String(row[6] || "").trim();
+      if (rawOpt) opts = rawOpt.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+    }
+    var reqStr = String(row[5] || "").trim().toLowerCase();
+    var enStr = String(row[9] === undefined || row[9] === "" ? "true" : row[9]).trim().toLowerCase();
+    list.push({
+      id: String(row[0] || ("q_" + (i + 1))).trim(),
+      label: label,
+      labelEn: String(row[2] || "").trim() || undefined,
+      labelTh: String(row[3] || "").trim() || undefined,
+      type: String(row[4] || "text").trim() || "text",
+      required: (reqStr === "true" || reqStr === "1" || reqStr === "نعم"),
+      options: opts.length > 0 ? opts : undefined,
+      placeholder: String(row[7] || "").trim() || undefined,
+      guideUrl: String(row[8] || "").trim() || undefined,
+      enabled: !(enStr === "false" || enStr === "0" || enStr === "لا"),
+      sortOrder: Number(row[10]) || (i + 1)
+    });
+  }
+  list.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+  return list;
+}
+
+function writeRegistrationQuestionsGS(ss, questions) {
+  var sheet = getRegistrationQuestionsSheetGS(ss);
+  var lastR = sheet.getLastRow();
+  if (lastR > 1) {
+    sheet.getRange(2, 1, lastR - 1, Math.max(11, sheet.getLastColumn())).clearContent();
+  }
+  var list = Array.isArray(questions) ? questions : [];
+  if (list.length === 0) return;
+  var rows = list.map(function(q, idx) {
+    return [
+      String(q.id || ("q_" + (idx + 1))),
+      String(q.label || ""),
+      String(q.labelEn || ""),
+      String(q.labelTh || ""),
+      String(q.type || "text"),
+      q.required ? "نعم" : "لا",
+      JSON.stringify(Array.isArray(q.options) ? q.options : []),
+      String(q.placeholder || ""),
+      String(q.guideUrl || ""),
+      q.enabled === false ? "لا" : "نعم",
+      Number(q.sortOrder) || (idx + 1)
+    ];
+  });
+  sheet.getRange(2, 1, rows.length, 11).setValues(rows);
+}
+
+function getRegistrationSubmissionsSheetGS(ss) {
+  var sheet = ss.getSheetByName(REG_SUBMISSIONS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(REG_SUBMISSIONS_SHEET_NAME);
+    var headers = [
+      "تاريخ التسجيل", "رقم المشترك ID", "اسم المتقدم", "البرنامج الحالي",
+      "المرحلة", "الحالة", "معرف تيليغرام", "البريد الإلكتروني",
+      "رقم الهاتف", "الإجابات JSON", "المرفقات JSON", "ملاحظات الإدارة"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    sheet.setRightToLeft(true);
+  }
+  return sheet;
+}
+
+function readRegistrationSubmissionsGS(ss) {
+  var sheet = ss.getSheetByName(REG_SUBMISSIONS_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(12, sheet.getLastColumn())).getValues();
+  var list = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var regId = normRegDigitsGS(row[1]);
+    var name = String(row[2] || "").trim();
+    if (!regId && !name) continue;
+    var ansObj = {};
+    try { ansObj = JSON.parse(String(row[9] || "{}")); } catch (e) {}
+    var attArr = [];
+    try { attArr = JSON.parse(String(row[10] || "[]")); } catch (e) {}
+    list.push({
+      rowIndex: i + 2,
+      submittedAt: String(row[0] || "").trim(),
+      registrationId: regId,
+      studentName: name,
+      programId: String(row[3] || "prog_default").trim() || "prog_default",
+      stage: String(row[4] || "stage1_default").trim() || "stage1_default",
+      status: String(row[5] || "").trim(),
+      telegramUsername: String(row[6] || "").trim() || undefined,
+      email: String(row[7] || "").trim() || undefined,
+      phone: String(row[8] || "").trim() || undefined,
+      answers: (ansObj && typeof ansObj === "object") ? ansObj : {},
+      attachments: Array.isArray(attArr) ? attArr : [],
+      adminNotes: String(row[11] || "").trim() || undefined
+    });
+  }
+  return list.reverse();
+}
+
+function generateNextRegistrantIdGS(regSheet) {
+  var existing = readAllRegistrantsGS(regSheet);
+  var maxNum = 1000;
+  var used = {};
+  for (var i = 0; i < existing.length; i++) {
+    var clean = normRegDigitsGS(existing[i].id);
+    if (clean) used[clean] = true;
+    var n = parseInt(clean, 10);
+    if (!isNaN(n) && n >= maxNum && n < 9999999) {
+      maxNum = n;
+    }
+  }
+  var nextNum = maxNum + 1;
+  while (used[String(nextNum)]) {
+    nextNum++;
+  }
+  return String(nextNum);
+}
+
+
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
   try {
@@ -4993,6 +5255,32 @@ function doGet(e) {
         success: true,
         pdfSettingsHandled: true,
         settings: readPdfSettingsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (أ-4) جلب بيانات البوابة العامة وأسئلة وطلبات التسجيل
+    if (e && e.parameter && e.parameter.action === "get_portal_data") {
+      var pData = readPortalDataGS(ss);
+      var tgInfo = readTelegramConfigGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        portalData: pData,
+        botUsername: tgInfo.botUsername || ""
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (e && e.parameter && e.parameter.action === "get_registration_questions") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        questions: readRegistrationQuestionsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    if (e && e.parameter && e.parameter.action === "get_registration_submissions") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        submissions: readRegistrationSubmissionsGS(ss)
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -6672,6 +6960,277 @@ function doPost(e) {
         pdfSettingsSaved: true,
         settings: readPdfSettingsGS(ss),
         message: "تم حفظ ومزامنة إعدادات تقارير PDF والشهادات في ورقة إعدادات_PDF بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (-1-ج) نقاط نهاية البوابة العامة ونظام التسجيل ذي المرحلتين (معزولة تماماً)
+    if (data.action === "get_portal_data") {
+      var pDataPost = readPortalDataGS(ss);
+      var tgInfoPost = readTelegramConfigGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        portalData: pDataPost,
+        botUsername: tgInfoPost.botUsername || ""
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_portal_data") {
+      writePortalDataGS(ss, data.portalData || {});
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        portalData: readPortalDataGS(ss),
+        message: "تم حفظ ومزامنة محتوى البوابة العامة في ورقة محتوى_البوابة_العامة بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_registration_questions") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        questions: readRegistrationQuestionsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_registration_questions") {
+      writeRegistrationQuestionsGS(ss, data.questions || []);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        questions: readRegistrationQuestionsGS(ss),
+        message: "تم حفظ ومزامنة أسئلة التسجيل في ورقة أسئلة_التسجيل بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "upload_portal_file" && data.base64Data) {
+      var pFileUrl = uploadVideoBase64ToDriveGS(
+        data.base64Data,
+        String(data.fileName || ("reg_attachment_" + new Date().getTime())),
+        String(data.mimeType || "image/jpeg"),
+        String(data.folderId || "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA")
+      );
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        url: pFileUrl
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "submit_portal_registration") {
+      if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
+      var regSheetSub = getIDRegistrantsSheet(ss);
+      var subSheet = getRegistrationSubmissionsSheetGS(ss);
+      var newRegId = generateNextRegistrantIdGS(regSheetSub);
+      var regStudentName = String(data.studentName || "").trim();
+      if (!regStudentName) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          portalHandled: true,
+          error: "يرجى إدخال الاسم الكامل في استمارة التسجيل."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var stage1ProgramId = String(data.stage1DefaultProgramId || "prog_default").trim() || "prog_default";
+      var stage1ProgramName = String(data.stage1ProgramName || "القسم الافتراضي (المرحلة التمهيدية)").trim();
+      var activeBaseUrlSub = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
+      var nowSub = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Riyadh", "yyyy/MM/dd HH:mm");
+
+      // 1. إضافة المشترك فوراً في ورقة ID registrants على البرنامج الافتراضي (المرحلة الأولى)
+      regSheetSub.appendRow([newRegId, regStudentName, "مفعّل", 1, "[]", "مسموح", "", "", stage1ProgramId]);
+      var createdRegRowNum = regSheetSub.getLastRow();
+      syncRegistrantLinkAndQrCellsGS(regSheetSub, createdRegRowNum, newRegId, regStudentName, activeBaseUrlSub);
+      var createdDirectUrl = String(regSheetSub.getRange(createdRegRowNum, 7).getValue() || "").trim();
+      var createdQrUrl = String(regSheetSub.getRange(createdRegRowNum, 8).getValue() || "").trim();
+
+      // 2. حفظ تفاصيل الطلب في ورقة طلبات_التسجيل
+      var ansMap = (data.answers && typeof data.answers === "object") ? data.answers : {};
+      var attList = Array.isArray(data.attachments) ? data.attachments : [];
+      var regEmail = String(data.email || "").trim();
+      var regPhone = String(data.phone || "").trim();
+      var regTgUser = String(data.telegramUsername || "").trim();
+      var stage1StatusLabel = "المرحلة 1 - في القسم الافتراضي (" + stage1ProgramName + ")";
+      subSheet.appendRow([
+        nowSub,
+        newRegId,
+        regStudentName,
+        stage1ProgramId,
+        "stage1_default",
+        stage1StatusLabel,
+        regTgUser,
+        regEmail,
+        regPhone,
+        JSON.stringify(ansMap),
+        JSON.stringify(attList),
+        ""
+      ]);
+
+      // 3. إشعار الإدارة عبر تيليغرام (باستخدام البوت المربوط)
+      var tgCfgSub = readTelegramConfigGS(ss);
+      var cleanBotUser = String(tgCfgSub.botUsername || data.botUsername || "").replace(/^@/, "").trim();
+      var tgDeepLink = cleanBotUser ? ("https://t.me/" + cleanBotUser + "?start=" + newRegId) : "";
+      if (data.notifyAdminTelegram !== false && tgCfgSub.botToken && tgCfgSub.adminChatId) {
+        var tgText = "<b>طلب تسجيل طالب جديد (المرحلة 1)</b>\\n"
+          + "الاسم: <b>" + regStudentName + "</b>\\n"
+          + "رقم التسجيل (ID): <code>" + newRegId + "</code>\\n"
+          + "القسم المبدئي: " + stage1ProgramName + "\\n";
+        if (regPhone) tgText += "الهاتف: " + regPhone + "\\n";
+        if (regEmail) tgText += "البريد: " + regEmail + "\\n";
+        if (regTgUser) tgText += "معرف تيليغرام: " + regTgUser + "\\n";
+        var ansKeys = Object.keys(ansMap);
+        for (var ak = 0; ak < Math.min(ansKeys.length, 6); ak++) {
+          var kLabel = ansKeys[ak];
+          var kVal = String(ansMap[kLabel] || "").trim();
+          if (kVal && kVal !== regStudentName && kVal !== regPhone && kVal !== regEmail && kVal !== regTgUser) {
+            tgText += "• " + kLabel + ": " + kVal + "\\n";
+          }
+        }
+        if (attList.length > 0) {
+          tgText += "المرفقات (" + attList.length + "):\\n";
+          for (var ai = 0; ai < attList.length; ai++) {
+            if (attList[ai] && attList[ai].url) {
+              tgText += "- " + (attList[ai].questionLabel || "مرفق") + ": " + attList[ai].url + "\\n";
+            }
+          }
+        }
+        sendTelegramBotMessageGS(ss, tgCfgSub.adminChatId, tgText, "");
+      }
+
+      // 4. إرسال نسخة بريد إلكتروني اختيارية للإدارة إن كانت مضبوطة
+      var notifyEmailAddr = String(data.adminNotificationEmail || "").trim();
+      if (notifyEmailAddr && notifyEmailAddr.indexOf("@") !== -1) {
+        try {
+          var mailBody = "طلب تسجيل جديد في المنصة:\\n"
+            + "الاسم: " + regStudentName + "\\n"
+            + "رقم التسجيل (ID): " + newRegId + "\\n"
+            + "القسم الحالي: " + stage1ProgramName + "\\n"
+            + "الهاتف: " + regPhone + "\\n"
+            + "البريد: " + regEmail + "\\n"
+            + "معرف تيليغرام: " + regTgUser + "\\n\\n"
+            + "الإجابات:\\n" + JSON.stringify(ansMap, null, 2);
+          MailApp.sendEmail(notifyEmailAddr, "تسجيل طالب جديد: " + regStudentName + " (ID: " + newRegId + ")", mailBody);
+        } catch (mailErr) {}
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        registrationId: newRegId,
+        telegramDeepLink: tgDeepLink,
+        botUsername: cleanBotUser,
+        student: {
+          id: newRegId,
+          name: regStudentName,
+          status: "مفعّل",
+          maxDevices: 1,
+          devices: [],
+          requireLocation: false,
+          directLoginUrl: createdDirectUrl,
+          qrImageUrl: createdQrUrl,
+          programId: stage1ProgramId
+        }
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_registration_submissions") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        submissions: readRegistrationSubmissionsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "transfer_registration_stage") {
+      if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
+      var tRegId = normRegDigitsGS(data.registrationId || "");
+      var tProgId = String(data.targetProgramId || "prog_default").trim();
+      var tProgName = String(data.targetProgramName || tProgId).trim();
+      var tStage = String(data.stage || "stage2_assigned").trim();
+      var tStatusLabel = String(data.statusLabel || ("تم التحويل إلى: " + tProgName)).trim();
+      var tAccountStatus = String(data.accountStatus || "مفعّل").trim();
+      var tNotes = data.adminNotes !== undefined ? String(data.adminNotes) : undefined;
+
+      // 1. تحديث ورقة ID registrants
+      var rSheetT = getIDRegistrantsSheet(ss);
+      var allRegsT = readAllRegistrantsGS(rSheetT);
+      var matchedStudentNameT = String(data.studentName || "").trim();
+      for (var riT = 0; riT < allRegsT.length; riT++) {
+        if (allRegsT[riT].id === tRegId) {
+          rSheetT.getRange(allRegsT[riT].rowNumber, 3).setValue(tAccountStatus);
+          rSheetT.getRange(allRegsT[riT].rowNumber, 9).setValue(tProgId);
+          if (!matchedStudentNameT) matchedStudentNameT = allRegsT[riT].name;
+          break;
+        }
+      }
+
+      // 2. تحديث ورقة طلبات_التسجيل
+      var sSheetT = getRegistrationSubmissionsSheetGS(ss);
+      if (sSheetT.getLastRow() >= 2) {
+        var sRows = sSheetT.getRange(2, 1, sSheetT.getLastRow() - 1, 12).getValues();
+        for (var si = 0; si < sRows.length; si++) {
+          if (normRegDigitsGS(sRows[si][1]) === tRegId) {
+            var rNum = si + 2;
+            sSheetT.getRange(rNum, 4).setValue(tProgId);
+            sSheetT.getRange(rNum, 5).setValue(tStage);
+            sSheetT.getRange(rNum, 6).setValue(tStatusLabel);
+            if (tNotes !== undefined) sSheetT.getRange(rNum, 12).setValue(tNotes);
+          }
+        }
+      }
+
+      // 3. إشعار الطالب والإدارة عبر تيليغرام عند الترقية/التحويل
+      var tgCfgT = readTelegramConfigGS(ss);
+      var tgNotifiedStudent = false;
+      if (data.notifyStudentTelegram !== false && tgCfgT.botToken) {
+        var uSheetT = getTelegramUsersSheet(ss);
+        var uRowsT = uSheetT.getDataRange().getValues();
+        for (var uiT = 1; uiT < uRowsT.length; uiT++) {
+          if (normRegDigitsGS(uRowsT[uiT][0]) === tRegId && String(uRowsT[uiT][2] || "").trim()) {
+            var sChatId = String(uRowsT[uiT][2]).trim();
+            var stuMsg = "<b>تهانينا يا " + (matchedStudentNameT || "مشتركنا الكريم") + "!</b>\\n"
+              + "تم قبولك وتحويل حسابك إلى: <b>" + tProgName + "</b>.\\n"
+              + "يمكنك الآن الدخول إلى صفحتك الخاصة لبدء التدريب.";
+            if (sendTelegramBotMessageGS(ss, sChatId, stuMsg, "").ok) {
+              tgNotifiedStudent = true;
+            }
+          }
+        }
+      }
+      if (tgCfgT.botToken && tgCfgT.adminChatId) {
+        sendTelegramBotMessageGS(
+          ss,
+          tgCfgT.adminChatId,
+          "تم تحويل المشترك <b>" + (matchedStudentNameT || tRegId) + "</b> (ID: <code>" + tRegId + "</code>) إلى برنامج: <b>" + tProgName + "</b>.",
+          ""
+        );
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        tgNotifiedStudent: tgNotifiedStudent,
+        message: "تم تحويل المشترك (" + (matchedStudentNameT || tRegId) + ") إلى برنامج (" + tProgName + ") بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_registration_submission") {
+      var delId = normRegDigitsGS(data.registrationId || "");
+      var delRowIdx = Number(data.rowIndex) || 0;
+      var sSheetD = getRegistrationSubmissionsSheetGS(ss);
+      if (delRowIdx >= 2 && delRowIdx <= sSheetD.getLastRow()) {
+        sSheetD.deleteRow(delRowIdx);
+      } else if (delId && sSheetD.getLastRow() >= 2) {
+        var dRows = sSheetD.getRange(2, 1, sSheetD.getLastRow() - 1, 2).getValues();
+        for (var diD = dRows.length - 1; diD >= 0; diD--) {
+          if (normRegDigitsGS(dRows[diD][1]) === delId) {
+            sSheetD.deleteRow(diD + 2);
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        message: "تم حذف سجل الطلب بنجاح."
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

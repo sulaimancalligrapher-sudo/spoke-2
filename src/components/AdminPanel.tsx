@@ -91,6 +91,8 @@ import { SubscribersAdminManager } from './SubscribersAdminManager';
 import { TelegramAdminManager } from './TelegramAdminManager';
 import { HomeContentAdminManager } from './HomeContentManager';
 import { PdfSettingsAdminPanel } from './StatsModal';
+import { PortalAdminManager } from './PortalAdminManager';
+import { getLocalPortalData, getLocalRegistrationQuestions } from '../utils/portalSheets';
 import {
   CourseScheduleData,
   createEmptyCourseSchedule,
@@ -99,7 +101,7 @@ import {
 import { SettingsView as WritingSettingsView } from '../arWriting/components/SettingsView';
 import { DrawingTemplate, BoardStyle, GuideColor } from '../arWriting/types/drawing';
 import { ARRewardTier } from '../arWriting/services/arRewardsService';
-import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock, HomeNavbarControls, PdfReportSettings } from '../types';
+import { MatchingLessonSubject, DictationLessonSubject, CatchLessonSubject, HomeContentBlock, HomeNavbarControls, PdfReportSettings, PortalPublicData, RegistrationQuestion } from '../types';
 import {
   getDailyQuotaStatus,
   resetDailyQuota,
@@ -193,7 +195,12 @@ interface AdminPanelProps {
   onUpdatePdfSettings?: (next: PdfReportSettings) => void;
   homeLogoUrl?: string;
   platformTitle?: string;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  portalData?: PortalPublicData;
+  onUpdatePortalData?: (next: PortalPublicData) => void;
+  registrationQuestions?: RegistrationQuestion[];
+  onUpdateRegistrationQuestions?: (next: RegistrationQuestion[]) => void;
+  onPreviewPublicPortal?: () => void;
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -277,9 +284,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdatePdfSettings,
   homeLogoUrl,
   platformTitle,
+  portalData,
+  onUpdatePortalData,
+  registrationQuestions,
+  onUpdateRegistrationQuestions,
+  onPreviewPublicPortal,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1288,6 +1300,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <LayoutGrid className={`w-4 h-4 ${activeTab === 'homeContent' ? 'text-white' : 'text-emerald-600'}`} />
             <span>محتوى الصفحة الرئيسية</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('portal')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'portal'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Globe className={`w-4 h-4 ${activeTab === 'portal' ? 'text-emerald-400' : 'text-emerald-700'}`} />
+            <span>البوابة العامة والتسجيل</span>
           </button>
 
           <button
@@ -3073,6 +3097,26 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             videoLessons={videoLessons}
             homeLogoUrl={homeLogoUrl}
             platformTitle={platformTitle}
+          />
+        )}
+
+        {/* TAB 15: ISOLATED PUBLIC PORTAL & 2-STAGE REGISTRATION */}
+        {activeTab === 'portal' && (
+          <PortalAdminManager
+            portalData={portalData || getLocalPortalData()}
+            onUpdatePortalData={(next) => onUpdatePortalData?.(next)}
+            questions={registrationQuestions || getLocalRegistrationQuestions()}
+            onUpdateQuestions={(next) => onUpdateRegistrationQuestions?.(next)}
+            programs={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).programs || []
+            }
+            webhookUrl={sheetsConfig.webhookUrl}
+            onRefreshRegistrants={() => {
+              onRefreshFromSheets?.();
+            }}
+            onPreviewPublicPortal={onPreviewPublicPortal}
           />
         )}
 

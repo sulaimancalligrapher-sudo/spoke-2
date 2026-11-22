@@ -19,6 +19,8 @@ import {
   HomeContentBlock,
   HomeNavbarControls,
   PdfReportSettings,
+  PortalPublicData,
+  RegistrationQuestion,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -51,6 +53,17 @@ import { VideoLessonsModal } from './video/components/VideoLessonsModal';
 import { VideoCorrectionModal } from './video/components/VideoCorrectionModal';
 import { CourseScheduleModal } from './components/CourseScheduleModal';
 import { HomeContentShowcase } from './components/HomeContentManager';
+import { PublicPortalView } from './components/PublicPortalView';
+import { PortalRegistrationModal } from './components/PortalRegistrationModal';
+import {
+  fetchPortalDataFromSheets,
+  fetchRegistrationQuestionsFromSheets,
+  getLocalPortalData,
+  getLocalRegistrationQuestions,
+  saveLocalPortalData,
+  saveLocalRegistrationQuestions,
+  buildTelegramBotStartLink,
+} from './utils/portalSheets';
 import {
   AttendanceRecord,
   CourseScheduleData,
@@ -182,6 +195,9 @@ import {
   MapPin,
   LogIn,
   Loader2,
+  Bot,
+  ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -234,7 +250,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -356,6 +372,18 @@ export default function App() {
   const [schedulePreviewProgramId, setSchedulePreviewProgramId] = useState<string | undefined>(
     undefined
   );
+
+  // Isolated Public Portal & 2-Stage Registration State (محتوى_البوابة_العامة / أسئلة_التسجيل)
+  const [portalData, setPortalData] = useState<PortalPublicData>(() => getLocalPortalData());
+  const [registrationQuestions, setRegistrationQuestions] = useState<RegistrationQuestion[]>(() =>
+    getLocalRegistrationQuestions()
+  );
+  const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
+  const [registrationPreselectedProgram, setRegistrationPreselectedProgram] = useState<string | undefined>(
+    undefined
+  );
+  const [isPortalPreview, setIsPortalPreview] = useState(false);
+  const [isRefreshingStudentStage, setIsRefreshingStudentStage] = useState(false);
 
   const activeStudentProgramId = isAdminAuthenticated
     ? schedulePreviewProgramId
@@ -567,7 +595,7 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes, pdfRes] =
+    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes, pdfRes, portalRes, regQuestionsRes] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
@@ -582,6 +610,8 @@ export default function App() {
         fetchVideoLessonsFromSheets(url).catch(() => null),
         fetchCourseScheduleFromSheets(url).catch(() => null),
         fetchPdfSettingsFromSheets(url).catch(() => null),
+        fetchPortalDataFromSheets(url).catch(() => null),
+        fetchRegistrationQuestionsFromSheets(url).catch(() => null),
       ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -716,10 +746,40 @@ export default function App() {
     if (pdfRes?.settings) {
       setPdfSettings(pdfRes.settings);
     }
+    if (portalRes?.data) {
+      setPortalData(portalRes.data);
+      saveLocalPortalData(portalRes.data);
+    }
+    if (regQuestionsRes?.questions && regQuestionsRes.questions.length > 0) {
+      setRegistrationQuestions(regQuestionsRes.questions);
+      saveLocalRegistrationQuestions(regQuestionsRes.questions);
+    }
     if (currentStudent && url) {
       fetchStudentVideoProgress(url, currentStudent.id, currentStudent.name)
         .then((vp) => {
           if (vp) setVideoProgressMap(vp);
+        })
+        .catch(() => {});
+      fetchIDRegistrants(url)
+        .then((regs) => {
+          const match = regs.find((r) => normalizeDigits(r.id) === normalizeDigits(currentStudent.id));
+          if (
+            match &&
+            (match.programId !== currentStudent.programId ||
+              match.name !== currentStudent.name ||
+              match.status !== currentStudent.status)
+          ) {
+            const updated = {
+              ...currentStudent,
+              name: match.name || currentStudent.name,
+              status: match.status || currentStudent.status,
+              programId: match.programId,
+            };
+            setCurrentStudent(updated);
+            try {
+              localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(updated));
+            } catch {}
+          }
         })
         .catch(() => {});
     }
@@ -835,12 +895,16 @@ export default function App() {
         const authed = sessionStorage.getItem('faseeh_admin_auth') === 'true';
         if (authed) {
           setIsAdminView(true);
+          setIsPortalPreview(false);
         } else {
           setIsAdminView(false);
           setShowAdminLoginModal(true);
         }
       } else {
         setIsAdminView(false);
+        if (hash.toLowerCase() === '#register') {
+          setIsRegistrationModalOpen(true);
+        }
       }
     };
 
@@ -1198,6 +1262,24 @@ export default function App() {
             if (res?.settings) setPdfSettings(res.settings);
           })
           .catch(() => {});
+
+        // Auto-fetch Public Showcase Portal & Registration Questions ("محتوى_البوابة_العامة" & "أسئلة_التسجيل")
+        fetchPortalDataFromSheets(activeConfig.webhookUrl)
+          .then((pd) => {
+            if (pd?.data) {
+              setPortalData(pd.data);
+              saveLocalPortalData(pd.data);
+            }
+          })
+          .catch(() => {});
+        fetchRegistrationQuestionsFromSheets(activeConfig.webhookUrl)
+          .then((rq) => {
+            if (rq?.questions && rq.questions.length > 0) {
+              setRegistrationQuestions(rq.questions);
+              saveLocalRegistrationQuestions(rq.questions);
+            }
+          })
+          .catch(() => {});
       }
 
       const savedSubmissions = localStorage.getItem(STORAGE_KEY_SUBMISSIONS);
@@ -1461,6 +1543,8 @@ export default function App() {
     setCurrentStudent(student);
     setLoginModalPrefill({ name: '', id: '', error: null });
     setIsLoginModalOpen(false);
+    setIsRegistrationModalOpen(false);
+    setIsPortalPreview(false);
     try {
       localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(student));
     } catch (e) {}
@@ -1582,6 +1666,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentStudent(null);
+    setIsPortalPreview(false);
     setStudentHistory([]);
     setMatchingHistory([]);
     setDictationHistory([]);
@@ -1592,6 +1677,44 @@ export default function App() {
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
     } catch (e) {}
+  };
+
+  const handleRefreshCurrentStudentStage = async () => {
+    if (!currentStudent || !sheetsConfig.webhookUrl || isRefreshingStudentStage) return;
+    setIsRefreshingStudentStage(true);
+    try {
+      const regs = await fetchIDRegistrants(sheetsConfig.webhookUrl);
+      const match = regs.find((r) => normalizeDigits(r.id) === normalizeDigits(currentStudent.id));
+      if (match) {
+        const updated: StudentRegistrant = {
+          ...currentStudent,
+          name: match.name || currentStudent.name,
+          status: match.status || currentStudent.status,
+          programId: match.programId,
+        };
+        setCurrentStudent(updated);
+        try {
+          localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(updated));
+        } catch {}
+        const targetProg = (normalizeCourseScheduleData(courseSchedule).programs || []).find(
+          (p) => p.id === updated.programId
+        );
+        if (updated.programId && updated.programId !== portalData.settings.stage1DefaultProgramId) {
+          setSyncNotice(
+            `🎉 تهانينا! تم تفعيل انتقالك إلى برنامج: ${targetProg?.name || updated.programId}`
+          );
+          setTimeout(() => setSyncNotice(null), 6000);
+        } else {
+          setSyncNotice('لا تزال عضويتك في القسم التمهيدي الافتراضي بانتظار اعتماد الإدارة.');
+          setTimeout(() => setSyncNotice(null), 4000);
+        }
+      }
+    } catch {
+      setSyncNotice('تعذر التحقق من الحالة حالياً، يرجى المحاولة بعد قليل.');
+      setTimeout(() => setSyncNotice(null), 3500);
+    } finally {
+      setIsRefreshingStudentStage(false);
+    }
   };
 
   const handleUpdateSheetsConfig = (newConfig: Partial<GoogleSheetsConfig>) => {
@@ -2283,12 +2406,13 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
       window.location.hash = 'control';
       setIsAdminView(true);
+      setIsPortalPreview(false);
     } else {
       setShowAdminLoginModal(true);
     }
@@ -2302,6 +2426,7 @@ export default function App() {
     setShowAdminLoginModal(false);
     window.location.hash = 'control';
     setIsAdminView(true);
+    setIsPortalPreview(false);
   };
 
   const handleAdminLogout = () => {
@@ -2470,6 +2595,21 @@ export default function App() {
           }}
           homeLogoUrl={homeConfig?.logoUrl}
           platformTitle={homeConfig?.title}
+          portalData={portalData}
+          onUpdatePortalData={(next) => {
+            setPortalData(next);
+            saveLocalPortalData(next);
+          }}
+          registrationQuestions={registrationQuestions}
+          onUpdateRegistrationQuestions={(next) => {
+            setRegistrationQuestions(next);
+            saveLocalRegistrationQuestions(next);
+          }}
+          onPreviewPublicPortal={() => {
+            window.location.hash = '';
+            setIsAdminView(false);
+            setIsPortalPreview(true);
+          }}
         />
 
         <SettingsModal
@@ -2486,6 +2626,85 @@ export default function App() {
           onUpdateSettings={handleUpdateSettings}
           defaultEvalMode={settings.preferredEvaluationMode}
           onUpdateDefaultEvalMode={(mode) => handleUpdateSettings({ preferredEvaluationMode: mode })}
+        />
+      </>
+    );
+  }
+
+  // PUBLIC SHOWCASE & REGISTRATION PORTAL (Isolated from Private Subscriber Area)
+  if (!currentStudent || isPortalPreview) {
+    const stage1Prog = (normalizeCourseScheduleData(courseSchedule).programs || []).find(
+      (p) => p.id === portalData.settings.stage1DefaultProgramId
+    );
+    return (
+      <>
+        <PublicPortalView
+          portalData={portalData}
+          currentLang={currentLang}
+          onSelectLang={handleSelectLang}
+          onOpenRegistration={(progLabel) => {
+            setRegistrationPreselectedProgram(progLabel);
+            setIsRegistrationModalOpen(true);
+          }}
+          onOpenStudentLogin={() => setIsLoginModalOpen(true)}
+          onOpenAdminLogin={() => handleOpenAdmin('portal')}
+          isAdminAuthenticated={isAdminAuthenticated}
+          onReturnToAdmin={() => {
+            setIsPortalPreview(false);
+            if (isAdminAuthenticated) {
+              handleOpenAdmin('portal');
+            }
+          }}
+        />
+
+        <PortalRegistrationModal
+          isOpen={isRegistrationModalOpen}
+          onClose={() => {
+            setIsRegistrationModalOpen(false);
+            setRegistrationPreselectedProgram(undefined);
+            if (window.location.hash.toLowerCase() === '#register') {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+          }}
+          questions={registrationQuestions}
+          portalSettings={portalData.settings}
+          stage1ProgramName={stage1Prog?.name}
+          preselectedProgramLabel={registrationPreselectedProgram}
+          webhookUrl={sheetsConfig.webhookUrl}
+          currentLang={currentLang}
+          onInstantEnterStudentPage={(student) => {
+            setIsRegistrationModalOpen(false);
+            setIsPortalPreview(false);
+            setCurrentView('landing');
+            handleLoginSuccess(student);
+          }}
+          onOpenExistingLogin={() => {
+            setIsRegistrationModalOpen(false);
+            setIsLoginModalOpen(true);
+          }}
+        />
+
+        <StudentLoginModal
+          isOpen={isLoginModalOpen}
+          isMandatory={false}
+          initialName={loginModalPrefill.name}
+          initialId={loginModalPrefill.id}
+          initialError={loginModalPrefill.error}
+          onClose={() => setIsLoginModalOpen(false)}
+          onLoginSuccess={handleLoginSuccess}
+          onOpenRegistration={() => {
+            setIsLoginModalOpen(false);
+            setIsRegistrationModalOpen(true);
+          }}
+          webhookUrl={sheetsConfig.webhookUrl}
+          t={t}
+        />
+
+        <AdminLoginModal
+          isOpen={showAdminLoginModal}
+          onClose={() => setShowAdminLoginModal(false)}
+          onLoginSuccess={handleAdminLoginSuccess}
+          adminUsers={homeConfig?.adminUsers}
         />
       </>
     );
@@ -2739,6 +2958,70 @@ export default function App() {
 
               </div>
             </div>
+
+            {/* Stage-1 Onboarding Guidance Card (shown only while student is in the default Stage-1 program) */}
+            {currentStudent &&
+              (!currentStudent.programId ||
+                currentStudent.programId === portalData.settings.stage1DefaultProgramId) && (() => {
+                const tgLink = buildTelegramBotStartLink(
+                  portalData.settings.telegramBotUsername,
+                  currentStudent.id
+                );
+                return (
+                  <div className="max-w-4xl w-full mx-auto bg-amber-50/80 rounded-3xl border border-amber-200 shadow-sm p-5 sm:p-6 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-extrabold">
+                          المرحلة التمهيدية · بانتظار اعتماد الإدارة
+                        </span>
+                        <span className="font-mono tabular-nums text-xs font-extrabold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-amber-200">
+                          ID #{currentStudent.id}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRefreshCurrentStudentStage}
+                        disabled={isRefreshingStudentStage}
+                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100/60 text-amber-950 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 transition-colors"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${isRefreshingStudentStage ? 'animate-spin' : ''}`}
+                        />
+                        <span>تحقق من الانتقال للمرحلة الثانية</span>
+                      </button>
+                    </div>
+
+                    {portalData.settings.stage1BannerTitle && (
+                      <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
+                        {portalData.settings.stage1BannerTitle}
+                      </h2>
+                    )}
+                    {portalData.settings.stage1BannerBody && (
+                      <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line font-semibold">
+                        {portalData.settings.stage1BannerBody}
+                      </p>
+                    )}
+
+                    {tgLink && (
+                      <div className="pt-1 flex flex-wrap items-center gap-2.5">
+                        <a
+                          href={tgLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-xs transition-colors"
+                        >
+                          <Bot className="w-4 h-4" />
+                          <span>ربط حساب تيليغرام برقم التسجيل ({currentStudent.id})</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                        <span className="text-[11px] font-bold text-slate-600">
+                          يصلك إشعار فوري على تيليغرام فور اعتماد الإدارة ونقلك لمجموعتك التدريبية.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
             {/* Dedicated Program Welcome & Guidelines Card */}
             {(() => {
@@ -4133,19 +4416,49 @@ export default function App() {
         platformTitle={homeConfig?.title}
       />
 
-      {/* Student Login & Registration Verification Modal (Mandatory when not logged in) */}
+      {/* Student Login & Registration Verification Modal */}
       <StudentLoginModal
-        isOpen={isLoginModalOpen || (!currentStudent && !isAdminView && !showAdminLoginModal)}
-        isMandatory={!currentStudent}
+        isOpen={isLoginModalOpen}
+        isMandatory={false}
         initialName={loginModalPrefill.name}
         initialId={loginModalPrefill.id}
         initialError={loginModalPrefill.error}
-        onClose={() => {
-          if (currentStudent) setIsLoginModalOpen(false);
-        }}
+        onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
+        onOpenRegistration={() => {
+          setIsLoginModalOpen(false);
+          setIsRegistrationModalOpen(true);
+        }}
         webhookUrl={sheetsConfig.webhookUrl}
         t={t}
+      />
+
+      <PortalRegistrationModal
+        isOpen={isRegistrationModalOpen}
+        onClose={() => {
+          setIsRegistrationModalOpen(false);
+          setRegistrationPreselectedProgram(undefined);
+        }}
+        questions={registrationQuestions}
+        portalSettings={portalData.settings}
+        stage1ProgramName={
+          (normalizeCourseScheduleData(courseSchedule).programs || []).find(
+            (p) => p.id === portalData.settings.stage1DefaultProgramId
+          )?.name
+        }
+        preselectedProgramLabel={registrationPreselectedProgram}
+        webhookUrl={sheetsConfig.webhookUrl}
+        currentLang={currentLang}
+        onInstantEnterStudentPage={(student) => {
+          setIsRegistrationModalOpen(false);
+          setIsPortalPreview(false);
+          setCurrentView('landing');
+          handleLoginSuccess(student);
+        }}
+        onOpenExistingLogin={() => {
+          setIsRegistrationModalOpen(false);
+          setIsLoginModalOpen(true);
+        }}
       />
 
       {/* Admin Login Verification Modal */}

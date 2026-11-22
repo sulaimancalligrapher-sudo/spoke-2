@@ -448,4 +448,118 @@ export interface PdfReportSettings {
   certificate: PdfCertificateConfig;
 }
 
+export type PortalSectionType =
+  | 'announcement'
+  | 'hero'
+  | 'about'
+  | 'programs'
+  | 'gallery'
+  | 'videos'
+  | 'contact'
+  | 'store_slot';
+
+export interface PortalSectionConfig {
+  key: PortalSectionType;
+  label: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface PortalContentItem {
+  id: string;
+  section: PortalSectionType;
+  title: string;
+  subtitle?: string;
+  description: string;
+  mediaUrl?: string;
+  linkUrl?: string;
+  linkLabel?: string;
+  badgeText?: string;
+  metaPrimary?: string;
+  metaSecondary?: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface PortalSettingsConfig {
+  academyName: string;
+  academyTagline: string;
+  logoUrl?: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  heroMediaUrl?: string;
+  announcementEnabled: boolean;
+  announcementText: string;
+  contactEmail: string;
+  contactPhone: string;
+  contactAddress: string;
+  contactHours: string;
+  telegramBotUsername: string;
+  whatsappUrl?: string;
+  stage1DefaultProgramId: string;
+  stage1BannerTitle: string;
+  stage1BannerBody: string;
+  adminNotificationEmail?: string;
+  notifyAdminTelegramOnRegister: boolean;
+  notifyStudentTelegramOnTransfer: boolean;
+  showStoreNavSlot: boolean;
+  storeSlotTitle: string;
+  storeSlotNote: string;
+  sections: PortalSectionConfig[];
+}
+
+export interface PortalPublicData {
+  settings: PortalSettingsConfig;
+  items: PortalContentItem[];
+}
+
+export type RegistrationQuestionType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'phone'
+  | 'email'
+  | 'select'
+  | 'file';
+
+export interface RegistrationQuestion {
+  id: string;
+  label: string;
+  labelEn?: string;
+  labelTh?: string;
+  type: RegistrationQuestionType;
+  required: boolean;
+  options?: string[];
+  placeholder?: string;
+  guideUrl?: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export type RegistrationStage = 'stage1_default' | 'stage2_assigned' | 'paused';
+
+export interface RegistrationAttachment {
+  questionId: string;
+  questionLabel: string;
+  url: string;
+}
+
+export interface RegistrationSubmissionRecord {
+  rowIndex?: number;
+  submittedAt: string;
+  registrationId: string;
+  studentName: string;
+  programId: string;
+  programName?: string;
+  stage: RegistrationStage;
+  status: string;
+  telegramUsername?: string;
+  email?: string;
+  phone?: string;
+  answers: Record<string, string>;
+  attachments: RegistrationAttachment[];
+  adminNotes?: string;
+}
+
+
 

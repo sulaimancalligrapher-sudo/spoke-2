@@ -10,6 +10,7 @@ import {
   QrCode,
   Camera,
   MapPin,
+  UserPlus,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { StudentRegistrant } from '../types';
@@ -33,6 +34,7 @@ interface StudentLoginModalProps {
   initialId?: string;
   initialError?: string | null;
   t?: (id: string, fallback?: string) => string;
+  onOpenRegistration?: () => void;
 }
 
 const QR_READER_ELEMENT_ID = 'faseeh-student-qr-reader';
@@ -132,6 +134,7 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
   initialId = '',
   initialError = null,
   t,
+  onOpenRegistration,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [studentName, setStudentName] = useState(initialName);
@@ -478,6 +481,22 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
                   </>
                 )}
               </button>
+
+              {onOpenRegistration && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopScanner();
+                    onClose();
+                    onOpenRegistration();
+                  }}
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold rounded-2xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <UserPlus className="w-4 h-4 text-emerald-600" />
+                  <span>طالب جديد؟ افتح استمارة التسجيل والالتحاق</span>
+                </button>
+              )}
 
               {webhookUrl && (
                 <button
