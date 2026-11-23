@@ -536,7 +536,8 @@ export interface PortalContentItem {
   targetProgramId?: string;
   enabled: boolean;
   sortOrder: number;
-  // حقول التسويق داخل المتجر (تطبق على بطاقات البرامج section === 'programs' كمصدر حقيقة موحد)
+  // حقول التسويق داخل المتجر والصفحة العامة (تطبق على بطاقات البرامج section === 'programs' كمصدر حقيقة موحد)
+  showOnHome?: boolean;
   showInStore?: boolean;
   price?: number;
   compareAtPrice?: number | null;
@@ -702,6 +703,7 @@ export interface StoreSettings {
   bank_transfer_enabled: boolean;
   announcement_text: string;
   notify_telegram_on_order: boolean;
+  show_in_public_portal?: boolean;
 }
 
 export interface StoreCategory {
@@ -726,6 +728,7 @@ export interface StoreProduct {
   gallery_urls: string[];
   variants: StoreProductVariantOption[];
   is_featured: boolean;
+  show_on_home?: boolean;
   is_active: boolean;
   created_at: string;
 }

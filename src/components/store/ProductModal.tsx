@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, MessageCircle, Minus, Plus, ShoppingBag, X } from 'lucide-react';
+import { Heart, MessageCircle, Minus, Plus, ShoppingCart, X } from 'lucide-react';
 import type { StoreCategory, StoreProduct, StoreSettings } from '../../types';
 import { resolveVariantUnitPrice } from '../../utils/storeSheets';
 import { StoreImage } from './StoreImage';
@@ -192,10 +192,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   type="button"
                   disabled={outOfStock}
                   onClick={handleAdd}
-                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-800 px-5 py-3 text-xs font-extrabold text-white hover:bg-emerald-900 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  title={outOfStock ? 'غير متوفر حالياً' : 'أضف إلى السلة'}
+                  aria-label={outOfStock ? 'غير متوفر حالياً' : 'أضف إلى السلة'}
+                  className="flex-1 inline-flex items-center justify-center rounded-xl bg-emerald-800 px-5 py-3 text-white hover:bg-emerald-900 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 >
-                  <ShoppingBag className="h-4 w-4" />
-                  <span>{outOfStock ? 'غير متوفر حالياً' : 'أضف إلى السلة'}</span>
+                  <ShoppingCart className="h-5 w-5" />
                 </button>
 
                 <button

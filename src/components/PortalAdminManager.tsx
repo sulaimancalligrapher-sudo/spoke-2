@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Globe,
   Users,
-  ShoppingBag,
+  ShoppingCart,
   Plus,
   Trash2,
   Edit3,
@@ -142,9 +142,9 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
   const [banner, setBanner] = useState<{ success: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Content item editor state
+  // Content item editor state (programs managed centrally inside StoreAdminManager)
   const [activeContentSection, setActiveContentSection] = useState<
-    'about' | 'programs' | 'gallery' | 'videos'
+    'about' | 'gallery' | 'videos'
   >('about');
   const [editingItem, setEditingItem] = useState<PortalContentItem | null>(null);
   const [galleryUrlDraft, setGalleryUrlDraft] = useState('');
@@ -768,7 +768,7 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
           }`}
         >
-          <ShoppingBag className="w-4 h-4" />
+          <ShoppingCart className="w-4 h-4" />
           <span>المتجر وتسويق البرامج</span>
         </button>
       </div>
@@ -1875,8 +1875,8 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
           {/* Section Cards Manager */}
           <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-2">
-                {(['about', 'programs', 'gallery', 'videos'] as const).map((secKey) => (
+              <div className="flex flex-wrap items-center gap-2">
+                {(['about', 'gallery', 'videos'] as const).map((secKey) => (
                   <button
                     key={secKey}
                     type="button"
@@ -1893,17 +1893,19 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                     {CONTENT_SECTION_LABELS[secKey]}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setSubTab('store')}
+                  className="px-3 py-2 rounded-xl text-[11px] font-bold bg-emerald-50 text-emerald-900 border border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                >
+                  إدارة البرامج ← من تبويب المتجر
+                </button>
               </div>
 
               <button
                 type="button"
                 onClick={() => {
-                  const defaultAction: PortalItemActionType =
-                    activeContentSection === 'programs'
-                      ? 'open_program_request'
-                      : activeContentSection === 'about'
-                      ? 'none'
-                      : 'none';
+                  const defaultAction: PortalItemActionType = 'none';
                   setGalleryUrlDraft('');
                   setEditingItem({
                     id: `pitem_${Date.now()}`,
@@ -1915,20 +1917,11 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                     galleryImages: activeContentSection === 'gallery' ? [] : undefined,
                     thumbnailUrl: '',
                     linkUrl: '',
-                    linkLabel:
-                      activeContentSection === 'programs'
-                        ? 'طلب الالتحاق بالبرنامج'
-                        : activeContentSection === 'videos'
-                        ? ''
-                        : '',
+                    linkLabel: '',
                     badgeText: '',
                     metaPrimary: '',
                     metaSecondary: '',
                     actionType: defaultAction,
-                    slug:
-                      activeContentSection === 'programs'
-                        ? `program-${sectionItems.length + 1}`
-                        : undefined,
                     enabled: true,
                     sortOrder: sectionItems.length + 1,
                   });

@@ -154,6 +154,8 @@ export function normalizeStoreData(raw?: Partial<StorePublicData> | null): Store
     bank_transfer_enabled: s.bank_transfer_enabled !== undefined ? Boolean(s.bank_transfer_enabled) : true,
     notify_telegram_on_order:
       s.notify_telegram_on_order !== undefined ? Boolean(s.notify_telegram_on_order) : true,
+    show_in_public_portal:
+      s.show_in_public_portal !== undefined ? Boolean(s.show_in_public_portal) : true,
   };
 
   const categories: StoreCategory[] = (
@@ -189,6 +191,7 @@ export function normalizeStoreData(raw?: Partial<StorePublicData> | null): Store
     gallery_urls: Array.isArray(p.gallery_urls) ? p.gallery_urls.map((u) => String(u || '').trim()).filter(Boolean) : [],
     variants: parseProductVariants(p.variants),
     is_featured: Boolean(p.is_featured),
+    show_on_home: p.show_on_home !== undefined ? Boolean(p.show_on_home) : idx < 3,
     is_active: p.is_active !== false,
     created_at: String(p.created_at || new Date().toISOString()),
   }));

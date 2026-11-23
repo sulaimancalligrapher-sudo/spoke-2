@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Award,
   Check,
   CheckCircle2,
@@ -17,7 +19,7 @@ import {
   Save,
   Search,
   Settings as SettingsIcon,
-  ShoppingBag,
+  ShoppingCart,
   Tag,
   Trash2,
   X,
@@ -114,6 +116,8 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
 
   // Unified Program Marketing Editor
   const [editingProgCard, setEditingProgCard] = useState<PortalContentItem | null>(null);
+  const [isAddingNewProg, setIsAddingNewProg] = useState(false);
+  const [confirmDeleteProgId, setConfirmDeleteProgId] = useState<string | null>(null);
   const [syllabusDraft, setSyllabusDraft] = useState('');
   const [reqTargetProgMap, setReqTargetProgMap] = useState<Record<string, string>>({});
   const [processingReqId, setProcessingReqId] = useState<string | null>(null);
@@ -264,7 +268,7 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
     setBanner({ success: res.success, text: res.message });
   };
 
-  // Save unified program marketing fields directly to PortalPublicData (محتوى_البوابة_العامة)
+  // Save unified program marketing + core fields directly to PortalPublicData (محتوى_البوابة_العامة)
   const handleSaveProgramMarketing = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProgCard) return;
@@ -274,26 +278,66 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
       .filter(Boolean);
     const updatedCard: PortalContentItem = {
       ...editingProgCard,
+      section: 'programs',
       syllabus: cleanedSyllabus,
+      actionType: Number(editingProgCard.price || 0) <= 0 ? 'open_register' : 'open_program_request',
     };
+    const exists = portalData.items.some((it) => it.id === updatedCard.id);
+    const nextItems = exists
+      ? portalData.items.map((it) => (it.id === updatedCard.id ? updatedCard : it))
+      : [...portalData.items, updatedCard];
     const nextPortal: PortalPublicData = {
       ...portalData,
-      items: portalData.items.map((it) => (it.id === updatedCard.id ? updatedCard : it)),
+      items: nextItems,
     };
     onUpdatePortalData(nextPortal);
     setEditingProgCard(null);
+    setIsAddingNewProg(false);
     setBusy(true);
     try {
       const res = await savePortalDataToSheets(webhookUrl, nextPortal);
       setBanner({
         success: res.success,
         text: res.success
-          ? `تم حفظ بيانات تسويق البرنامج «${updatedCard.title}» ومزامنتها في البوابة والمتجر بنجاح!`
+          ? `تم حفظ بيانات البرنامج «${updatedCard.title}» ومزامنتها في الصفحة العامة والمتجر بنجاح!`
           : res.message,
       });
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleMoveProgramOrder = async (progId: string, dir: -1 | 1) => {
+    const idx = portalPrograms.findIndex((p) => p.id === progId);
+    const swapIdx = idx + dir;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= portalPrograms.length) return;
+    const reordered = [...portalPrograms];
+    const tmp = reordered[idx];
+    reordered[idx] = reordered[swapIdx];
+    reordered[swapIdx] = tmp;
+    const orderMap = new Map<string, number>();
+    reordered.forEach((p, i) => orderMap.set(p.id, i + 1));
+    const nextPortal: PortalPublicData = {
+      ...portalData,
+      items: portalData.items.map((it) =>
+        it.section === 'programs' && orderMap.has(it.id)
+          ? { ...it, sortOrder: orderMap.get(it.id)! }
+          : it
+      ),
+    };
+    onUpdatePortalData(nextPortal);
+    await savePortalDataToSheets(webhookUrl, nextPortal);
+  };
+
+  const handleDeleteProgramCard = async (progId: string) => {
+    const nextPortal: PortalPublicData = {
+      ...portalData,
+      items: portalData.items.filter((it) => it.id !== progId),
+    };
+    onUpdatePortalData(nextPortal);
+    setConfirmDeleteProgId(null);
+    const res = await savePortalDataToSheets(webhookUrl, nextPortal);
+    setBanner({ success: res.success, text: res.success ? 'تم حذف بطاقة البرنامج ومزامنة الشيت.' : res.message });
   };
 
   const handleApproveOrRejectStoreReq = async (
@@ -346,8 +390,8 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
 
   const tabs: { id: StoreAdminTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'overview', label: 'نظرة عامة', icon: <LayoutDashboard className="w-3.5 h-3.5" /> },
-    { id: 'products', label: 'المنتجات والمخزون', icon: <ShoppingBag className="w-3.5 h-3.5" />, badge: storeData.products.length },
-    { id: 'programMarketing', label: 'تسويق البرامج الموحد', icon: <GraduationCap className="w-3.5 h-3.5" />, badge: portalPrograms.filter((p) => p.showInStore !== false).length },
+    { id: 'products', label: 'المنتجات والمخزون', icon: <ShoppingCart className="w-3.5 h-3.5" />, badge: storeData.products.length },
+    { id: 'programMarketing', label: 'إدارة البرامج والتسويق', icon: <GraduationCap className="w-3.5 h-3.5" />, badge: portalPrograms.length },
     { id: 'orders', label: 'الطلبات', icon: <Package className="w-3.5 h-3.5" />, badge: pendingOrdersCount || undefined },
     { id: 'catalog', label: 'الأقسام والبانرات', icon: <FolderTree className="w-3.5 h-3.5" /> },
     { id: 'marketing', label: 'الكوبونات والتوصيل', icon: <Tag className="w-3.5 h-3.5" /> },
@@ -600,12 +644,40 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
                           المخزون: {p.stock}
                         </span>
                       </div>
-                      {!p.is_active && (
-                        <span className="inline-block text-[10px] font-bold text-rose-700">مخفي عن الزوار</span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                        {p.show_on_home && (
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-[10px] font-bold">
+                            معروض في الصفحة العامة
+                          </span>
+                        )}
+                        {!p.is_active && (
+                          <span className="inline-block text-[10px] font-bold text-rose-700">مخفي عن الزوار</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const nextStore: StorePublicData = {
+                          ...storeData,
+                          products: storeData.products.map((it) =>
+                            it.id === p.id ? { ...it, show_on_home: !it.show_on_home } : it
+                          ),
+                        };
+                        onUpdateStoreData(nextStore);
+                        await handleSaveStore(nextStore);
+                      }}
+                      className={`px-2 py-1.5 rounded-lg border text-[10px] font-bold cursor-pointer ${
+                        p.show_on_home
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                      title="عرض أو إخفاء في الصفحة العامة"
+                    >
+                      {p.show_on_home ? 'ظاهر بالرئيسية' : 'إظهار بالرئيسية'}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setEditingProduct(p)}
@@ -649,40 +721,81 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
         </div>
       )}
 
-      {/* TAB 3: UNIFIED PROGRAM MARKETING */}
+      {/* TAB 3: UNIFIED PROGRAM MANAGEMENT & MARKETING */}
       {tab === 'programMarketing' && (
         <div className="space-y-5">
           <div className="bg-white rounded-2xl p-5 border border-slate-200 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h4 className="text-sm font-extrabold text-slate-900">
-                  بطاقات البرامج التدريبية الموحّدة (البوابة العامة + المتجر)
+                  إدارة البرامج التدريبية الموحّدة (المتجر + الصفحة العامة)
                 </h4>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  تقرأ تلقائياً من ورقة «محتوى_البوابة_العامة». أضف السعر، المقاعد، المحاور، والأدوات المقترحة من المتجر لكل برنامج بدون تكرار.
+                  مكان واحد لإضافة وتعديل جميع البرامج التدريبية؛ يمكنك التحكم بعرض كل برنامج في الصفحة العامة وفي المتجر، مع السعر والمقاعد والأدوات المقترحة.
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingNewProg(true);
+                  setSyllabusDraft('');
+                  setEditingProgCard({
+                    id: `prog_card_${Date.now().toString().slice(-5)}`,
+                    section: 'programs',
+                    title: '',
+                    subtitle: '',
+                    description: '',
+                    badgeText: 'برنامج تدريبي',
+                    slug: `program-${portalPrograms.length + 1}`,
+                    enabled: true,
+                    sortOrder: portalPrograms.length + 1,
+                    showOnHome: true,
+                    showInStore: true,
+                    price: 0,
+                    compareAtPrice: null,
+                    format: 'online_live',
+                    duration: '4 أسابيع',
+                    startDate: 'تسجيل مفتوح',
+                    instructor: '',
+                    seatsTotal: 30,
+                    seatsLeft: 25,
+                    syllabus: [],
+                    recommendedProductIds: [],
+                    actionType: 'open_register',
+                  });
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>إضافة برنامج جديد</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {portalPrograms.map((prog) => {
+              {portalPrograms.map((prog, idx) => {
                 const showInStore = prog.showInStore !== false;
+                const showOnHome = prog.showOnHome !== false;
                 const priceVal = Number(prog.price) || 0;
                 const linkedProgName = programs.find((p) => p.id === prog.targetProgramId)?.name;
                 return (
                   <div key={prog.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-3">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-extrabold text-slate-900">{prog.title}</span>
+                      <div className="space-y-1.5 min-w-0">
+                        <div className="text-sm font-extrabold text-slate-900">{prog.title || 'برنامج بدون عنوان'}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span
                             className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                              showInStore
-                                ? 'bg-emerald-100 text-emerald-900'
-                                : 'bg-slate-200 text-slate-600'
+                              showOnHome ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-200 text-slate-600'
                             }`}
                           >
-                            {showInStore ? 'معروض في المتجر' : 'مخفي من المتجر'}
+                            {showOnHome ? 'بالصفحة العامة' : 'مخفي من الرئيسية'}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              showInStore ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {showInStore ? 'بالمتجر' : 'مخفي من المتجر'}
                           </span>
                         </div>
                         <div className="text-xs text-slate-600 flex flex-wrap items-center gap-2">
@@ -704,25 +817,81 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
                           </div>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSyllabusDraft((prog.syllabus || []).join('\n'));
-                          setEditingProgCard({
-                            ...prog,
-                            showInStore: prog.showInStore !== false,
-                            price: prog.price ?? 0,
-                            format: prog.format || 'online_live',
-                            seatsTotal: prog.seatsTotal ?? 30,
-                            seatsLeft: prog.seatsLeft ?? 15,
-                            recommendedProductIds: prog.recommendedProductIds || [],
-                          });
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:border-emerald-700 text-xs font-bold text-slate-800 inline-flex items-center gap-1.5 shrink-0 cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
-                        <span>ضبط التسويق</span>
-                      </button>
+
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveProgramOrder(prog.id, -1)}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white disabled:opacity-30 cursor-pointer"
+                            title="تقديم للأعلى"
+                          >
+                            <ArrowUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === portalPrograms.length - 1}
+                            onClick={() => handleMoveProgramOrder(prog.id, 1)}
+                            className="p-1.5 rounded-lg border border-slate-200 bg-white disabled:opacity-30 cursor-pointer"
+                            title="تأخير للأسفل"
+                          >
+                            <ArrowDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAddingNewProg(false);
+                              setSyllabusDraft((prog.syllabus || []).join('\n'));
+                              setEditingProgCard({
+                                ...prog,
+                                showOnHome: prog.showOnHome !== false,
+                                showInStore: prog.showInStore !== false,
+                                price: prog.price ?? 0,
+                                format: prog.format || 'online_live',
+                                seatsTotal: prog.seatsTotal ?? 30,
+                                seatsLeft: prog.seatsLeft ?? 15,
+                                recommendedProductIds: prog.recommendedProductIds || [],
+                              });
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 hover:border-emerald-700 text-xs font-bold text-slate-800 inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>تعديل</span>
+                          </button>
+
+                          {confirmDeleteProgId === prog.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProgramCard(prog.id)}
+                                className="px-2 py-1 rounded bg-rose-600 text-white text-[10px] font-bold cursor-pointer"
+                              >
+                                حذف
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteProgId(null)}
+                                className="px-2 py-1 rounded bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
+                              >
+                                إلغاء
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteProgId(prog.id)}
+                              className="p-1.5 rounded-xl bg-white border border-slate-200 text-rose-700 hover:bg-rose-50 cursor-pointer"
+                              title="حذف البرنامج"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1504,17 +1673,32 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
             <label className="inline-flex items-center gap-2 text-xs font-bold text-emerald-900 cursor-pointer">
               <input
                 type="checkbox"
-                checked={portalData.settings.showStoreNavSlot}
+                checked={storeData.settings.show_in_public_portal !== false}
                 onChange={async (e) => {
+                  const checked = e.target.checked;
+                  const nextStore: StorePublicData = {
+                    ...storeData,
+                    settings: { ...storeData.settings, show_in_public_portal: checked },
+                  };
+                  onUpdateStoreData(nextStore);
                   const nextPortal: PortalPublicData = {
                     ...portalData,
-                    settings: { ...portalData.settings, showStoreNavSlot: e.target.checked },
+                    settings: {
+                      ...portalData.settings,
+                      showStoreNavSlot: checked,
+                      sections: (portalData.settings.sections || []).map((s) =>
+                        s.key === 'store_slot' ? { ...s, enabled: checked } : s
+                      ),
+                    },
                   };
                   onUpdatePortalData(nextPortal);
-                  await savePortalDataToSheets(webhookUrl, nextPortal);
+                  await Promise.all([
+                    saveStoreDataToSheets(webhookUrl, nextStore),
+                    savePortalDataToSheets(webhookUrl, nextPortal),
+                  ]);
                 }}
               />
-              <span>إظهار رابط وقسم «المتجر» في البوابة العامة للزوار</span>
+              <span>إظهار أيقونة المتجر (عربة التسوق) وقسم المنتجات المختارة في الصفحة العامة</span>
             </label>
           </div>
 
@@ -1555,27 +1739,86 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 bg-slate-50">
               <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                إعدادات تسويق البرنامج: {editingProgCard.title}
+                {isAddingNewProg ? 'إضافة برنامج تدريبي جديد' : `تعديل البرنامج: ${editingProgCard.title}`}
               </h3>
               <button
                 type="button"
-                onClick={() => setEditingProgCard(null)}
+                onClick={() => {
+                  setEditingProgCard(null);
+                  setIsAddingNewProg(false);
+                }}
                 className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <form onSubmit={handleSaveProgramMarketing} className="p-6 space-y-4 max-h-[82dvh] overflow-y-auto">
-              <label className="inline-flex items-center gap-2 text-xs font-extrabold text-emerald-900 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingProgCard.showInStore !== false}
-                  onChange={(e) =>
-                    setEditingProgCard({ ...editingProgCard, showInStore: e.target.checked })
-                  }
+              <div className="flex flex-wrap gap-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+                <label className="inline-flex items-center gap-2 text-xs font-extrabold text-indigo-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingProgCard.showOnHome !== false}
+                    onChange={(e) =>
+                      setEditingProgCard({ ...editingProgCard, showOnHome: e.target.checked })
+                    }
+                  />
+                  <span>عرض في الصفحة العامة للزوار</span>
+                </label>
+                <label className="inline-flex items-center gap-2 text-xs font-extrabold text-emerald-900 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingProgCard.showInStore !== false}
+                    onChange={(e) =>
+                      setEditingProgCard({ ...editingProgCard, showInStore: e.target.checked })
+                    }
+                  />
+                  <span>عرض في المتجر</span>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-slate-700">اسم البرنامج التدريبي *</label>
+                  <input
+                    required
+                    value={editingProgCard.title}
+                    onChange={(e) => setEditingProgCard({ ...editingProgCard, title: e.target.value })}
+                    placeholder="مثال: برنامج المستوى التأسيسي"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-slate-700">العنوان الفرعي / الشارة</label>
+                  <input
+                    value={editingProgCard.badgeText || ''}
+                    onChange={(e) => setEditingProgCard({ ...editingProgCard, badgeText: e.target.value })}
+                    placeholder="مثال: دخول فوري · المرحلة ١"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">وصف البرنامج للزوار</label>
+                <textarea
+                  rows={2}
+                  value={editingProgCard.description}
+                  onChange={(e) => setEditingProgCard({ ...editingProgCard, description: e.target.value })}
+                  placeholder="وصف مختصر يظهر على بطاقة البرنامج وداخل نافذة التفاصيل..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
                 />
-                <span>إظهار هذا البرنامج في قسم «البرامج والباقات التدريبية» داخل المتجر</span>
-              </label>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-bold text-slate-700">رابط صورة البرنامج (يدعم Google Drive أو رابط مباشر)</label>
+                <input
+                  dir="ltr"
+                  value={editingProgCard.mediaUrl || ''}
+                  onChange={(e) => setEditingProgCard({ ...editingProgCard, mediaUrl: e.target.value })}
+                  placeholder="https://..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-mono"
+                />
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>

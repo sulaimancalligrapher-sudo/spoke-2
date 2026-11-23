@@ -6,7 +6,7 @@ import {
   Clock,
   Copy,
   MessageCircle,
-  ShoppingBag,
+  ShoppingCart,
   Users,
   X,
 } from 'lucide-react';
@@ -232,10 +232,11 @@ export const StoreProgramModal: React.FC<StoreProgramModalProps> = ({
                           type="button"
                           disabled={prod.stock <= 0}
                           onClick={() => onAddToCart(prod)}
-                          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-emerald-900 disabled:bg-slate-300 text-white text-[11px] font-extrabold inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                          title="أضف للسلة"
+                          aria-label="أضف للسلة"
+                          className="p-2.5 rounded-lg bg-slate-900 hover:bg-emerald-900 disabled:bg-slate-300 text-white inline-flex items-center justify-center shrink-0 cursor-pointer"
                         >
-                          <ShoppingBag className="w-3 h-3" />
-                          <span>أضف للسلة</span>
+                          <ShoppingCart className="w-4 h-4" />
                         </button>
                       </div>
                     ))}
@@ -311,7 +312,7 @@ export const StoreProgramModal: React.FC<StoreProgramModalProps> = ({
                   </p>
                 </div>
 
-                {isFree && program.actionType === 'open_register' && onOpenStage1Onboarding && (
+                {isFree && onOpenStage1Onboarding && (
                   <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5 flex flex-wrap items-center justify-between gap-2">
                     <div className="text-xs text-emerald-950 font-bold">
                       هذا المسار مجاني ويتيح دخولاً فورياً بالمرحلة التمهيدية.
@@ -324,7 +325,7 @@ export const StoreProgramModal: React.FC<StoreProgramModalProps> = ({
                       }}
                       className="px-3.5 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold cursor-pointer shrink-0"
                     >
-                      دخول فوري بالاستمارة التمهيدية
+                      التسجيل الفوري والدخول للقسم التمهيدي
                     </button>
                   </div>
                 )}

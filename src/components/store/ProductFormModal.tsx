@@ -38,6 +38,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [galleryText, setGalleryText] = useState((product?.gallery_urls || []).join(', '));
   const [description, setDescription] = useState(product?.description || '');
   const [isFeatured, setIsFeatured] = useState(product?.is_featured ?? true);
+  const [showOnHome, setShowOnHome] = useState(product?.show_on_home ?? false);
   const [isActive, setIsActive] = useState(product?.is_active ?? true);
   const [variantRows, setVariantRows] = useState<VariantDraftRow[]>(() => {
     const parsed = parseProductVariants(product?.variants || []);
@@ -80,6 +81,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       variants: cleanedVariants,
       description: description.trim(),
       is_featured: isFeatured,
+      show_on_home: showOnHome,
       is_active: isActive,
       created_at: product?.created_at || new Date().toISOString(),
     };
@@ -318,6 +320,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 className="h-4 w-4 rounded accent-amber-600"
               />
               <span>منتج مميز</span>
+            </label>
+            <label className="inline-flex items-center gap-2 text-xs font-bold text-emerald-900 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOnHome}
+                onChange={(e) => setShowOnHome(e.target.checked)}
+                className="h-4 w-4 rounded accent-emerald-700"
+              />
+              <span>عرض في الصفحة العامة</span>
             </label>
           </div>
 

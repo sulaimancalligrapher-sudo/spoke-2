@@ -7,7 +7,8 @@ import {
   Heart,
   MessageCircle,
   Search,
-  ShoppingBag,
+  ShoppingCart,
+  Sparkles,
   Truck,
   Users,
 } from 'lucide-react';
@@ -138,7 +139,7 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
                     href="#store-catalog"
                     className="px-6 py-3 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 transition-colors"
                   >
-                    <ShoppingBag className="w-4 h-4 text-amber-300" />
+                    <Sparkles className="w-4 h-4 text-amber-300" />
                     <span>تصفح المنتجات</span>
                   </a>
                   {storePrograms.length > 0 && (
@@ -358,10 +359,11 @@ export const StorefrontView: React.FC<StorefrontViewProps> = ({
                       type="button"
                       disabled={outOfStock}
                       onClick={() => onQuickAdd(product)}
-                      className="px-3.5 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 disabled:bg-slate-300 text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                      title={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
+                      aria-label={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
+                      className="p-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 disabled:bg-slate-300 text-white inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
                     >
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>أضف للسلة</span>
+                      <ShoppingCart className="w-4 h-4" />
                     </button>
                   </div>
                 </article>

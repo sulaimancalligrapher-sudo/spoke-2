@@ -6,7 +6,7 @@ import {
   MessageCircle,
   Minus,
   Plus,
-  ShoppingBag,
+  ShoppingCart,
   Tag,
   Trash2,
   X,
@@ -214,7 +214,7 @@ export const CartCheckoutDrawer: React.FC<CartCheckoutDrawerProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 bg-white">
           <div className="flex items-center gap-2.5">
-            <ShoppingBag className="h-5 w-5 text-emerald-800" />
+            <ShoppingCart className="h-5 w-5 text-emerald-800" />
             <h2 className="text-base font-extrabold text-slate-900">
               {step === 'cart'
                 ? `سلة التسوق (${items.reduce((s, x) => s + x.qty, 0)})`
@@ -315,7 +315,7 @@ export const CartCheckoutDrawer: React.FC<CartCheckoutDrawerProps> = ({
             </div>
           ) : items.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center text-center space-y-3">
-              <ShoppingBag className="h-12 w-12 text-slate-300" />
+              <ShoppingCart className="h-12 w-12 text-slate-300" />
               <p className="text-sm font-bold text-slate-500">سلة المشتريات فارغة حالياً.</p>
             </div>
           ) : step === 'cart' ? (

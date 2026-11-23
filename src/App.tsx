@@ -405,6 +405,7 @@ export default function App() {
   const [isRefreshingStudentStage, setIsRefreshingStudentStage] = useState(false);
   const [storeData, setStoreData] = useState<StorePublicData>(() => getLocalStoreData());
   const [storeRouteMode, setStoreRouteMode] = useState<'none' | 'store' | 'orders'>('none');
+  const [storeEntryToast, setStoreEntryToast] = useState<string | null>(null);
 
   const activeStudentProgramId = isAdminAuthenticated
     ? schedulePreviewProgramId
@@ -2747,8 +2748,11 @@ export default function App() {
               saveLocalPortalData(next);
             }}
             initialView={storeRouteMode === 'orders' ? 'orders' : 'store'}
+            initialToast={storeEntryToast}
+            onClearInitialToast={() => setStoreEntryToast(null)}
             webhookUrl={sheetsConfig.webhookUrl}
             onBackToPortal={() => {
+              setStoreEntryToast(null);
               setStoreRouteMode('none');
               window.history.replaceState(null, '', window.location.pathname + window.location.search);
             }}
@@ -2761,6 +2765,12 @@ export default function App() {
         ) : (
           <PublicPortalView
             portalData={portalData}
+            storeData={storeData}
+            webhookUrl={sheetsConfig.webhookUrl}
+            onUpdatePortalData={(next) => {
+              setPortalData(next);
+              saveLocalPortalData(next);
+            }}
             currentLang={currentLang}
             onSelectLang={handleSelectLang}
             onOpenRegistration={(progLabel) => {
@@ -2769,7 +2779,8 @@ export default function App() {
             }}
             onOpenProgramRequest={(item) => setActiveProgramRequestItem(item)}
             onOpenStudentLogin={() => setIsLoginModalOpen(true)}
-            onOpenStore={() => {
+            onOpenStore={(toastMsg) => {
+              setStoreEntryToast(toastMsg || null);
               setStoreRouteMode('store');
               window.location.hash = '#store';
             }}

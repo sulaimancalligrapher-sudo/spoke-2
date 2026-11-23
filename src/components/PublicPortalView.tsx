@@ -16,9 +16,12 @@ import {
   ChevronRight,
   BookOpen,
   Send,
-  ShoppingBag,
+  ShoppingCart,
   Menu,
   Globe,
+  Heart,
+  Clock as ClockIcon,
+  Users,
 } from 'lucide-react';
 import {
   PortalContentItem,
@@ -26,6 +29,9 @@ import {
   PortalSectionType,
   PortalSocialChannel,
   PortalSocialIconKey,
+  StoreProduct,
+  StorePublicData,
+  StoreTrainingFormat,
 } from '../types';
 import { LanguageSelector } from './LanguageSelector';
 import { SupportedLang } from '../utils/translations';
@@ -41,17 +47,37 @@ import {
   getPortalUiText,
   isPortalUiButtonVisible,
 } from '../utils/portalSheets';
+import {
+  getLocalStoreCart,
+  getLocalStoreFavorites,
+  getProductPriceSummary,
+  saveLocalStoreCart,
+  saveLocalStoreFavorites,
+} from '../utils/storeSheets';
+import { DEFAULT_STORE_SETTINGS } from '../utils/storeSeed';
+import { StoreImage } from './store/StoreImage';
+import { ProductModal } from './store/ProductModal';
+import { StoreProgramModal } from './store/StoreProgramModal';
 
 interface PublicPortalViewProps {
   portalData: PortalPublicData;
+  storeData?: StorePublicData;
+  webhookUrl?: string;
+  onUpdatePortalData?: (next: PortalPublicData) => void;
   currentLang: SupportedLang;
   onSelectLang: (lang: SupportedLang) => void;
   onOpenRegistration: (programTitle?: string) => void;
   onOpenProgramRequest: (programItem: PortalContentItem) => void;
   onOpenStudentLogin: () => void;
-  onOpenStore?: () => void;
+  onOpenStore?: (toastMsg?: string) => void;
   highlightedProgramSlug?: string;
 }
+
+const HOME_PROGRAM_FORMAT_LABELS: Record<StoreTrainingFormat, string> = {
+  online_live: 'عن بُعد مباشر',
+  in_person: 'حضوري',
+  recorded: 'مسجل',
+};
 
 const BrandSocialSvg: React.FC<{ iconKey: PortalSocialIconKey; iconUrl?: string; label: string }> = ({
   iconKey,
@@ -148,6 +174,9 @@ function getSocialButtonStyle(iconKey: PortalSocialIconKey): string {
 
 export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   portalData,
+  storeData,
+  webhookUrl,
+  onUpdatePortalData,
   currentLang,
   onSelectLang,
   onOpenRegistration,
@@ -159,6 +188,10 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   const dir = currentLang === 'ar' ? 'rtl' : 'ltr';
   const { settings, items } = portalData;
 
+  const isStoreEnabled = storeData
+    ? storeData.settings.show_in_public_portal !== false
+    : settings.showStoreNavSlot;
+
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [lightboxState, setLightboxState] = useState<{
     item: PortalContentItem;
@@ -166,6 +199,54 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   } | null>(null);
   const [activeVideoItem, setActiveVideoItem] = useState<PortalContentItem | null>(null);
   const [gallerySlideMap, setGallerySlideMap] = useState<Record<string, number>>({});
+  const [favorites, setFavorites] = useState<string[]>(() => getLocalStoreFavorites());
+  const [cartCount, setCartCount] = useState<number>(() =>
+    getLocalStoreCart().reduce((sum, entry) => sum + entry.qty, 0)
+  );
+  const [selectedHomeProduct, setSelectedHomeProduct] = useState<StoreProduct | null>(null);
+  const [selectedHomeProgram, setSelectedHomeProgram] = useState<PortalContentItem | null>(null);
+
+  const handleToggleFavorite = (productId: string) => {
+    setFavorites((prev) => {
+      const next = prev.includes(productId)
+        ? prev.filter((id) => id !== productId)
+        : [...prev, productId];
+      saveLocalStoreFavorites(next);
+      return next;
+    });
+  };
+
+  const addToCartAndOpenStore = (product: StoreProduct, variantLabel?: string, qty = 1) => {
+    if (product.stock <= 0) return;
+    const chosenVariant =
+      variantLabel ||
+      (product.variants && product.variants.length > 0 ? product.variants[0].label : '');
+    const key = `${product.id}::${chosenVariant}`;
+    const existingCart = getLocalStoreCart();
+    const existing = existingCart.find((x) => x.key === key);
+    const nextCart = existing
+      ? existingCart.map((x) =>
+          x.key === key ? { ...x, qty: Math.min(product.stock, x.qty + qty) } : x
+        )
+      : [...existingCart, { key, product, variant: chosenVariant, qty }];
+    saveLocalStoreCart(nextCart);
+    setCartCount(nextCart.reduce((sum, entry) => sum + entry.qty, 0));
+    setSelectedHomeProduct(null);
+    setSelectedHomeProgram(null);
+    if (onOpenStore) {
+      onOpenStore('تمت الإضافة للسلة');
+    } else {
+      window.location.hash = '#store';
+    }
+  };
+
+  const openFullStore = () => {
+    if (onOpenStore) {
+      onOpenStore();
+    } else {
+      window.location.hash = '#store';
+    }
+  };
 
   const academyName = getLocalizedPortalSetting(settings, 'academyName', currentLang);
   const academyTagline = getLocalizedPortalSetting(settings, 'academyTagline', currentLang);
@@ -197,14 +278,22 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     return grouped;
   }, [items]);
 
-  const orderedSections = useMemo(
-    () =>
-      [...(settings.sections || [])]
-        .filter((s) => s.enabled !== false)
-        .filter((s) => (s.key === 'store_slot' ? settings.showStoreNavSlot : true))
-        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)),
-    [settings.sections, settings.showStoreNavSlot]
-  );
+  const orderedSections = useMemo(() => {
+    const base = [...(settings.sections || [])];
+    if (isStoreEnabled && !base.some((s) => s.key === 'store_slot')) {
+      base.push({
+        key: 'store_slot',
+        label: 'المتجر الإلكتروني',
+        labelEn: 'Store',
+        labelTh: 'ร้านค้า',
+        enabled: true,
+        sortOrder: 7,
+      });
+    }
+    return base
+      .filter((s) => (s.key === 'store_slot' ? isStoreEnabled : s.enabled !== false))
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  }, [settings.sections, isStoreEnabled]);
 
   const activeSocialChannels = useMemo<PortalSocialChannel[]>(() => {
     return (settings.socialChannels || [])
@@ -219,7 +308,6 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       gallery: 'Gallery',
       videos: 'Videos',
       contact: 'Contact',
-      store_slot: storeSlotTitle || 'Store',
     };
     const defaultTh: Partial<Record<PortalSectionType, string>> = {
       about: 'เกี่ยวกับสถาบัน',
@@ -227,7 +315,6 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       gallery: 'แกลเลอรี',
       videos: 'วิดีโอ',
       contact: 'ติดต่อเรา',
-      store_slot: storeSlotTitle || 'ร้านค้า',
     };
     const defaultAr: Partial<Record<PortalSectionType, string>> = {
       about: 'عن المؤسسة',
@@ -235,11 +322,10 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       gallery: 'المعرض',
       videos: 'الفيديو',
       contact: 'تواصل معنا',
-      store_slot: storeSlotTitle || 'المتجر',
     };
 
     return orderedSections
-      .filter((s) => s.key !== 'hero' && s.key !== 'announcement')
+      .filter((s) => s.key !== 'hero' && s.key !== 'announcement' && s.key !== 'store_slot')
       .slice(0, 6)
       .map((s) => {
         const label =
@@ -254,7 +340,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           label,
         };
       });
-  }, [orderedSections, currentLang, storeSlotTitle]);
+  }, [orderedSections, currentLang]);
 
   const telegramMainLink = buildTelegramBotStartLink(settings.telegramBotUsername);
   const heroResolvedImg = settings.heroMediaUrl ? getDirectImageUrl(settings.heroMediaUrl) : '';
@@ -542,9 +628,11 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     }
 
     if (key === 'programs') {
-      const list = itemsBySection.programs;
+      const list = itemsBySection.programs.filter((p) => p.showOnHome !== false);
       if (list.length === 0) return null;
       const showHeaderBtn = isPortalUiButtonVisible(settings, 'programs_header_btn');
+      const currency = storeData?.settings.currency || DEFAULT_STORE_SETTINGS.currency;
+
       return (
         <section
           key="programs"
@@ -578,8 +666,6 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 const isFirstStage =
                   prog.actionType === 'open_register' ||
                   (!prog.actionType && idx === 0);
-                const effectiveAction =
-                  prog.actionType || (isFirstStage ? 'open_register' : 'open_program_request');
                 const isHighlighted =
                   Boolean(highlightedProgramSlug) &&
                   (prog.slug === highlightedProgramSlug || prog.id === highlightedProgramSlug);
@@ -590,65 +676,114 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 const badgeText = getLocalizedItemField(prog, 'badgeText', currentLang);
                 const metaPrimary = getLocalizedItemField(prog, 'metaPrimary', currentLang);
                 const metaSecondary = getLocalizedItemField(prog, 'metaSecondary', currentLang);
+                const priceNum = Math.max(0, Number(prog.price) || 0);
+                const isFree = priceNum <= 0;
+                const formatLabel = prog.format ? HOME_PROGRAM_FORMAT_LABELS[prog.format] : '';
+                const seatsLeft =
+                  prog.seatsLeft !== undefined ? Number(prog.seatsLeft) : undefined;
                 const buttonLabel =
                   getLocalizedItemField(prog, 'linkLabel', currentLang) ||
-                  (effectiveAction === 'open_program_request'
-                    ? currentLang === 'en'
-                      ? 'Request This Program'
-                      : currentLang === 'th'
-                      ? 'ขอเข้าร่วมหลักสูตรนี้'
-                      : 'طلب الالتحاق بالبرنامج'
-                    : currentLang === 'en'
-                    ? 'Register & Start'
+                  (currentLang === 'en'
+                    ? 'Program Details & Enroll'
                     : currentLang === 'th'
-                    ? 'สมัครและเริ่มทันที'
-                    : 'سجّل وابدأ الآن');
-
-                const safeExtUrl =
-                  effectiveAction === 'external_url' ? sanitizeExternalUrl(prog.linkUrl) : '';
+                    ? 'รายละเอียดและสมัครเรียน'
+                    : 'التفاصيل والتسجيل');
 
                 return (
-                  <div
+                  <article
                     key={prog.id}
                     id={`portal-prog-${prog.slug || prog.id}`}
-                    className={`rounded-2xl p-6 flex flex-col justify-between border transition-all ${
+                    onClick={() => setSelectedHomeProgram(prog)}
+                    className={`group rounded-2xl overflow-hidden flex flex-col justify-between border transition-all cursor-pointer ${
                       isFirstStage
-                        ? 'bg-emerald-950 text-white border-emerald-900'
-                        : 'bg-slate-50/70 text-slate-900 border-slate-200'
+                        ? 'bg-emerald-950 text-white border-emerald-900 hover:border-amber-400/60'
+                        : 'bg-slate-50/70 text-slate-900 border-slate-200 hover:border-emerald-300'
                     } ${isHighlighted ? 'ring-2 ring-amber-400 shadow-lg' : ''}`}
                   >
-                    <div className="space-y-3">
-                      <div
-                        className={`text-xs font-bold ${
-                          isFirstStage ? 'text-amber-300' : 'text-emerald-800'
-                        }`}
-                      >
-                        {badgeText || (isFirstStage ? 'المرحلة ١' : 'المرحلة ٢')}
-                      </div>
-
-                      <h3 className="text-lg font-extrabold leading-snug">{title}</h3>
-
-                      {subtitle && (
-                        <div
-                          className={`text-xs font-semibold ${
-                            isFirstStage ? 'text-emerald-100/80' : 'text-slate-500'
-                          }`}
-                        >
-                          {subtitle}
+                    <div>
+                      {prog.mediaUrl && (
+                        <div className="border-b border-current/10 overflow-hidden">
+                          <StoreImage
+                            src={prog.mediaUrl}
+                            alt={title}
+                            aspectClass="aspect-[16/9]"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
                         </div>
                       )}
 
-                      <p
-                        className={`text-xs sm:text-sm leading-relaxed ${
-                          isFirstStage ? 'text-emerald-50/90' : 'text-slate-600'
-                        }`}
-                      >
-                        {description}
-                      </p>
+                      <div className="p-6 space-y-3">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span
+                            className={`text-xs font-bold ${
+                              isFirstStage ? 'text-amber-300' : 'text-emerald-800'
+                            }`}
+                          >
+                            {badgeText || (isFirstStage ? 'المرحلة ١' : 'برنامج تدريبي')}
+                          </span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold tabular-nums ${
+                              isFirstStage
+                                ? isFree
+                                  ? 'bg-emerald-800/80 text-amber-200'
+                                  : 'bg-amber-400 text-slate-950'
+                                : isFree
+                                ? 'bg-emerald-100 text-emerald-900'
+                                : 'bg-emerald-800 text-white'
+                            }`}
+                          >
+                            {isFree ? 'مجاني' : `${priceNum} ${currency}`}
+                          </span>
+                        </div>
+
+                        <h3 className="text-lg font-extrabold leading-snug">{title}</h3>
+
+                        {subtitle && (
+                          <div
+                            className={`text-xs font-semibold ${
+                              isFirstStage ? 'text-emerald-100/80' : 'text-slate-500'
+                            }`}
+                          >
+                            {subtitle}
+                          </div>
+                        )}
+
+                        <p
+                          className={`text-xs sm:text-sm leading-relaxed line-clamp-3 ${
+                            isFirstStage ? 'text-emerald-50/90' : 'text-slate-600'
+                          }`}
+                        >
+                          {description}
+                        </p>
+
+                        {(formatLabel || prog.duration || seatsLeft !== undefined) && (
+                          <div
+                            className={`flex flex-wrap items-center gap-3 pt-1 text-[11px] font-bold ${
+                              isFirstStage ? 'text-emerald-200/80' : 'text-slate-500'
+                            }`}
+                          >
+                            {formatLabel && <span>{formatLabel}</span>}
+                            {(prog.duration || metaPrimary) && (
+                              <span className="inline-flex items-center gap-1">
+                                <ClockIcon className="w-3 h-3" />
+                                <span>{prog.duration || metaPrimary}</span>
+                              </span>
+                            )}
+                            {seatsLeft !== undefined && (
+                              <span className="inline-flex items-center gap-1 tabular-nums">
+                                <Users className="w-3 h-3" />
+                                <span>
+                                  {seatsLeft <= 0 ? 'مكتمل' : `متبقي ${seatsLeft} مقعد`}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="pt-5 mt-5 border-t border-current/10 space-y-3">
-                      {(metaPrimary || metaSecondary) && (
+                    <div className="px-6 pb-6 pt-4 border-t border-current/10 space-y-3">
+                      {!prog.duration && (metaPrimary || metaSecondary) && (
                         <div
                           className={`text-xs font-medium flex items-center gap-2 ${
                             isFirstStage ? 'text-emerald-100/75' : 'text-slate-500'
@@ -660,37 +795,23 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                         </div>
                       )}
 
-                      {effectiveAction !== 'none' &&
-                        (effectiveAction === 'external_url' && safeExtUrl ? (
-                          <a
-                            href={safeExtUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-colors min-h-[42px] ${
-                              isFirstStage
-                                ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
-                                : 'bg-white hover:bg-emerald-50 text-emerald-900 border border-slate-300'
-                            }`}
-                          >
-                            <span>{buttonLabel}</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => triggerItemAction({ ...prog, actionType: effectiveAction })}
-                            className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-colors cursor-pointer min-h-[42px] ${
-                              isFirstStage
-                                ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
-                                : 'bg-white hover:bg-emerald-50 text-emerald-900 border border-slate-300'
-                            }`}
-                          >
-                            <span>{buttonLabel}</span>
-                            <ArrowLeft className="w-3.5 h-3.5" />
-                          </button>
-                        ))}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedHomeProgram(prog);
+                        }}
+                        className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-colors cursor-pointer min-h-[42px] ${
+                          isFirstStage
+                            ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                            : 'bg-white hover:bg-emerald-50 text-emerald-900 border border-slate-300'
+                        }`}
+                      >
+                        <span>{buttonLabel}</span>
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -899,47 +1020,166 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     }
 
     if (key === 'store_slot') {
-      if (!settings.showStoreNavSlot) return null;
+      if (!isStoreEnabled) return null;
+      const activeProducts = (storeData?.products || []).filter((p) => p.is_active);
+      const showcaseProducts = activeProducts.filter((p) => p.show_on_home === true).slice(0, 6);
+      const currency = storeData?.settings.currency || DEFAULT_STORE_SETTINGS.currency;
+      const catNameById = new Map(
+        (storeData?.categories || []).map((c) => [c.id, c.name])
+      );
+
       return (
         <section
           key="store_slot"
           id="portal-store_slot"
-          className="max-w-6xl mx-auto px-4 sm:px-6 py-12"
+          className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16"
         >
-          <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/40 p-8 sm:p-10 text-center space-y-4 shadow-xs">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-800 text-amber-300 flex items-center justify-center mx-auto shadow-xs">
-              <ShoppingBag className="w-7 h-7" />
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 pb-4 border-b border-slate-200">
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
+                {storeSlotTitle || 'منتجات مختارة من المتجر'}
+              </h2>
+              <p className="text-sm text-slate-600 mt-1">
+                {storeSlotNote ||
+                  'تصفح الأقلام والأحبار والأوراق الأصلية والباقات التدريبية المعتمدة مع توصيل لجميع المدن.'}
+              </p>
             </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
-              {storeSlotTitle || 'المتجر والأدوات'}
-            </h2>
-            <p className="text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
-              {storeSlotNote ||
-                'تصفح الأقلام والأحبار والأوراق الأصلية والباقات التدريبية المعتمدة مع توصيل لجميع المدن.'}
-            </p>
-            <div className="pt-2">
+
+            <button
+              type="button"
+              onClick={openFullStore}
+              className="px-4 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-2 transition-colors cursor-pointer self-start sm:self-auto whitespace-nowrap"
+            >
+              <span>
+                {currentLang === 'en'
+                  ? 'Browse Full Store'
+                  : currentLang === 'th'
+                  ? 'เข้าชมร้านค้าทั้งหมด'
+                  : 'تصفح المتجر الكامل'}
+              </span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {showcaseProducts.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {showcaseProducts.map((product) => {
+                const summary = getProductPriceSummary(product);
+                const isFav = favorites.includes(product.id);
+                const outOfStock = product.stock <= 0;
+                const catLabel = catNameById.get(product.category_id) || 'أداة خط';
+
+                return (
+                  <article
+                    key={product.id}
+                    className="group rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col justify-between shadow-xs hover:border-emerald-300 transition-colors"
+                  >
+                    <div>
+                      <div
+                        onClick={() => setSelectedHomeProduct(product)}
+                        className="relative cursor-pointer overflow-hidden"
+                      >
+                        <StoreImage
+                          src={product.image_url}
+                          alt={product.name}
+                          aspectClass="aspect-[4/3]"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleFavorite(product.id);
+                          }}
+                          aria-label="المفضلة"
+                          className={`absolute top-3 left-3 p-2 rounded-xl border backdrop-blur-xs cursor-pointer transition-colors ${
+                            isFav
+                              ? 'bg-rose-50 text-rose-600 border-rose-200'
+                              : 'bg-white/90 text-slate-500 border-slate-200 hover:text-rose-600'
+                          }`}
+                        >
+                          <Heart className={`w-4 h-4 ${isFav ? 'fill-current' : ''}`} />
+                        </button>
+
+                        {outOfStock && (
+                          <div className="absolute inset-0 bg-slate-950/55 flex items-center justify-center">
+                            <span className="px-3 py-1 rounded-lg bg-white text-slate-900 text-xs font-extrabold">
+                              نفدت الكمية
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-5 space-y-2">
+                        <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
+                          <span>{catLabel}</span>
+                          <span className="font-mono tabular-nums">{product.sku}</span>
+                        </div>
+
+                        <h3
+                          onClick={() => setSelectedHomeProduct(product)}
+                          className="text-base font-extrabold text-slate-900 hover:text-emerald-800 cursor-pointer line-clamp-1"
+                        >
+                          {product.name}
+                        </h3>
+
+                        <p className="text-xs text-slate-600 leading-relaxed line-clamp-2 min-h-[36px]">
+                          {product.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="px-5 pb-5 pt-2 flex items-center justify-between gap-3 border-t border-slate-100">
+                      <div>
+                        <div className="text-lg font-extrabold text-emerald-900 tabular-nums">
+                          {summary.hasRange
+                            ? `${summary.minPrice} - ${summary.maxPrice}`
+                            : summary.defaultPrice}{' '}
+                          {currency}
+                        </div>
+                        {product.compare_at_price && product.compare_at_price > summary.minPrice && (
+                          <span className="text-[11px] text-slate-400 line-through tabular-nums">
+                            {product.compare_at_price} {currency}
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={outOfStock}
+                        onClick={() => addToCartAndOpenStore(product)}
+                        title={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
+                        aria-label={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
+                        className="p-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 disabled:bg-slate-300 text-white inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/40 p-8 sm:p-10 text-center space-y-4 shadow-xs">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-800 text-amber-300 flex items-center justify-center mx-auto shadow-xs">
+                <ShoppingCart className="w-7 h-7" />
+              </div>
+              <p className="text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
+                {storeSlotNote ||
+                  'تصفح الأقلام والأحبار والأوراق الأصلية والباقات التدريبية المعتمدة مع توصيل لجميع المدن.'}
+              </p>
               <button
                 type="button"
-                onClick={() => {
-                  if (onOpenStore) {
-                    onOpenStore();
-                  } else {
-                    window.location.hash = '#store';
-                  }
-                }}
-                className="px-6 py-3 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 transition-colors cursor-pointer"
+                onClick={openFullStore}
+                title="المتجر"
+                aria-label="المتجر"
+                className="p-3.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white inline-flex items-center justify-center transition-colors cursor-pointer"
               >
-                <ShoppingBag className="w-4 h-4 text-amber-300" />
-                <span>
-                  {currentLang === 'en'
-                    ? 'Visit Store & Programs'
-                    : currentLang === 'th'
-                    ? 'เข้าสู่ร้านค้าและหลักสูตร'
-                    : 'دخول المتجر وتصفح الأدوات والبرامج'}
-                </span>
+                <ShoppingCart className="w-5 h-5 text-amber-300" />
               </button>
             </div>
-          </div>
+          )}
         </section>
       );
     }
@@ -1141,31 +1381,32 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             <span className="truncate max-w-[190px] sm:max-w-none">{academyName}</span>
           </a>
 
-          {/* Zone 2: Clean Single-Line Text Nav Links */}
+          {/* Zone 2: Clean Single-Line Text Nav Links + Icon-Only Store Cart */}
           <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold text-slate-600">
-            {navLinks.map((lnk) =>
-              lnk.key === 'store_slot' ? (
-                <button
-                  key={lnk.key}
-                  type="button"
-                  onClick={() => {
-                    if (onOpenStore) onOpenStore();
-                    else window.location.hash = '#store';
-                  }}
-                  className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer inline-flex items-center gap-1.5 text-emerald-800 font-extrabold"
-                >
-                  <ShoppingBag className="w-3.5 h-3.5" />
-                  <span>{lnk.label}</span>
-                </button>
-              ) : (
-                <a
-                  key={lnk.key}
-                  href={lnk.href}
-                  className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0"
-                >
-                  {lnk.label}
-                </a>
-              )
+            {navLinks.map((lnk) => (
+              <a
+                key={lnk.key}
+                href={lnk.href}
+                className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0"
+              >
+                {lnk.label}
+              </a>
+            ))}
+            {isStoreEnabled && (
+              <button
+                type="button"
+                onClick={openFullStore}
+                title="المتجر"
+                aria-label="المتجر"
+                className="relative p-2 rounded-xl text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50 border border-emerald-200/80 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-950 text-[10px] font-extrabold tabular-nums flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </button>
             )}
           </nav>
 
@@ -1195,6 +1436,23 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               </button>
             )}
 
+            {isStoreEnabled && (
+              <button
+                type="button"
+                onClick={openFullStore}
+                title="المتجر"
+                aria-label="المتجر"
+                className="lg:hidden relative p-2 rounded-xl border border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                {cartCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-950 text-[10px] font-extrabold tabular-nums flex items-center justify-center">
+                    {cartCount}
+                  </span>
+                )}
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setMobileMenuOpen((v) => !v)}
@@ -1210,32 +1468,16 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3">
             <div className="flex flex-wrap gap-3">
-              {navLinks.map((lnk) =>
-                lnk.key === 'store_slot' ? (
-                  <button
-                    key={lnk.key}
-                    type="button"
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      if (onOpenStore) onOpenStore();
-                      else window.location.hash = '#store';
-                    }}
-                    className="text-sm font-extrabold text-emerald-800 hover:text-emerald-900 py-1 px-2 cursor-pointer inline-flex items-center gap-1.5"
-                  >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    <span>{lnk.label}</span>
-                  </button>
-                ) : (
-                  <a
-                    key={lnk.key}
-                    href={lnk.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1 px-2"
-                  >
-                    {lnk.label}
-                  </a>
-                )
-              )}
+              {navLinks.map((lnk) => (
+                <a
+                  key={lnk.key}
+                  href={lnk.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1 px-2"
+                >
+                  {lnk.label}
+                </a>
+              ))}
             </div>
             <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
               <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
@@ -1455,6 +1697,52 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Public Home Product Details Modal */}
+      {selectedHomeProduct && storeData && (
+        <ProductModal
+          product={selectedHomeProduct}
+          category={storeData.categories.find((c) => c.id === selectedHomeProduct.category_id)}
+          settings={storeData.settings}
+          botUsername={settings.telegramBotUsername}
+          isFavorite={favorites.includes(selectedHomeProduct.id)}
+          onToggleFavorite={handleToggleFavorite}
+          onClose={() => setSelectedHomeProduct(null)}
+          onAddToCart={(prod, variant, qty) => addToCartAndOpenStore(prod, variant, qty)}
+        />
+      )}
+
+      {/* Public Home Rich Program Details & Instant Registration Modal */}
+      {selectedHomeProgram && (
+        <StoreProgramModal
+          program={selectedHomeProgram}
+          settings={storeData?.settings || DEFAULT_STORE_SETTINGS}
+          recommendedProducts={(storeData?.products || []).filter(
+            (p) =>
+              p.is_active &&
+              Array.isArray(selectedHomeProgram.recommendedProductIds) &&
+              selectedHomeProgram.recommendedProductIds.includes(p.id)
+          )}
+          botUsername={settings.telegramBotUsername}
+          webhookUrl={webhookUrl || ''}
+          onAddToCart={(prod) => addToCartAndOpenStore(prod)}
+          onEnrolled={(programId) => {
+            if (!onUpdatePortalData) return;
+            const nextItems = (portalData.items || []).map((item) => {
+              if (item.id === programId && item.seatsLeft !== undefined) {
+                return { ...item, seatsLeft: Math.max(0, Number(item.seatsLeft) - 1) };
+              }
+              return item;
+            });
+            onUpdatePortalData({ ...portalData, items: nextItems });
+          }}
+          onOpenStage1Onboarding={(programTitle) => {
+            setSelectedHomeProgram(null);
+            onOpenRegistration(programTitle);
+          }}
+          onClose={() => setSelectedHomeProgram(null)}
+        />
       )}
     </div>
   );

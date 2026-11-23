@@ -5,7 +5,7 @@ import {
   LogIn,
   Menu,
   PackageSearch,
-  ShoppingBag,
+  ShoppingCart,
   X,
 } from 'lucide-react';
 import type {
@@ -37,6 +37,8 @@ interface StorePortalShellProps {
   portalData: PortalPublicData;
   onUpdatePortalData?: (next: PortalPublicData) => void;
   initialView?: 'store' | 'orders';
+  initialToast?: string | null;
+  onClearInitialToast?: () => void;
   webhookUrl: string;
   onBackToPortal: () => void;
   onOpenStage1Registration: (programTitle?: string) => void;
@@ -49,6 +51,8 @@ export const StorePortalShell: React.FC<StorePortalShellProps> = ({
   portalData,
   onUpdatePortalData,
   initialView = 'store',
+  initialToast,
+  onClearInitialToast,
   webhookUrl,
   onBackToPortal,
   onOpenStage1Registration,
@@ -63,7 +67,21 @@ export const StorePortalShell: React.FC<StorePortalShellProps> = ({
   const [selectedProgram, setSelectedProgram] = useState<PortalContentItem | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(initialToast || null);
+
+  React.useEffect(() => {
+    setCart(getLocalStoreCart());
+  }, []);
+
+  React.useEffect(() => {
+    if (!initialToast) return;
+    setToastMsg(initialToast);
+    const t = window.setTimeout(() => {
+      setToastMsg(null);
+      onClearInitialToast?.();
+    }, 3000);
+    return () => window.clearTimeout(t);
+  }, [initialToast, onClearInitialToast]);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -252,13 +270,16 @@ export const StorePortalShell: React.FC<StorePortalShellProps> = ({
             <button
               type="button"
               onClick={() => setCartOpen(true)}
-              className="relative px-3.5 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-2 cursor-pointer"
+              aria-label="سلة التسوق"
+              title="سلة التسوق"
+              className="relative p-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white inline-flex items-center justify-center cursor-pointer"
             >
-              <ShoppingBag className="w-4 h-4 text-amber-300" />
-              <span>السلة</span>
-              <span className="px-1.5 py-0.5 rounded-md bg-white text-emerald-900 text-[11px] font-extrabold tabular-nums">
-                {totalCartItems}
-              </span>
+              <ShoppingCart className="w-5 h-5 text-amber-300" />
+              {totalCartItems > 0 && (
+                <span className="absolute -top-1.5 -left-1.5 min-w-[20px] h-5 px-1 rounded-full bg-amber-400 text-slate-950 text-[11px] font-extrabold tabular-nums flex items-center justify-center border-2 border-white">
+                  {totalCartItems}
+                </span>
+              )}
             </button>
 
             <button

@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwKf-nOfwNBLD0R4D1a8SoQOKg_RQ3KV5CYAH3yIITV6Rnl66hzK97t_qK87doV56D7kQ/exec';
+  'https://script.google.com/macros/s/AKfycbzefzu9OVtj732r_WTdsRzOHJcWOkQuTzJLFzXggf0JDwmprdwJVwHhlx4HpNrA_ivCeA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -5042,6 +5042,7 @@ function readPortalDataGS(ss) {
       targetProgramId: extra.targetProgramId || undefined,
       enabled: !(enStr === "false" || enStr === "0" || enStr === "لا"),
       sortOrder: Number(row[12]) || (i + 1),
+      showOnHome: extra.showOnHome !== undefined ? Boolean(extra.showOnHome) : undefined,
       showInStore: extra.showInStore !== undefined ? Boolean(extra.showInStore) : undefined,
       price: extra.price !== undefined && extra.price !== null && extra.price !== "" ? Number(extra.price) || 0 : undefined,
       compareAtPrice: extra.compareAtPrice ? Number(extra.compareAtPrice) : null,
@@ -5107,6 +5108,7 @@ function writePortalDataGS(ss, dataObj) {
       actionType: it.actionType || "",
       slug: it.slug || "",
       targetProgramId: it.targetProgramId || "",
+      showOnHome: it.showOnHome !== undefined ? Boolean(it.showOnHome) : undefined,
       showInStore: it.showInStore !== undefined ? Boolean(it.showInStore) : undefined,
       price: it.price !== undefined && it.price !== null ? Number(it.price) : undefined,
       compareAtPrice: it.compareAtPrice !== undefined && it.compareAtPrice !== null ? Number(it.compareAtPrice) : null,
@@ -5411,7 +5413,7 @@ function readStoreDataGS(ss, includeAdminOrders) {
       var sk = String(stRows[si][0] || "").trim();
       if (!sk) continue;
       var sv = stRows[si][1];
-      if (sk === "cod_enabled" || sk === "bank_transfer_enabled" || sk === "notify_telegram_on_order") {
+      if (sk === "cod_enabled" || sk === "bank_transfer_enabled" || sk === "notify_telegram_on_order" || sk === "show_in_public_portal") {
         settingsObj[sk] = storeBoolGS(sv, true);
       } else if (sk === "default_delivery_fee" || sk === "free_shipping_min") {
         settingsObj[sk] = Number(sv) || 0;
@@ -5475,6 +5477,7 @@ function readStoreDataGS(ss, includeAdminOrders) {
       gallery_urls: gal,
       variants: vars,
       is_featured: storeBoolGS(r.is_featured, false),
+      show_on_home: (r.show_on_home !== undefined && r.show_on_home !== "") ? storeBoolGS(r.show_on_home, false) : (idx < 3),
       is_active: storeBoolGS(r.is_active, true),
       created_at: String(r.created_at || new Date().toISOString())
     };
@@ -5584,7 +5587,7 @@ function writeStoreDataGS(ss, storeData) {
   }
 
   if (Array.isArray(storeData.products)) {
-    var prodHeaders = ["id", "category_id", "name", "sku", "description", "price", "compare_at_price", "stock", "image_url", "gallery_urls", "variants", "is_featured", "is_active", "created_at"];
+    var prodHeaders = ["id", "category_id", "name", "sku", "description", "price", "compare_at_price", "stock", "image_url", "gallery_urls", "variants", "is_featured", "show_on_home", "is_active", "created_at"];
     var prodSheet = ensureStoreSheetGS(ss, STORE_PRODUCTS_SHEET, prodHeaders, "#115e59");
     if (prodSheet.getLastRow() > 1) prodSheet.getRange(2, 1, prodSheet.getLastRow() - 1, prodHeaders.length).clearContent();
     if (storeData.products.length > 0) {
@@ -5602,6 +5605,7 @@ function writeStoreDataGS(ss, storeData) {
           JSON.stringify(Array.isArray(p.gallery_urls) ? p.gallery_urls : []),
           JSON.stringify(Array.isArray(p.variants) ? p.variants : []),
           p.is_featured ? "true" : "false",
+          p.show_on_home ? "true" : "false",
           p.is_active === false ? "false" : "true",
           String(p.created_at || new Date().toISOString())
         ];
