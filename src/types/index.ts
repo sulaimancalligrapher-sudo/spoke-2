@@ -458,9 +458,47 @@ export type PortalSectionType =
   | 'contact'
   | 'store_slot';
 
+export type PortalSocialIconKey =
+  | 'facebook'
+  | 'instagram'
+  | 'youtube'
+  | 'line'
+  | 'whatsapp'
+  | 'telegram'
+  | 'tiktok'
+  | 'x'
+  | 'globe'
+  | 'custom';
+
+export interface PortalSocialChannel {
+  id: string;
+  appName: string;
+  iconKey: PortalSocialIconKey;
+  iconUrl?: string;
+  url: string;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface PortalUiTextEntry {
+  ar: string;
+  en: string;
+  th: string;
+  visible?: boolean;
+}
+
+export type PortalItemActionType =
+  | 'none'
+  | 'scroll_section'
+  | 'external_url'
+  | 'open_register'
+  | 'open_program_request';
+
 export interface PortalSectionConfig {
   key: PortalSectionType;
   label: string;
+  labelEn?: string;
+  labelTh?: string;
   enabled: boolean;
   sortOrder: number;
 }
@@ -469,42 +507,79 @@ export interface PortalContentItem {
   id: string;
   section: PortalSectionType;
   title: string;
+  titleEn?: string;
+  titleTh?: string;
   subtitle?: string;
+  subtitleEn?: string;
+  subtitleTh?: string;
   description: string;
+  descriptionEn?: string;
+  descriptionTh?: string;
   mediaUrl?: string;
+  galleryImages?: string[];
+  thumbnailUrl?: string;
   linkUrl?: string;
   linkLabel?: string;
+  linkLabelEn?: string;
+  linkLabelTh?: string;
   badgeText?: string;
+  badgeTextEn?: string;
+  badgeTextTh?: string;
   metaPrimary?: string;
+  metaPrimaryEn?: string;
+  metaPrimaryTh?: string;
   metaSecondary?: string;
+  metaSecondaryEn?: string;
+  metaSecondaryTh?: string;
+  actionType?: PortalItemActionType;
+  slug?: string;
+  targetProgramId?: string;
   enabled: boolean;
   sortOrder: number;
 }
 
 export interface PortalSettingsConfig {
   academyName: string;
+  academyNameEn?: string;
+  academyNameTh?: string;
   academyTagline: string;
+  academyTaglineEn?: string;
+  academyTaglineTh?: string;
+  showHeroOverlay?: boolean;
   logoUrl?: string;
   heroTitle: string;
+  heroTitleEn?: string;
+  heroTitleTh?: string;
   heroSubtitle: string;
+  heroSubtitleEn?: string;
+  heroSubtitleTh?: string;
   heroMediaUrl?: string;
   announcementEnabled: boolean;
   announcementText: string;
+  announcementTextEn?: string;
+  announcementTextTh?: string;
   contactEmail: string;
   contactPhone: string;
   contactAddress: string;
   contactHours: string;
   telegramBotUsername: string;
   whatsappUrl?: string;
+  socialChannels: PortalSocialChannel[];
   stage1DefaultProgramId: string;
   stage1BannerTitle: string;
   stage1BannerBody: string;
   adminNotificationEmail?: string;
+  sendStudentWelcomeEmail?: boolean;
   notifyAdminTelegramOnRegister: boolean;
   notifyStudentTelegramOnTransfer: boolean;
   showStoreNavSlot: boolean;
   storeSlotTitle: string;
+  storeSlotTitleEn?: string;
+  storeSlotTitleTh?: string;
   storeSlotNote: string;
+  storeSlotNoteEn?: string;
+  storeSlotNoteTh?: string;
+  uiTexts: Record<string, PortalUiTextEntry>;
   sections: PortalSectionConfig[];
 }
 
@@ -560,6 +635,25 @@ export interface RegistrationSubmissionRecord {
   attachments: RegistrationAttachment[];
   adminNotes?: string;
 }
+
+export type ProgramRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface ProgramRequestRecord {
+  rowIndex?: number;
+  requestId: string;
+  requestedAt: string;
+  registrationId: string;
+  studentName: string;
+  currentProgramId?: string;
+  targetProgramCardId: string;
+  targetProgramTitle: string;
+  targetProgramId?: string;
+  status: ProgramRequestStatus;
+  statusLabel: string;
+  studentNote?: string;
+  adminNotes?: string;
+}
+
 
 
 

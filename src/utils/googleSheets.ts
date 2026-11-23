@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwAUrm--AfP8PN_Kf6C2e7djMN0FUiYlDLN0FkpYOVTfLu1AhtLKo4GBuPK4-ftRSE1-Q/exec';
+  'https://script.google.com/macros/s/AKfycbwGNNjhKE4Kyg8xFvdoXBXqUg3HNPETYpj2y-ULYBoReESbpQ2Z3tGQC5-EaO35CKgf/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4968,6 +4968,7 @@ function writePdfSettingsGS(ss, settingsObj) {
 var PORTAL_CONTENT_SHEET_NAME = "محتوى_البوابة_العامة";
 var REG_QUESTIONS_SHEET_NAME = "أسئلة_التسجيل";
 var REG_SUBMISSIONS_SHEET_NAME = "طلبات_التسجيل";
+var PROGRAM_REQUESTS_SHEET_NAME = "طلبات_البرامج";
 
 function getPortalContentSheetGS(ss) {
   var sheet = ss.getSheetByName(PORTAL_CONTENT_SHEET_NAME);
@@ -5003,19 +5004,42 @@ function readPortalDataGS(ss) {
       } catch (e) {}
       continue;
     }
+    var extra = {};
+    try {
+      if (row[13]) extra = JSON.parse(String(row[13])) || {};
+    } catch (e) {}
     var enStr = String(row[11] === undefined || row[11] === "" ? "true" : row[11]).trim().toLowerCase();
     items.push({
       id: id || ("pitem_" + i),
       section: sec || "about",
       title: String(row[2] || "").trim(),
+      titleEn: extra.titleEn || undefined,
+      titleTh: extra.titleTh || undefined,
       subtitle: String(row[3] || "").trim() || undefined,
+      subtitleEn: extra.subtitleEn || undefined,
+      subtitleTh: extra.subtitleTh || undefined,
       description: String(row[4] || "").trim(),
+      descriptionEn: extra.descriptionEn || undefined,
+      descriptionTh: extra.descriptionTh || undefined,
       mediaUrl: String(row[5] || "").trim() || undefined,
+      galleryImages: Array.isArray(extra.galleryImages) ? extra.galleryImages : undefined,
+      thumbnailUrl: extra.thumbnailUrl || undefined,
       linkUrl: String(row[6] || "").trim() || undefined,
       linkLabel: String(row[7] || "").trim() || undefined,
+      linkLabelEn: extra.linkLabelEn || undefined,
+      linkLabelTh: extra.linkLabelTh || undefined,
       badgeText: String(row[8] || "").trim() || undefined,
+      badgeTextEn: extra.badgeTextEn || undefined,
+      badgeTextTh: extra.badgeTextTh || undefined,
       metaPrimary: String(row[9] || "").trim() || undefined,
+      metaPrimaryEn: extra.metaPrimaryEn || undefined,
+      metaPrimaryTh: extra.metaPrimaryTh || undefined,
       metaSecondary: String(row[10] || "").trim() || undefined,
+      metaSecondaryEn: extra.metaSecondaryEn || undefined,
+      metaSecondaryTh: extra.metaSecondaryTh || undefined,
+      actionType: extra.actionType || undefined,
+      slug: extra.slug || undefined,
+      targetProgramId: extra.targetProgramId || undefined,
       enabled: !(enStr === "false" || enStr === "0" || enStr === "لا"),
       sortOrder: Number(row[12]) || (i + 1)
     });
@@ -5052,6 +5076,27 @@ function writePortalDataGS(ss, dataObj) {
   var list = (dataObj && Array.isArray(dataObj.items)) ? dataObj.items : [];
   for (var i = 0; i < list.length; i++) {
     var it = list[i] || {};
+    var extraObj = {
+      titleEn: it.titleEn || "",
+      titleTh: it.titleTh || "",
+      subtitleEn: it.subtitleEn || "",
+      subtitleTh: it.subtitleTh || "",
+      descriptionEn: it.descriptionEn || "",
+      descriptionTh: it.descriptionTh || "",
+      galleryImages: Array.isArray(it.galleryImages) ? it.galleryImages : [],
+      thumbnailUrl: it.thumbnailUrl || "",
+      linkLabelEn: it.linkLabelEn || "",
+      linkLabelTh: it.linkLabelTh || "",
+      badgeTextEn: it.badgeTextEn || "",
+      badgeTextTh: it.badgeTextTh || "",
+      metaPrimaryEn: it.metaPrimaryEn || "",
+      metaPrimaryTh: it.metaPrimaryTh || "",
+      metaSecondaryEn: it.metaSecondaryEn || "",
+      metaSecondaryTh: it.metaSecondaryTh || "",
+      actionType: it.actionType || "",
+      slug: it.slug || "",
+      targetProgramId: it.targetProgramId || ""
+    };
     rows.push([
       String(it.id || ("pitem_" + (i + 1))),
       String(it.section || "about"),
@@ -5066,7 +5111,7 @@ function writePortalDataGS(ss, dataObj) {
       String(it.metaSecondary || ""),
       it.enabled === false ? "false" : "true",
       Number(it.sortOrder) || (i + 1),
-      ""
+      JSON.stringify(extraObj)
     ]);
   }
   if (rows.length > 0) {
@@ -5223,6 +5268,53 @@ function generateNextRegistrantIdGS(regSheet) {
   return String(nextNum);
 }
 
+function getProgramRequestsSheetGS(ss) {
+  var sheet = ss.getSheetByName(PROGRAM_REQUESTS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(PROGRAM_REQUESTS_SHEET_NAME);
+    var headers = [
+      "رقم الطلب", "التاريخ والوقت", "رقم المشترك ID", "اسم المشترك",
+      "البرنامج الحالي", "معرف بطاقة البرنامج", "اسم البرنامج المطلوب", "معرف البرنامج بالجدول",
+      "الحالة", "وصف الحالة", "ملاحظة المشترك", "ملاحظة الإدارة"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#1e3a8a").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    sheet.setRightToLeft(true);
+  }
+  return sheet;
+}
+
+function readProgramRequestsGS(ss) {
+  var sheet = ss.getSheetByName(PROGRAM_REQUESTS_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(12, sheet.getLastColumn())).getValues();
+  var list = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var reqId = String(row[0] || "").trim();
+    var regId = normRegDigitsGS(row[2]);
+    var sName = String(row[3] || "").trim();
+    if (!reqId && !regId && !sName) continue;
+    list.push({
+      rowIndex: i + 2,
+      requestId: reqId || ("preq_" + (i + 1)),
+      requestedAt: String(row[1] || "").trim(),
+      registrationId: regId,
+      studentName: sName,
+      currentProgramId: String(row[4] || "").trim() || undefined,
+      targetProgramCardId: String(row[5] || "").trim(),
+      targetProgramTitle: String(row[6] || "").trim(),
+      targetProgramId: String(row[7] || "").trim() || undefined,
+      status: String(row[8] || "pending").trim() || "pending",
+      statusLabel: String(row[9] || "قيد المراجعة").trim(),
+      studentNote: String(row[10] || "").trim() || undefined,
+      adminNotes: String(row[11] || "").trim() || undefined
+    });
+  }
+  return list.reverse();
+}
+
 
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
 function doGet(e) {
@@ -5281,6 +5373,14 @@ function doGet(e) {
         success: true,
         portalHandled: true,
         submissions: readRegistrationSubmissionsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (e && e.parameter && e.parameter.action === "get_program_requests") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        requests: readProgramRequestsGS(ss)
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -7095,7 +7195,7 @@ function doPost(e) {
         sendTelegramBotMessageGS(ss, tgCfgSub.adminChatId, tgText, "");
       }
 
-      // 4. إرسال نسخة بريد إلكتروني اختيارية للإدارة إن كانت مضبوطة
+      // 4. إرسال نسخة بريد إلكتروني للإدارة (اختياري) + بريد ترحيبي للمشترك يحتوي اسمه ورقم ID ورابط تيليغرام
       var notifyEmailAddr = String(data.adminNotificationEmail || "").trim();
       if (notifyEmailAddr && notifyEmailAddr.indexOf("@") !== -1) {
         try {
@@ -7111,12 +7211,35 @@ function doPost(e) {
         } catch (mailErr) {}
       }
 
+      var studentEmailSent = false;
+      if (data.sendStudentWelcomeEmail !== false && regEmail && regEmail.indexOf("@") !== -1) {
+        try {
+          var portalTitleMail = String(data.academyName || "المنصة التعليمية").trim();
+          var stuMailBody = "مرحباً بك يا " + regStudentName + " في " + portalTitleMail + "!\\n\\n"
+            + "تم تسجيلك بنجاح في المرحلة التمهيدية (" + stage1ProgramName + ").\\n\\n"
+            + "بيانات دخولك الخاصة:\\n"
+            + "• الاسم المسجل: " + regStudentName + "\\n"
+            + "• رقم التسجيل (ID): " + newRegId + "\\n";
+          if (tgDeepLink) {
+            stuMailBody += "\\nالخطوة المهمة التالية — ربط تيليغرام:\\n"
+              + "افتح هذا الرابط واضغط (بدء / Start) لتفعيل الإشعارات ومتابعة المعلم:\\n"
+              + tgDeepLink + "\\n";
+          }
+          if (createdDirectUrl || activeBaseUrlSub) {
+            stuMailBody += "\\nرابط الدخول المباشر إلى صفحتك الخاصة:\\n" + (createdDirectUrl || activeBaseUrlSub) + "\\n";
+          }
+          MailApp.sendEmail(regEmail, portalTitleMail + " — تأكيد التسجيل ورقم المشترك (" + newRegId + ")", stuMailBody);
+          studentEmailSent = true;
+        } catch (stuMailErr) {}
+      }
+
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         portalHandled: true,
         registrationId: newRegId,
         telegramDeepLink: tgDeepLink,
         botUsername: cleanBotUser,
+        studentEmailSent: studentEmailSent,
         student: {
           id: newRegId,
           name: regStudentName,
@@ -7231,6 +7354,201 @@ function doPost(e) {
         success: true,
         portalHandled: true,
         message: "تم حذف سجل الطلب بنجاح."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // طلب الالتحاق ببرنامج معين لمشترك حالي (مع التحقق من الاسم والرقم في ID registrants) -> ورقة "طلبات_البرامج"
+    if (data.action === "submit_program_request") {
+      var reqNameIn = String(data.studentName || "").trim();
+      var reqIdIn = normRegDigitsGS(data.studentId || "");
+      var rSheetPr = getIDRegistrantsSheet(ss);
+      var allRegsPr = readAllRegistrantsGS(rSheetPr);
+      var normReqName = normRegArabicGS(reqNameIn);
+      var foundReg = null;
+      for (var pi = 0; pi < allRegsPr.length; pi++) {
+        if (allRegsPr[pi].id === reqIdIn && normRegArabicGS(allRegsPr[pi].name) === normReqName) {
+          foundReg = allRegsPr[pi];
+          break;
+        }
+      }
+      if (!foundReg) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          portalHandled: true,
+          notFound: true,
+          error: "لم نتمكن من مطابقة الاسم ورقم المشترك في السجل. إذا كنت طالباً جديداً يرجى تعبئة استمارة التسجيل أولاً."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (isRegistrantDisabledGS(foundReg.status)) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          portalHandled: true,
+          disabled: true,
+          error: "هذا الحساب موقوف أو معلّق حالياً، يرجى التواصل مع الإدارة."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var prSheet = getProgramRequestsSheetGS(ss);
+      var prId = "PR-" + new Date().getTime().toString().slice(-6);
+      var nowPr = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Riyadh", "yyyy/MM/dd HH:mm");
+      var targetCardId = String(data.targetProgramCardId || "").trim();
+      var targetTitle = String(data.targetProgramTitle || "").trim();
+      var targetProgId = String(data.targetProgramId || "").trim();
+      var stuNote = String(data.studentNote || "").trim();
+
+      prSheet.appendRow([
+        prId,
+        nowPr,
+        foundReg.id,
+        foundReg.name,
+        foundReg.programId || "",
+        targetCardId,
+        targetTitle,
+        targetProgId,
+        "pending",
+        "قيد المراجعة",
+        stuNote,
+        ""
+      ]);
+
+      var tgCfgPr = readTelegramConfigGS(ss);
+      if (tgCfgPr.botToken && tgCfgPr.adminChatId) {
+        var adminPrMsg = "<b>طلب التحاق ببرنامج تدريبي</b>\\n"
+          + "المشترك: <b>" + foundReg.name + "</b>\\n"
+          + "رقم المشترك (ID): <code>" + foundReg.id + "</code>\\n"
+          + "البرنامج المطلوب: <b>" + targetTitle + "</b>\\n";
+        if (stuNote) adminPrMsg += "ملاحظة المشترك: " + stuNote + "\\n";
+        sendTelegramBotMessageGS(ss, tgCfgPr.adminChatId, adminPrMsg, "");
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        requestId: prId,
+        student: {
+          id: foundReg.id,
+          name: foundReg.name,
+          status: foundReg.status,
+          maxDevices: foundReg.maxDevices,
+          devices: foundReg.devices,
+          requireLocation: foundReg.requireLocation,
+          directLoginUrl: foundReg.directLoginUrl,
+          qrImageUrl: foundReg.qrImageUrl,
+          programId: foundReg.programId
+        }
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "get_program_requests") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        requests: readProgramRequestsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "update_program_request_status") {
+      var uReqId = String(data.requestId || "").trim();
+      var uRowIdx = Number(data.rowIndex) || 0;
+      var uRegId = normRegDigitsGS(data.registrationId || "");
+      var uStatus = String(data.status || "approved").trim();
+      var uStatusLabel = String(data.statusLabel || (uStatus === "approved" ? "تمت الموافقة والترقية" : "مرفوض / مؤجل")).trim();
+      var uTargetProgId = String(data.targetProgramId || "").trim();
+      var uTargetProgName = String(data.targetProgramName || uTargetProgId).trim();
+      var uAdminNotes = data.adminNotes !== undefined ? String(data.adminNotes) : undefined;
+
+      var prSheetU = getProgramRequestsSheetGS(ss);
+      if (uRowIdx >= 2 && uRowIdx <= prSheetU.getLastRow()) {
+        prSheetU.getRange(uRowIdx, 9).setValue(uStatus);
+        prSheetU.getRange(uRowIdx, 10).setValue(uStatusLabel);
+        if (uTargetProgId) prSheetU.getRange(uRowIdx, 8).setValue(uTargetProgId);
+        if (uAdminNotes !== undefined) prSheetU.getRange(uRowIdx, 12).setValue(uAdminNotes);
+      } else if (uReqId && prSheetU.getLastRow() >= 2) {
+        var prRowsU = prSheetU.getRange(2, 1, prSheetU.getLastRow() - 1, 1).getValues();
+        for (var ui = 0; ui < prRowsU.length; ui++) {
+          if (String(prRowsU[ui][0] || "").trim() === uReqId) {
+            var prRowN = ui + 2;
+            prSheetU.getRange(prRowN, 9).setValue(uStatus);
+            prSheetU.getRange(prRowN, 10).setValue(uStatusLabel);
+            if (uTargetProgId) prSheetU.getRange(prRowN, 8).setValue(uTargetProgId);
+            if (uAdminNotes !== undefined) prSheetU.getRange(prRowN, 12).setValue(uAdminNotes);
+            break;
+          }
+        }
+      }
+
+      var tgNotifiedU = false;
+      var matchedNameU = String(data.studentName || "").trim();
+      if (uStatus === "approved" && uTargetProgId && uRegId) {
+        // تحديث ID registrants + طلبات_التسجيل
+        var rSheetU = getIDRegistrantsSheet(ss);
+        var allRegsU = readAllRegistrantsGS(rSheetU);
+        for (var ru = 0; ru < allRegsU.length; ru++) {
+          if (allRegsU[ru].id === uRegId) {
+            rSheetU.getRange(allRegsU[ru].rowNumber, 3).setValue("مفعّل");
+            rSheetU.getRange(allRegsU[ru].rowNumber, 9).setValue(uTargetProgId);
+            if (!matchedNameU) matchedNameU = allRegsU[ru].name;
+            break;
+          }
+        }
+        var subSheetU = getRegistrationSubmissionsSheetGS(ss);
+        if (subSheetU.getLastRow() >= 2) {
+          var sRowsU = subSheetU.getRange(2, 1, subSheetU.getLastRow() - 1, 12).getValues();
+          for (var su = 0; su < sRowsU.length; su++) {
+            if (normRegDigitsGS(sRowsU[su][1]) === uRegId) {
+              var srNum = su + 2;
+              subSheetU.getRange(srNum, 4).setValue(uTargetProgId);
+              subSheetU.getRange(srNum, 5).setValue("stage2_assigned");
+              subSheetU.getRange(srNum, 6).setValue("تم التحويل إلى: " + uTargetProgName);
+            }
+          }
+        }
+        var tgCfgU = readTelegramConfigGS(ss);
+        if (data.notifyStudentTelegram !== false && tgCfgU.botToken) {
+          var uSheetU = getTelegramUsersSheet(ss);
+          var uRowsU = uSheetU.getDataRange().getValues();
+          for (var tui = 1; tui < uRowsU.length; tui++) {
+            if (normRegDigitsGS(uRowsU[tui][0]) === uRegId && String(uRowsU[tui][2] || "").trim()) {
+              var stMsgU = "<b>تهانينا يا " + (matchedNameU || "مشتركنا الكريم") + "!</b>\\n"
+                + "تمت الموافقة على طلبك ونقلك إلى برنامج: <b>" + uTargetProgName + "</b>.\\n"
+                + "يمكنك الدخول الآن إلى صفحتك الخاصة لبدء البرنامج.";
+              if (sendTelegramBotMessageGS(ss, String(uRowsU[tui][2]).trim(), stMsgU, "").ok) {
+                tgNotifiedU = true;
+              }
+            }
+          }
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        tgNotifiedStudent: tgNotifiedU,
+        message: uStatus === "approved"
+          ? ("تمت الموافقة ونقل المشترك (" + (matchedNameU || uRegId) + ") إلى " + uTargetProgName)
+          : "تم تحديث حالة طلب البرنامج بنجاح."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_program_request") {
+      var delPrRow = Number(data.rowIndex) || 0;
+      var delPrId = String(data.requestId || "").trim();
+      var prSheetD = getProgramRequestsSheetGS(ss);
+      if (delPrRow >= 2 && delPrRow <= prSheetD.getLastRow()) {
+        prSheetD.deleteRow(delPrRow);
+      } else if (delPrId && prSheetD.getLastRow() >= 2) {
+        var prRowsD = prSheetD.getRange(2, 1, prSheetD.getLastRow() - 1, 1).getValues();
+        for (var pdi = prRowsD.length - 1; pdi >= 0; pdi--) {
+          if (String(prRowsD[pdi][0] || "").trim() === delPrId) {
+            prSheetD.deleteRow(pdi + 2);
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        portalHandled: true,
+        message: "تم حذف طلب البرنامج."
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

@@ -3,6 +3,10 @@ import {
   PortalPublicData,
   PortalSectionConfig,
   PortalSettingsConfig,
+  PortalSocialChannel,
+  PortalUiTextEntry,
+  ProgramRequestRecord,
+  ProgramRequestStatus,
   RegistrationAttachment,
   RegistrationQuestion,
   RegistrationStage,
@@ -17,6 +21,8 @@ import {
   normalizeDigits,
 } from './googleSheets';
 import { DEFAULT_PROGRAM_ID } from './courseSchedule';
+import { SupportedLang } from './translations';
+import { getDirectImageUrl } from './mediaUrl';
 import heroCalligraphyImg from '../assets/images/academy_hero_calligraphy_1795370348160.jpg';
 import aboutStudioImg from '../assets/images/academy_about_studio_1795370349304.jpg';
 import galleryArtworkImg from '../assets/images/academy_gallery_artwork_1795370347809.jpg';
@@ -24,46 +30,151 @@ import galleryArtworkImg from '../assets/images/academy_gallery_artwork_17953703
 const STORAGE_KEY_PORTAL_DATA = 'faseeh_public_portal_data_v1';
 const STORAGE_KEY_REG_QUESTIONS = 'faseeh_portal_reg_questions_v1';
 const STORAGE_KEY_REG_SUBMISSIONS = 'faseeh_portal_reg_submissions_v1';
+const STORAGE_KEY_PROGRAM_REQUESTS = 'faseeh_portal_program_requests_v1';
 const STORAGE_KEY_PORTAL_BOT_USER = 'faseeh_portal_bot_username_v1';
 
 export const DEFAULT_PORTAL_SECTIONS: PortalSectionConfig[] = [
-  { key: 'hero', label: 'القسم الترحيبي الرئيسي', enabled: true, sortOrder: 1 },
-  { key: 'about', label: 'عن المؤسسة والمنهجية', enabled: true, sortOrder: 2 },
-  { key: 'programs', label: 'البرامج والمسارات التعليمية', enabled: true, sortOrder: 3 },
-  { key: 'gallery', label: 'معرض الأعمال والصور', enabled: true, sortOrder: 4 },
-  { key: 'videos', label: 'مكتبة الفيديو التعريفية', enabled: true, sortOrder: 5 },
-  { key: 'contact', label: 'التواصل والاستفسارات', enabled: true, sortOrder: 6 },
-  { key: 'store_slot', label: 'المتجر (مساحة محجوزة)', enabled: false, sortOrder: 7 },
+  { key: 'hero', label: 'القسم الترحيبي الرئيسي', labelEn: 'Welcome Hero', labelTh: 'หน้าหลักต้อนรับ', enabled: true, sortOrder: 1 },
+  { key: 'about', label: 'عن المؤسسة والمنهجية', labelEn: 'About Academy', labelTh: 'เกี่ยวกับสถาบัน', enabled: true, sortOrder: 2 },
+  { key: 'programs', label: 'البرامج والمسارات التعليمية', labelEn: 'Training Programs', labelTh: 'หลักสูตรการฝึกอบรม', enabled: true, sortOrder: 3 },
+  { key: 'gallery', label: 'معرض الأعمال والصور', labelEn: 'Showcase Gallery', labelTh: 'แกลเลอรีผลงาน', enabled: true, sortOrder: 4 },
+  { key: 'videos', label: 'مكتبة الفيديو التعريفية', labelEn: 'Introductory Videos', labelTh: 'วิดีโอแนะนำ', enabled: true, sortOrder: 5 },
+  { key: 'contact', label: 'التواصل والاستفسارات', labelEn: 'Contact & Channels', labelTh: 'ติดต่อเรา', enabled: true, sortOrder: 6 },
+  { key: 'store_slot', label: 'المتجر (مساحة محجوزة)', labelEn: 'Store', labelTh: 'ร้านค้า', enabled: false, sortOrder: 7 },
 ];
+
+export const DEFAULT_SOCIAL_CHANNELS: PortalSocialChannel[] = [
+  { id: 'soc_fb', appName: 'Facebook', iconKey: 'facebook', url: '', enabled: true, sortOrder: 1 },
+  { id: 'soc_ig', appName: 'Instagram', iconKey: 'instagram', url: '', enabled: true, sortOrder: 2 },
+  { id: 'soc_yt', appName: 'YouTube', iconKey: 'youtube', url: '', enabled: true, sortOrder: 3 },
+  { id: 'soc_line', appName: 'LINE', iconKey: 'line', url: '', enabled: true, sortOrder: 4 },
+];
+
+export const PORTAL_UI_TEXT_METADATA: { key: string; group: string; isButton?: boolean }[] = [
+  { key: 'header_login_btn', group: 'الشريط العلوي', isButton: true },
+  { key: 'header_register_btn', group: 'الشريط العلوي', isButton: true },
+  { key: 'hero_badge_suffix', group: 'القسم الترحيبي' },
+  { key: 'hero_register_btn', group: 'القسم الترحيبي', isButton: true },
+  { key: 'hero_login_btn', group: 'القسم الترحيبي', isButton: true },
+  { key: 'hero_step_1', group: 'القسم الترحيبي' },
+  { key: 'hero_step_2', group: 'القسم الترحيبي' },
+  { key: 'hero_step_3', group: 'القسم الترحيبي' },
+  { key: 'about_heading', group: 'عن المؤسسة' },
+  { key: 'about_subheading', group: 'عن المؤسسة' },
+  { key: 'programs_heading', group: 'قسم البرامج' },
+  { key: 'programs_subheading', group: 'قسم البرامج' },
+  { key: 'programs_header_btn', group: 'قسم البرامج', isButton: true },
+  { key: 'gallery_heading', group: 'معرض الأعمال' },
+  { key: 'gallery_subheading', group: 'معرض الأعمال' },
+  { key: 'videos_heading', group: 'مكتبة الفيديو' },
+  { key: 'videos_subheading', group: 'مكتبة الفيديو' },
+  { key: 'contact_heading', group: 'تواصل معنا' },
+  { key: 'contact_subheading', group: 'تواصل معنا' },
+  { key: 'contact_register_btn', group: 'تواصل معنا', isButton: true },
+  { key: 'contact_telegram_btn', group: 'تواصل معنا', isButton: true },
+  { key: 'footer_portal_btn', group: 'الشريط السفلي', isButton: true },
+];
+
+export const DEFAULT_PORTAL_UI_TEXTS: Record<string, PortalUiTextEntry> = {
+  header_login_btn: { ar: 'دخول المشتركين', en: 'Sign In', th: 'เข้าสู่ระบบผู้เรียน', visible: true },
+  header_register_btn: { ar: 'سجّل الآن', en: 'Register', th: 'สมัครเรียน', visible: true },
+  hero_badge_suffix: { ar: 'التسجيل المباشر والصفحة الخاصة', en: 'Direct Onboarding & Training', th: 'การลงทะเบียนและหน้าส่วนตัว', visible: true },
+  hero_register_btn: { ar: 'سجّل الآن وابدأ المرحلة التمهيدية', en: 'Register & Start Introductory Stage', th: 'สมัครเรียนและเริ่มขั้นแนะนำ', visible: true },
+  hero_login_btn: { ar: 'دخول المشتركين', en: 'Subscriber Sign In', th: 'เข้าสู่ระบบผู้เรียน', visible: true },
+  hero_step_1: { ar: '٠١ · تعبئة الاستمارة واستلام رقم ID فوراً', en: '01 · Complete form & get ID instantly', th: '01 · กรอกแบบฟอร์มและรับรหัสทันที', visible: true },
+  hero_step_2: { ar: '٠٢ · دخول مباشر للقسم التمهيدي', en: '02 · Instant access to introductory stage', th: '02 · เข้าสู่ส่วนแนะนำเบื้องต้นทันที', visible: true },
+  hero_step_3: { ar: '٠٣ · ترقية من الإدارة لمسارك المخصص', en: '03 · Admin assignment to your track', th: '03 · ผู้ดูแลจัดกลุ่มหลักสูตรให้คุณ', visible: true },
+  about_heading: { ar: 'عن المؤسسة ومنهجية التدريب', en: 'About Our Academy & Methodology', th: 'เกี่ยวกับสถาบันและแนวทางการสอน', visible: true },
+  about_subheading: {
+    ar: 'مسار مترابط يجمع بين التعريف الأكاديمي والتأهيل التمهيدي ثم التدريب المتخصص',
+    en: 'Structured educational path combining introductory onboarding and guided training',
+    th: 'เส้นทางการเรียนรู้ที่เป็นระบบตั้งแต่ขั้นพื้นฐานจนถึงขั้นสูง',
+    visible: true,
+  },
+  programs_heading: { ar: 'البرامج والمسارات التدريبية', en: 'Training Programs & Tracks', th: 'หลักสูตรและแผนการฝึกอบรม', visible: true },
+  programs_subheading: {
+    ar: 'سجّل للدخول مباشرة إلى المسار التمهيدي أو اختر البرنامج المطلوب للتقديم عليه',
+    en: 'Register for Phase 1 onboarding or apply directly to a specific training track',
+    th: 'ลงทะเบียนเพื่อเข้าสู่ขั้นแนะนำ หรือสมัครเข้าสู่หลักสูตรที่ต้องการ',
+    visible: true,
+  },
+  programs_header_btn: { ar: 'التسجيل الآن', en: 'Register Now', th: 'ลงทะเบียนตอนนี้', visible: true },
+  gallery_heading: { ar: 'معرض الأعمال والصور', en: 'Showcase Gallery', th: 'แกลเลอรีผลงาน', visible: true },
+  gallery_subheading: {
+    ar: 'نماذج خطية مختارة ولقطات من مسيرة التعليم والتدريب',
+    en: 'Selected calligraphy works and learning studio scenes',
+    th: 'ตัวอย่างผลงานคัดลายมือและบรรยากาศการเรียนรู้',
+    visible: true,
+  },
+  videos_heading: { ar: 'مكتبة الفيديو التعريفية', en: 'Introductory Video Library', th: 'คลังวิดีโอแนะนำ', visible: true },
+  videos_subheading: {
+    ar: 'شروح مرئية موجزة توضح المنهج وطريقة التدريب على المنصة',
+    en: 'Short visual walkthroughs explaining the curriculum and training flow',
+    th: 'วิดีโอสั้นอธิบายหลักสูตรและวิธีการฝึกฝน',
+    visible: true,
+  },
+  contact_heading: { ar: 'تواصل معنا والانضمام', en: 'Contact & Enrollment', th: 'ติดต่อสอบถามและสมัครเรียน', visible: true },
+  contact_subheading: {
+    ar: 'للاستفسارات عن البرامج أو متابعة حالة تسجيلك، يسعدنا تواصلك عبر القنوات الرسمية أو المبادرة بالتسجيل الفوري.',
+    en: 'Reach out via our official channels or start your instant application right away.',
+    th: 'ติดต่อผ่านช่องทางทางการของเรา หรือสมัครเรียนได้ทันที',
+    visible: true,
+  },
+  contact_register_btn: { ar: 'فتح استمارة التسجيل', en: 'Open Registration', th: 'เปิดแบบฟอร์มสมัคร', visible: true },
+  contact_telegram_btn: { ar: 'تيليغرام', en: 'Telegram', th: 'Telegram', visible: true },
+  footer_portal_btn: { ar: 'بوابة المشتركين', en: 'Subscriber Portal', th: 'พอร์ทัลผู้เรียน', visible: true },
+};
 
 export const DEFAULT_PORTAL_SETTINGS: PortalSettingsConfig = {
   academyName: 'أكاديمية فصيح للخط العربي والنطق',
+  academyNameEn: 'Faseeh Arabic Calligraphy & Speech Academy',
+  academyNameTh: 'สถาบันฟาซีห์ภาษาอาหรับและการคัดลายมือ',
   academyTagline: 'منهجية تدريبية متدرجة تجمع بين أصالة الحرف العربي والتقويم التفاعلي الحديث',
+  academyTaglineEn: 'Step-by-step training combining authentic Arabic letterform with modern interactive feedback',
+  academyTaglineTh: 'แนวทางการฝึกฝนที่ผสานอักษรอาหรับดั้งเดิมกับการประเมินผลเชิงโต้ตอบสมัยใหม่',
+  showHeroOverlay: true,
   logoUrl: '',
   heroTitle: 'إتقان الحرف العربي نطقاً وخطاً بمنهجية أكاديمية متكاملة',
+  heroTitleEn: 'Master Arabic Pronunciation & Calligraphy with an Integrated Curriculum',
+  heroTitleTh: 'เชี่ยวชาญการออกเสียงและการคัดลายมืออาหรับอย่างเป็นระบบ',
   heroSubtitle:
     'انضم إلى مساراتنا التدريبية التفاعلية التي تبدأ بمرحلة تمهيدية تعريفية لتقييم مستواك، ثم تنتقل بإشراف المعلم إلى المسار التدريبي المخصص لك.',
+  heroSubtitleEn:
+    'Join our interactive learning tracks starting with an introductory stage before your instructor assigns your specialized program.',
+  heroSubtitleTh:
+    'เข้าร่วมหลักสูตรเชิงโต้ตอบของเราโดยเริ่มจากขั้นพื้นฐานก่อนที่ผู้สอนจะจัดกลุ่มที่เหมาะสมให้คุณ',
   heroMediaUrl: heroCalligraphyImg,
   announcementEnabled: true,
   announcementText:
     'التسجيل متاح الآن في المرحلة التمهيدية — سجّل بياناتك واحصل مباشرة على رقم دخولك وحسابك التجريبي',
+  announcementTextEn:
+    'Enrollment is open for Phase 1 Introductory Stage — register now to receive your ID and instant access',
+  announcementTextTh:
+    'เปิดรับสมัครขั้นแนะนำเบื้องต้นแล้ววันนี้ — ลงทะเบียนเพื่อรับรหัสผู้เรียนและเข้าใช้งานได้ทันที',
   contactEmail: 'info@academy-example.org',
   contactPhone: '+966 50 000 0000',
-  contactAddress: 'المقر التعليمي الرئيسي — التعلم الحضوري وعن بُعد',
+  contactAddress: '',
   contactHours: 'السبت – الخميس · ٩:٠٠ صباحاً – ٦:٠٠ مساءً',
   telegramBotUsername: '',
   whatsappUrl: '',
+  socialChannels: DEFAULT_SOCIAL_CHANNELS,
   stage1DefaultProgramId: DEFAULT_PROGRAM_ID,
   stage1BannerTitle: 'أنت الآن في المرحلة التمهيدية (القسم الافتراضي)',
   stage1BannerBody:
     'تم تفعيل دخولك التجريبي بنجاح. يمكنك الآن استعراض الإرشادات التمهيدية وتجربة النماذج والأسئلة التدريبية المتاحة في هذا القسم لفهم آلية المنصة، ريثما يراجع المشرف بياناتك ويحوّل حسابك إلى مسارك التدريبي المعتمد.',
   adminNotificationEmail: '',
+  sendStudentWelcomeEmail: true,
   notifyAdminTelegramOnRegister: true,
   notifyStudentTelegramOnTransfer: true,
   showStoreNavSlot: false,
   storeSlotTitle: 'المتجر',
+  storeSlotTitleEn: 'Store',
+  storeSlotTitleTh: 'ร้านค้า',
   storeSlotNote:
     'هذه المساحة محجوزة ومهيّأة لربط متجر الأدوات والمستلزمات المتكامل في المرحلة القادمة دون التأثير على البوابة أو نظام التدريب.',
+  storeSlotNoteEn: 'This area is reserved for connecting the dedicated tools and supplies store later.',
+  storeSlotNoteTh: 'พื้นที่นี้สงวนไว้สำหรับเชื่อมต่อร้านค้าอุปกรณ์ในระยะถัดไป',
+  uiTexts: DEFAULT_PORTAL_UI_TEXTS,
   sections: DEFAULT_PORTAL_SECTIONS,
 };
 
@@ -72,13 +183,22 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'about_01',
     section: 'about',
     title: 'تعليم تدرّجي بإشراف مباشر',
+    titleEn: 'Guided Step-by-Step Instruction',
+    titleTh: 'การสอนแบบทีละขั้นตอนพร้อมผู้ดูแล',
     subtitle: 'من الأساسيات إلى الإتقان',
+    subtitleEn: 'From Foundations to Mastery',
+    subtitleTh: 'จากพื้นฐานสู่ความชำนาญ',
     description:
       'يبدأ كل متعلم بمرحلة تمهيدية واضحة يتعرف خلالها على آلية التمارين والنماذج، قبل أن يوجهه المعلم إلى المجموعة والبرنامج الأنسب لمستواه.',
     mediaUrl: aboutStudioImg,
     badgeText: '٠١ · المنهجية',
     metaPrimary: 'متابعة فردية',
     metaSecondary: 'جداول يومية مرنة',
+    actionType: 'scroll_section',
+    linkLabel: 'تعرّف على البرامج',
+    linkLabelEn: 'Explore Programs',
+    linkLabelTh: 'ดูหลักสูตรทั้งหมด',
+    linkUrl: '#portal-programs',
     enabled: true,
     sortOrder: 1,
   },
@@ -86,12 +206,19 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'about_02',
     section: 'about',
     title: 'ستة مسارات تطبيقية متكاملة',
+    titleEn: 'Six Integrated Practice Modules',
+    titleTh: '6 โหมดฝึกปฏิบัติครบวงจร',
     subtitle: 'نطق · إملاء · وصل · كتابة · تفاعل',
     description:
       'منظومة تدريبية موحدة تربط الاستماع والنطق والكتابة والسبورة التفاعلية وتقارير الأداء النهائية في سجل واحد لكل مشترك.',
     badgeText: '٠٢ · التطبيق',
     metaPrimary: 'تقييم مباشر',
     metaSecondary: 'تقارير PDF معتمدة',
+    actionType: 'scroll_section',
+    linkLabel: 'شاهد النماذج المرئية',
+    linkLabelEn: 'Watch Demos',
+    linkLabelTh: 'ดูวิดีโอสาธิต',
+    linkUrl: '#portal-videos',
     enabled: true,
     sortOrder: 2,
   },
@@ -99,12 +226,18 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'about_03',
     section: 'about',
     title: 'تواصل فوري عبر بوت تيليغرام',
+    titleEn: 'Instant Telegram Feedback',
+    titleTh: 'แจ้งเตือนและตรวจงานผ่าน Telegram',
     subtitle: 'تنبيهات وتصحيح مباشر',
     description:
       'بمجرد التسجيل وربط حسابك عبر الرابط المباشر، تصلك إشعارات الدروس وتنبيه الترقية للبرنامج الأساسي وتصحيحات المعلم أولاً بأول.',
     badgeText: '٠٣ · المتابعة',
     metaPrimary: 'إشعارات فورية',
     metaSecondary: 'ربط برقم المشترك',
+    actionType: 'open_register',
+    linkLabel: 'سجّل وابدأ الآن',
+    linkLabelEn: 'Register Now',
+    linkLabelTh: 'สมัครเรียนทันที',
     enabled: true,
     sortOrder: 3,
   },
@@ -112,13 +245,19 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'prog_card_1',
     section: 'programs',
     title: 'المسار التمهيدي (القسم الافتراضي)',
+    titleEn: 'Introductory Track (Default Stage)',
+    titleTh: 'หลักสูตรแนะนำเบื้องต้น',
     subtitle: 'المرحلة الأولى فور التسجيل',
     description:
       'يفتح لك فور إرسال استمارة التسجيل؛ يحتوي على إرشادات المنصة ونماذج تجريبية لفهم طريقة التمرين قبل التحويل إلى برنامجك الكامل.',
     badgeText: 'دخول فوري بعد التسجيل',
     metaPrimary: 'نماذج وإرشادات',
     metaSecondary: 'تأهيل مبدئي',
+    actionType: 'open_register',
+    slug: 'intro-stage',
     linkLabel: 'سجّل وابدأ الآن',
+    linkLabelEn: 'Register & Start',
+    linkLabelTh: 'สมัครและเริ่มทันที',
     enabled: true,
     sortOrder: 1,
   },
@@ -126,13 +265,19 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'prog_card_2',
     section: 'programs',
     title: 'برنامج المستوى المبتدئ',
+    titleEn: 'Beginner Level Program',
+    titleTh: 'หลักสูตรระดับเริ่มต้น',
     subtitle: 'المرحلة الثانية · بناء الأساس',
     description:
       'تمارين مركزة لتأسيس مخارج الحروف وتشكيل الكلمات الأساسية والكتابة الموجهة وفق جدول يومي منضبط.',
-    badgeText: 'توجيه من الإدارة',
+    badgeText: 'للمشتركين المسجلين',
     metaPrimary: 'تأسيس شامل',
     metaSecondary: 'مجموعات يومية',
-    linkLabel: 'قدّم طلب الالتحاق',
+    actionType: 'open_program_request',
+    slug: 'beginner-program',
+    linkLabel: 'طلب الالتحاق بالبرنامج',
+    linkLabelEn: 'Request This Program',
+    linkLabelTh: 'ขอเข้าร่วมหลักสูตรนี้',
     enabled: true,
     sortOrder: 2,
   },
@@ -140,13 +285,19 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'prog_card_3',
     section: 'programs',
     title: 'برنامج المستوى المتقدم',
+    titleEn: 'Advanced Level Program',
+    titleTh: 'หลักสูตรระดับสูง',
     subtitle: 'المرحلة الثانية · الإتقان والتكامل',
     description:
       'منهج مكثف للمتدربين المتقنين يشمل الجمل المركبة، التصحيح الصوتي والبصري الدقيق، وشهادة إتمام بنهاية البرنامج.',
-    badgeText: 'توجيه من الإدارة',
+    badgeText: 'للمشتركين المسجلين',
     metaPrimary: 'مستوى متقدم',
     metaSecondary: 'شهادة وتقرير PDF',
-    linkLabel: 'قدّم طلب الالتحاق',
+    actionType: 'open_program_request',
+    slug: 'advanced-program',
+    linkLabel: 'طلب الالتحاق بالبرنامج',
+    linkLabelEn: 'Request This Program',
+    linkLabelTh: 'ขอเข้าร่วมหลักสูตรนี้',
     enabled: true,
     sortOrder: 3,
   },
@@ -154,9 +305,12 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'gal_01',
     section: 'gallery',
     title: 'مخطوطات وتطبيقات الخط الكلاسيكي',
+    titleEn: 'Classical Calligraphy Manuscripts',
+    titleTh: 'ผลงานคัดลายมือคลาสสิก',
     subtitle: 'نماذج تدريبية وخطوط عربية أصيلة',
     description: 'لقطات من بيئة التدريب والنماذج اليدوية المعتمدة في مسارات الأكاديمية.',
     mediaUrl: galleryArtworkImg,
+    galleryImages: [galleryArtworkImg, heroCalligraphyImg, aboutStudioImg],
     badgeText: 'لوحات ونماذج',
     metaPrimary: 'معرض الأكاديمية',
     enabled: true,
@@ -166,9 +320,12 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'gal_02',
     section: 'gallery',
     title: 'أدوات الخطاط وورشة العمل',
+    titleEn: 'Calligrapher Tools & Studio',
+    titleTh: 'อุปกรณ์และสตูดิโอฝึกหัด',
     subtitle: 'أقلام القصب والحبر والورق المصقول',
     description: 'تهيئة الطالب لاختيار الأدوات المناسبة وضبط الجلسة والزاوية الصحيحة للكتابة.',
     mediaUrl: heroCalligraphyImg,
+    galleryImages: [heroCalligraphyImg, aboutStudioImg],
     badgeText: 'أدوات وورش',
     metaPrimary: 'تطبيق عملي',
     enabled: true,
@@ -178,9 +335,12 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     id: 'gal_03',
     section: 'gallery',
     title: 'قاعات الدرس والتوجيه المباشر',
+    titleEn: 'Guided Study Studio',
+    titleTh: 'บรรยากาศการเรียนการสอน',
     subtitle: 'بيئة تعليمية هادئة ومهيأة',
-    description: 'الجمع بين الدراسة الحضورية المنضبطة والمتابعة الرقمية المستمرة.',
+    description: 'الجمع بين الدراسة المنضبطة عن بُعد والمتابعة الرقمية المستمرة.',
     mediaUrl: aboutStudioImg,
+    galleryImages: [aboutStudioImg, galleryArtworkImg],
     badgeText: 'البيئة التعليمية',
     metaPrimary: 'إشراف أكاديمي',
     enabled: true,
@@ -201,6 +361,17 @@ export const DEFAULT_REGISTRATION_QUESTIONS: RegistrationQuestion[] = [
     sortOrder: 1,
   },
   {
+    id: 'q_email',
+    label: 'البريد الإلكتروني (لإرسال بيانات الدخول ورقم التسجيل)',
+    labelEn: 'Email Address (to receive your ID & access link)',
+    labelTh: 'อีเมล (สำหรับรับรหัสผู้เรียนและลิงก์เข้าใช้งาน)',
+    type: 'email',
+    required: true,
+    placeholder: 'name@example.com',
+    enabled: true,
+    sortOrder: 2,
+  },
+  {
     id: 'q_phone',
     label: 'رقم الجوال / الواتساب',
     labelEn: 'Phone / WhatsApp Number',
@@ -208,17 +379,6 @@ export const DEFAULT_REGISTRATION_QUESTIONS: RegistrationQuestion[] = [
     type: 'phone',
     required: true,
     placeholder: '+966 50 000 0000',
-    enabled: true,
-    sortOrder: 2,
-  },
-  {
-    id: 'q_email',
-    label: 'البريد الإلكتروني',
-    labelEn: 'Email Address',
-    labelTh: 'อีเมล',
-    type: 'email',
-    required: false,
-    placeholder: 'name@example.com',
     enabled: true,
     sortOrder: 3,
   },
@@ -268,32 +428,202 @@ export function normalizePortalPublicData(raw?: Partial<PortalPublicData> | null
     (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)
   );
 
+  // Merge socialChannels (migrate legacy whatsappUrl once if no socialChannels present yet)
+  let mergedChannels: PortalSocialChannel[];
+  if (Array.isArray(s.socialChannels)) {
+    mergedChannels = s.socialChannels
+      .map((ch, idx) => ({
+        id: String(ch.id || `soc_${idx + 1}`),
+        appName: String(ch.appName || '').trim() || 'Link',
+        iconKey: ch.iconKey || 'globe',
+        iconUrl: ch.iconUrl ? String(ch.iconUrl).trim() : undefined,
+        url: String(ch.url || '').trim(),
+        enabled: ch.enabled !== false,
+        sortOrder: Number(ch.sortOrder) || idx + 1,
+      }))
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  } else {
+    mergedChannels = DEFAULT_SOCIAL_CHANNELS.map((c) => ({ ...c }));
+    if (s.whatsappUrl && s.whatsappUrl.trim()) {
+      mergedChannels.push({
+        id: 'soc_wa_legacy',
+        appName: 'WhatsApp',
+        iconKey: 'whatsapp',
+        url: s.whatsappUrl.trim(),
+        enabled: true,
+        sortOrder: mergedChannels.length + 1,
+      });
+    }
+  }
+
+  // Merge uiTexts cleanly so new keys always get safe defaults
+  const mergedUiTexts: Record<string, PortalUiTextEntry> = {};
+  Object.keys(DEFAULT_PORTAL_UI_TEXTS).forEach((k) => {
+    const defEntry = DEFAULT_PORTAL_UI_TEXTS[k];
+    const customEntry = s.uiTexts && s.uiTexts[k];
+    mergedUiTexts[k] = customEntry
+      ? {
+          ar: customEntry.ar !== undefined ? String(customEntry.ar) : defEntry.ar,
+          en: customEntry.en !== undefined ? String(customEntry.en) : defEntry.en,
+          th: customEntry.th !== undefined ? String(customEntry.th) : defEntry.th,
+          visible: customEntry.visible !== undefined ? Boolean(customEntry.visible) : defEntry.visible !== false,
+        }
+      : { ...defEntry };
+  });
+
   const settings: PortalSettingsConfig = {
     ...DEFAULT_PORTAL_SETTINGS,
     ...s,
+    showHeroOverlay: s.showHeroOverlay !== undefined ? Boolean(s.showHeroOverlay) : true,
+    sendStudentWelcomeEmail:
+      s.sendStudentWelcomeEmail !== undefined ? Boolean(s.sendStudentWelcomeEmail) : true,
     heroMediaUrl: s.heroMediaUrl !== undefined ? s.heroMediaUrl : DEFAULT_PORTAL_SETTINGS.heroMediaUrl,
+    contactAddress: s.contactAddress !== undefined ? String(s.contactAddress) : DEFAULT_PORTAL_SETTINGS.contactAddress,
+    contactPhone: s.contactPhone !== undefined ? String(s.contactPhone) : DEFAULT_PORTAL_SETTINGS.contactPhone,
+    contactEmail: s.contactEmail !== undefined ? String(s.contactEmail) : DEFAULT_PORTAL_SETTINGS.contactEmail,
+    contactHours: s.contactHours !== undefined ? String(s.contactHours) : DEFAULT_PORTAL_SETTINGS.contactHours,
+    socialChannels: mergedChannels,
+    uiTexts: mergedUiTexts,
     sections: mergedSections,
   };
 
   const rawItems = Array.isArray(raw?.items) ? raw.items : DEFAULT_PORTAL_ITEMS;
-  const items: PortalContentItem[] = rawItems.map((it, idx) => ({
-    id: String(it.id || `pitem_${idx + 1}`),
-    section: it.section || 'about',
-    title: String(it.title || '').trim(),
-    subtitle: it.subtitle ? String(it.subtitle).trim() : undefined,
-    description: String(it.description || '').trim(),
-    mediaUrl: it.mediaUrl ? String(it.mediaUrl).trim() : undefined,
-    linkUrl: it.linkUrl ? String(it.linkUrl).trim() : undefined,
-    linkLabel: it.linkLabel ? String(it.linkLabel).trim() : undefined,
-    badgeText: it.badgeText ? String(it.badgeText).trim() : undefined,
-    metaPrimary: it.metaPrimary ? String(it.metaPrimary).trim() : undefined,
-    metaSecondary: it.metaSecondary ? String(it.metaSecondary).trim() : undefined,
-    enabled: it.enabled !== false,
-    sortOrder: Number(it.sortOrder) || idx + 1,
-  }));
+  const items: PortalContentItem[] = rawItems.map((it, idx) => {
+    const cleanGallery = Array.isArray(it.galleryImages)
+      ? it.galleryImages.map((u) => String(u || '').trim()).filter(Boolean)
+      : [];
+    const primaryMedia = it.mediaUrl ? String(it.mediaUrl).trim() : cleanGallery[0] || undefined;
+    const defaultAction =
+      it.section === 'programs'
+        ? idx === 0 || String(it.id || '').includes('1')
+          ? 'open_register'
+          : 'open_program_request'
+        : undefined;
+
+    return {
+      id: String(it.id || `pitem_${idx + 1}`),
+      section: it.section || 'about',
+      title: String(it.title || '').trim(),
+      titleEn: it.titleEn ? String(it.titleEn).trim() : undefined,
+      titleTh: it.titleTh ? String(it.titleTh).trim() : undefined,
+      subtitle: it.subtitle ? String(it.subtitle).trim() : undefined,
+      subtitleEn: it.subtitleEn ? String(it.subtitleEn).trim() : undefined,
+      subtitleTh: it.subtitleTh ? String(it.subtitleTh).trim() : undefined,
+      description: String(it.description || '').trim(),
+      descriptionEn: it.descriptionEn ? String(it.descriptionEn).trim() : undefined,
+      descriptionTh: it.descriptionTh ? String(it.descriptionTh).trim() : undefined,
+      mediaUrl: primaryMedia,
+      galleryImages: cleanGallery.length > 0 ? cleanGallery : primaryMedia && it.section === 'gallery' ? [primaryMedia] : undefined,
+      thumbnailUrl: it.thumbnailUrl ? String(it.thumbnailUrl).trim() : undefined,
+      linkUrl: it.linkUrl ? String(it.linkUrl).trim() : undefined,
+      linkLabel: it.linkLabel ? String(it.linkLabel).trim() : undefined,
+      linkLabelEn: it.linkLabelEn ? String(it.linkLabelEn).trim() : undefined,
+      linkLabelTh: it.linkLabelTh ? String(it.linkLabelTh).trim() : undefined,
+      badgeText: it.badgeText ? String(it.badgeText).trim() : undefined,
+      badgeTextEn: it.badgeTextEn ? String(it.badgeTextEn).trim() : undefined,
+      badgeTextTh: it.badgeTextTh ? String(it.badgeTextTh).trim() : undefined,
+      metaPrimary: it.metaPrimary ? String(it.metaPrimary).trim() : undefined,
+      metaPrimaryEn: it.metaPrimaryEn ? String(it.metaPrimaryEn).trim() : undefined,
+      metaPrimaryTh: it.metaPrimaryTh ? String(it.metaPrimaryTh).trim() : undefined,
+      metaSecondary: it.metaSecondary ? String(it.metaSecondary).trim() : undefined,
+      metaSecondaryEn: it.metaSecondaryEn ? String(it.metaSecondaryEn).trim() : undefined,
+      metaSecondaryTh: it.metaSecondaryTh ? String(it.metaSecondaryTh).trim() : undefined,
+      actionType: it.actionType || defaultAction,
+      slug: it.slug ? String(it.slug).trim() : undefined,
+      targetProgramId: it.targetProgramId ? String(it.targetProgramId).trim() : undefined,
+      enabled: it.enabled !== false,
+      sortOrder: Number(it.sortOrder) || idx + 1,
+    };
+  });
   items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
   return { settings, items };
+}
+
+export function getPortalUiText(
+  settings: PortalSettingsConfig,
+  key: string,
+  lang: SupportedLang,
+  fallback?: string
+): string {
+  const entry = settings.uiTexts?.[key] || DEFAULT_PORTAL_UI_TEXTS[key];
+  if (!entry) return fallback || '';
+  if (lang === 'en') return (entry.en || entry.ar || fallback || '').trim();
+  if (lang === 'th') return (entry.th || entry.en || entry.ar || fallback || '').trim();
+  return (entry.ar || fallback || '').trim();
+}
+
+export function isPortalUiButtonVisible(settings: PortalSettingsConfig, key: string): boolean {
+  const entry = settings.uiTexts?.[key];
+  if (!entry) return true;
+  return entry.visible !== false;
+}
+
+export function getLocalizedPortalSetting(
+  settings: PortalSettingsConfig,
+  field: 'academyName' | 'academyTagline' | 'heroTitle' | 'heroSubtitle' | 'announcementText' | 'storeSlotTitle' | 'storeSlotNote',
+  lang: SupportedLang
+): string {
+  if (lang === 'en') {
+    const enVal = (settings as any)[`${field}En`];
+    if (enVal && String(enVal).trim()) return String(enVal).trim();
+  }
+  if (lang === 'th') {
+    const thVal = (settings as any)[`${field}Th`];
+    if (thVal && String(thVal).trim()) return String(thVal).trim();
+    const enVal = (settings as any)[`${field}En`];
+    if (enVal && String(enVal).trim()) return String(enVal).trim();
+  }
+  return String((settings as any)[field] || '').trim();
+}
+
+export function getLocalizedItemField(
+  item: PortalContentItem,
+  field: 'title' | 'subtitle' | 'description' | 'badgeText' | 'linkLabel' | 'metaPrimary' | 'metaSecondary',
+  lang: SupportedLang
+): string {
+  if (lang === 'en') {
+    const enVal = (item as any)[`${field}En`];
+    if (enVal && String(enVal).trim()) return String(enVal).trim();
+  }
+  if (lang === 'th') {
+    const thVal = (item as any)[`${field}Th`];
+    if (thVal && String(thVal).trim()) return String(thVal).trim();
+    const enVal = (item as any)[`${field}En`];
+    if (enVal && String(enVal).trim()) return String(enVal).trim();
+  }
+  return String((item as any)[field] || '').trim();
+}
+
+export function getGallerySlideUrls(item: PortalContentItem): string[] {
+  const arr = Array.isArray(item.galleryImages) ? item.galleryImages.filter(Boolean) : [];
+  if (arr.length > 0) return arr.map((u) => getDirectImageUrl(u)).filter(Boolean);
+  if (item.mediaUrl) return [getDirectImageUrl(item.mediaUrl)].filter(Boolean);
+  return [];
+}
+
+export function getAutoVideoThumbnail(item: PortalContentItem): string {
+  if (item.thumbnailUrl && item.thumbnailUrl.trim()) {
+    return getDirectImageUrl(item.thumbnailUrl.trim());
+  }
+  const raw = (item.mediaUrl || item.linkUrl || '').trim();
+  if (!raw) return '';
+  const ytMatch = raw.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{6,})/);
+  if (ytMatch && ytMatch[1]) {
+    return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+  }
+  return '';
+}
+
+export function buildProgramShareUrl(item: PortalContentItem): string {
+  const slugOrId = (item.slug || item.id || '').trim();
+  if (typeof window === 'undefined' || !slugOrId) return '';
+  return `${window.location.origin}${window.location.pathname}#program=${encodeURIComponent(slugOrId)}`;
+}
+
+export function buildRegistrationShareUrl(): string {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}${window.location.pathname}#register`;
 }
 
 export function normalizeRegistrationQuestions(
@@ -367,6 +697,23 @@ export function getLocalRegistrationSubmissions(): RegistrationSubmissionRecord[
 export function saveLocalRegistrationSubmissions(list: RegistrationSubmissionRecord[]): void {
   try {
     localStorage.setItem(STORAGE_KEY_REG_SUBMISSIONS, JSON.stringify(list));
+  } catch {}
+}
+
+export function getLocalProgramRequests(): ProgramRequestRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_PROGRAM_REQUESTS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+export function saveLocalProgramRequests(list: ProgramRequestRecord[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_PROGRAM_REQUESTS, JSON.stringify(list));
   } catch {}
 }
 
@@ -553,6 +900,7 @@ export async function submitPortalRegistrationToSheets(
   student?: StudentRegistrant;
   telegramDeepLink?: string;
   botUsername?: string;
+  studentEmailSent?: boolean;
   message?: string;
   offlineFallback?: boolean;
 }> {
@@ -576,9 +924,11 @@ export async function submitPortalRegistrationToSheets(
         attachments: payload.attachments,
         stage1DefaultProgramId: stage1ProgId,
         stage1ProgramName: stage1ProgName,
+        academyName: payload.settings.academyName || '',
         botUsername: payload.settings.telegramBotUsername || getSavedPortalBotUsername(),
         notifyAdminTelegram: payload.settings.notifyAdminTelegramOnRegister !== false,
         adminNotificationEmail: payload.settings.adminNotificationEmail || '',
+        sendStudentWelcomeEmail: payload.settings.sendStudentWelcomeEmail !== false,
         appBaseUrl: originBase,
       });
 
@@ -628,10 +978,10 @@ export async function submitPortalRegistrationToSheets(
           student,
           telegramDeepLink: deepLink,
           botUsername: resolvedBot,
+          studentEmailSent: Boolean(res.data.studentEmailSent),
         };
       }
 
-      // If Apps Script is older and didn't handle submit_portal_registration yet, fall back to add_registrant
       if (res.success && res.data?.portalHandled !== true) {
         const fallbackId = String(Math.floor(1000 + (Date.now() % 8900)));
         await addIDRegistrantToSheet(url, {
@@ -690,7 +1040,6 @@ export async function submitPortalRegistrationToSheets(
     }
   }
 
-  // Offline local fallback
   const localId = String(Math.floor(1000 + (Date.now() % 8900)));
   const resolvedBot = (payload.settings.telegramBotUsername || getSavedPortalBotUsername()).trim();
   const student: StudentRegistrant = {
@@ -855,5 +1204,219 @@ export async function deleteRegistrationSubmissionInSheets(
   return {
     success: res.success,
     message: res.message || (res.success ? 'تم حذف سجل الطلب بنجاح.' : res.error || 'تعذر الحذف.'),
+  };
+}
+
+// =========================================================================
+// طلبات الالتحاق بالبرامج للمشتركين الحاليين (ورقة: "طلبات_البرامج")
+// =========================================================================
+
+export async function submitProgramRequestToSheets(
+  webhookUrl: string,
+  payload: {
+    studentName: string;
+    studentId: string;
+    targetProgramCardId: string;
+    targetProgramTitle: string;
+    targetProgramId?: string;
+    studentNote?: string;
+  }
+): Promise<{
+  success: boolean;
+  notFound?: boolean;
+  disabled?: boolean;
+  requestId?: string;
+  student?: StudentRegistrant;
+  error?: string;
+}> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  const cleanName = payload.studentName.trim();
+  const cleanId = normalizeDigits(payload.studentId.trim());
+
+  if (!cleanName || !cleanId) {
+    return { success: false, error: 'يرجى إدخال الاسم ورقم المشترك (ID) معاً.' };
+  }
+
+  if (url.startsWith('http')) {
+    try {
+      const res = await callGoogleSheetsPost(url, {
+        action: 'submit_program_request',
+        studentName: cleanName,
+        studentId: cleanId,
+        targetProgramCardId: payload.targetProgramCardId,
+        targetProgramTitle: payload.targetProgramTitle,
+        targetProgramId: payload.targetProgramId || '',
+        studentNote: payload.studentNote || '',
+      });
+
+      if (res.success && res.data?.portalHandled) {
+        const reqId = String(res.data.requestId || `PR-${Date.now().toString().slice(-6)}`);
+        const stu: StudentRegistrant = res.data.student || {
+          id: cleanId,
+          name: cleanName,
+          status: 'مفعّل',
+          maxDevices: 1,
+          devices: [],
+        };
+        const existingLocal = getLocalProgramRequests();
+        saveLocalProgramRequests([
+          {
+            requestId: reqId,
+            requestedAt: new Date().toLocaleString('en-GB'),
+            registrationId: stu.id,
+            studentName: stu.name,
+            currentProgramId: stu.programId,
+            targetProgramCardId: payload.targetProgramCardId,
+            targetProgramTitle: payload.targetProgramTitle,
+            targetProgramId: payload.targetProgramId,
+            status: 'pending',
+            statusLabel: 'قيد المراجعة',
+            studentNote: payload.studentNote,
+          },
+          ...existingLocal,
+        ]);
+        return { success: true, requestId: reqId, student: stu };
+      }
+
+      if (res.data?.portalHandled) {
+        return {
+          success: false,
+          notFound: Boolean(res.data?.notFound),
+          disabled: Boolean(res.data?.disabled),
+          error:
+            res.error ||
+            res.data?.error ||
+            'لم نتمكن من مطابقة بيانات المشترك. تأكد من الاسم ورقم الـ ID أو سجّل كمشترك جديد.',
+        };
+      }
+    } catch (e) {
+      console.warn('submitProgramRequest error:', e);
+    }
+  }
+
+  return {
+    success: false,
+    error: 'تعذر الاتصال بالسيرفر للتحقق من بيانات المشترك. يرجى المحاولة مجدداً.',
+  };
+}
+
+export async function fetchProgramRequestsFromSheets(webhookUrl: string): Promise<{
+  success: boolean;
+  requests: ProgramRequestRecord[];
+  needsScriptUpdate?: boolean;
+}> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  if (url.startsWith('http')) {
+    try {
+      const res = await callGoogleSheetsPost(url, { action: 'get_program_requests' });
+      if (res.success && res.data?.portalHandled && Array.isArray(res.data.requests)) {
+        const list: ProgramRequestRecord[] = res.data.requests;
+        saveLocalProgramRequests(list);
+        return { success: true, requests: list };
+      }
+      if (res.success && res.data?.portalHandled !== true) {
+        return {
+          success: false,
+          requests: getLocalProgramRequests(),
+          needsScriptUpdate: true,
+        };
+      }
+    } catch (e) {
+      console.warn('Error fetching program requests:', e);
+    }
+  }
+  return { success: false, requests: getLocalProgramRequests() };
+}
+
+export async function updateProgramRequestStatusInSheets(
+  webhookUrl: string,
+  payload: {
+    requestId: string;
+    rowIndex?: number;
+    registrationId: string;
+    studentName: string;
+    status: ProgramRequestStatus;
+    targetProgramId?: string;
+    targetProgramName?: string;
+    adminNotes?: string;
+    notifyStudentTelegram?: boolean;
+  }
+): Promise<{ success: boolean; message: string; tgNotifiedStudent?: boolean; needsScriptUpdate?: boolean }> {
+  const statusLabel =
+    payload.status === 'approved'
+      ? `تمت الموافقة (${payload.targetProgramName || payload.targetProgramId || ''})`
+      : payload.status === 'rejected'
+      ? 'مؤجل / مرفوض'
+      : 'قيد المراجعة';
+
+  const nextLocal = getLocalProgramRequests().map((req) =>
+    req.requestId === payload.requestId
+      ? {
+          ...req,
+          status: payload.status,
+          statusLabel,
+          targetProgramId: payload.targetProgramId || req.targetProgramId,
+          adminNotes: payload.adminNotes !== undefined ? payload.adminNotes : req.adminNotes,
+        }
+      : req
+  );
+  saveLocalProgramRequests(nextLocal);
+
+  const url = (webhookUrl || '').trim();
+  if (!url.startsWith('http')) {
+    return { success: true, message: 'تم التحديث محلياً.' };
+  }
+
+  const res = await callGoogleSheetsPost(url, {
+    action: 'update_program_request_status',
+    requestId: payload.requestId,
+    rowIndex: payload.rowIndex,
+    registrationId: payload.registrationId,
+    studentName: payload.studentName,
+    status: payload.status,
+    statusLabel,
+    targetProgramId: payload.targetProgramId || '',
+    targetProgramName: payload.targetProgramName || payload.targetProgramId || '',
+    adminNotes: payload.adminNotes,
+    notifyStudentTelegram: payload.notifyStudentTelegram !== false,
+  });
+
+  if (!res.success) {
+    return { success: false, message: res.error || 'تعذر تحديث طلب البرنامج في Google Sheets.' };
+  }
+  if (res.data?.portalHandled !== true) {
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'تم الحفظ محلياً، يرجى تحديث نشر Google Apps Script لتفعيل ورقة طلبات_البرامج.',
+    };
+  }
+  return {
+    success: true,
+    tgNotifiedStudent: Boolean(res.data?.tgNotifiedStudent),
+    message: res.message || 'تم تحديث حالة طلب البرنامج بنجاح!',
+  };
+}
+
+export async function deleteProgramRequestInSheets(
+  webhookUrl: string,
+  requestId: string,
+  rowIndex?: number
+): Promise<{ success: boolean; message: string }> {
+  const nextLocal = getLocalProgramRequests().filter((r) => r.requestId !== requestId);
+  saveLocalProgramRequests(nextLocal);
+
+  const url = (webhookUrl || '').trim();
+  if (!url.startsWith('http')) {
+    return { success: true, message: 'تم الحذف محلياً.' };
+  }
+  const res = await callGoogleSheetsPost(url, {
+    action: 'delete_program_request',
+    requestId,
+    rowIndex,
+  });
+  return {
+    success: res.success,
+    message: res.message || (res.success ? 'تم حذف طلب البرنامج بنجاح.' : res.error || 'تعذر الحذف.'),
   };
 }

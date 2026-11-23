@@ -41,6 +41,7 @@ interface PortalRegistrationModalProps {
   portalSettings: PortalSettingsConfig;
   stage1ProgramName?: string;
   preselectedProgramLabel?: string;
+  initialPrefilledName?: string;
   webhookUrl: string;
   currentLang?: SupportedLang;
   onInstantEnterStudentPage: (student: StudentRegistrant) => void;
@@ -66,7 +67,8 @@ const REG_UI = {
     successBadge: 'تم التسجيل بنجاح — المرحلة التمهيدية',
     successTitle: 'أهلاً بك! حسابك جاهز للدخول المباشر',
     successSubtitle:
-      'تم حفظ طلبك وإشعار الإدارة. احتفظ برقم التسجيل أدناه، ثم اربط تيليغرام وادخل مباشرة إلى صفحتك الخاصة لاستعراض الإرشادات والنماذج التجريبية.',
+      'تم حفظ طلبك وإشعار الإدارة، وإرسال نسخة من بيانات دخولك إلى بريدك الإلكتروني. الخطوة التالية هي ربط تيليغرام ثم الدخول المباشر باسمك ورقمك.',
+    emailSentBadge: 'تم إرسال بيانات التسجيل (الاسم + الرقم + رابط تيليغرام) إلى بريدك:',
     regIdLabel: 'رقم التسجيل الخاص بك (ID)',
     copyId: 'نسخ الرقم',
     copied: 'تم النسخ',
@@ -101,7 +103,8 @@ const REG_UI = {
     successBadge: 'Registration Complete — Stage 1',
     successTitle: 'Welcome! Your introductory account is ready',
     successSubtitle:
-      'Your application has been saved and shared with the administration. Keep your Registration ID, connect Telegram, and enter your private page directly.',
+      'Your application has been saved and your login details sent to your email. Next step: link Telegram and enter directly using your Name & ID.',
+    emailSentBadge: 'Welcome details sent to your email:',
     regIdLabel: 'Your Registration ID',
     copyId: 'Copy ID',
     copied: 'Copied',
@@ -135,7 +138,8 @@ const REG_UI = {
     successBadge: 'ลงทะเบียนสำเร็จ — ขั้นตอนที่ 1',
     successTitle: 'ยินดีต้อนรับ! บัญชีเบื้องต้นของคุณพร้อมใช้งานแล้ว',
     successSubtitle:
-      'ระบบได้บันทึกข้อมูลและแจ้งผู้ดูแลเรียบร้อย เก็บรหัสผู้เรียน เชื่อมต่อ Telegram และกดเข้าหน้าส่วนตัวได้ทันที',
+      'ระบบได้บันทึกข้อมูลและส่งรายละเอียดเข้าสู่ระบบไปยังอีเมลของคุณแล้ว ขั้นตอนถัดไปคือเชื่อมต่อ Telegram และกดเข้าสู่หน้าส่วนตัวด้วยชื่อและรหัสของคุณทันที',
+    emailSentBadge: 'ส่งข้อมูลการลงทะเบียนไปยังอีเมลของคุณแล้ว:',
     regIdLabel: 'รหัสลงทะเบียนของคุณ (ID)',
     copyId: 'คัดลอกรหัส',
     copied: 'คัดลอกแล้ว',
@@ -159,6 +163,7 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
   portalSettings,
   stage1ProgramName,
   preselectedProgramLabel,
+  initialPrefilledName,
   webhookUrl,
   currentLang = 'ar',
   onInstantEnterStudentPage,
@@ -186,6 +191,8 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
     student: StudentRegistrant;
     telegramDeepLink: string;
     botUsername: string;
+    studentEmail?: string;
+    studentEmailSent?: boolean;
   } | null>(null);
 
   // Camera capture state
@@ -210,8 +217,17 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
     if (!isOpen) {
       stopCamera();
       setErrorMsg(null);
+    } else if (initialPrefilledName) {
+      const nameQ =
+        activeQuestions.find((q) => q.id === 'q_full_name') ||
+        activeQuestions.find((q) => q.label.includes('الاسم') || q.type === 'text');
+      if (nameQ) {
+        setAnswers((prev) =>
+          prev[nameQ.id] ? prev : { ...prev, [nameQ.id]: initialPrefilledName }
+        );
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, initialPrefilledName]);
 
   useEffect(() => {
     if (!cameraQuestionId || capturedDataUrl) return;
@@ -394,11 +410,14 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
         const botU = res.botUsername || portalSettings.telegramBotUsername || '';
         const tgLink =
           res.telegramDeepLink || buildTelegramBotStartLink(botU, res.registrationId);
+        const submittedEmail = emailQ ? answers[emailQ.id]?.trim() : undefined;
         setCompletedResult({
           registrationId: res.registrationId,
           student: res.student,
           telegramDeepLink: tgLink,
           botUsername: botU,
+          studentEmail: submittedEmail,
+          studentEmailSent: res.studentEmailSent,
         });
       } else {
         setErrorMsg(res.message || 'تعذر إكمال التسجيل حالياً. حاول مرة أخرى.');
@@ -471,6 +490,16 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
                ========================================================= */
             <div className="space-y-5">
               <p className="text-sm text-slate-600 leading-relaxed">{ui.successSubtitle}</p>
+
+              {completedResult.studentEmail && (
+                <div className="px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-950 text-xs font-bold flex flex-wrap items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>{ui.emailSentBadge}</span>
+                  <span dir="ltr" className="font-mono underline">
+                    {completedResult.studentEmail}
+                  </span>
+                </div>
+              )}
 
               {/* 1. Registration ID Showcase */}
               <div className="p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

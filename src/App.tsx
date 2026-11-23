@@ -19,6 +19,7 @@ import {
   HomeContentBlock,
   HomeNavbarControls,
   PdfReportSettings,
+  PortalContentItem,
   PortalPublicData,
   RegistrationQuestion,
 } from './types';
@@ -55,6 +56,7 @@ import { CourseScheduleModal } from './components/CourseScheduleModal';
 import { HomeContentShowcase } from './components/HomeContentManager';
 import { PublicPortalView } from './components/PublicPortalView';
 import { PortalRegistrationModal } from './components/PortalRegistrationModal';
+import { ProgramRequestModal } from './components/ProgramRequestModal';
 import {
   fetchPortalDataFromSheets,
   fetchRegistrationQuestionsFromSheets,
@@ -382,6 +384,16 @@ export default function App() {
   const [registrationPreselectedProgram, setRegistrationPreselectedProgram] = useState<string | undefined>(
     undefined
   );
+  const [registrationPrefilledName, setRegistrationPrefilledName] = useState<string | undefined>(
+    undefined
+  );
+  const [activeProgramRequestItem, setActiveProgramRequestItem] = useState<PortalContentItem | null>(
+    null
+  );
+  const [highlightedProgramSlug, setHighlightedProgramSlug] = useState<string | undefined>(
+    undefined
+  );
+  const handledProgramSlugRef = useRef<string | null>(null);
   const [isPortalPreview, setIsPortalPreview] = useState(false);
   const [isRefreshingStudentStage, setIsRefreshingStudentStage] = useState(false);
 
@@ -905,6 +917,18 @@ export default function App() {
         if (hash.toLowerCase() === '#register') {
           setIsRegistrationModalOpen(true);
         }
+        const lowerHash = hash.toLowerCase();
+        let slugFromUrl = '';
+        if (lowerHash.startsWith('#program=')) {
+          slugFromUrl = decodeURIComponent(hash.slice('#program='.length)).trim();
+        } else {
+          const qp = new URLSearchParams(window.location.search).get('program');
+          if (qp) slugFromUrl = qp.trim();
+        }
+        if (slugFromUrl) {
+          handledProgramSlugRef.current = null;
+          setHighlightedProgramSlug(slugFromUrl);
+        }
       }
     };
 
@@ -912,6 +936,33 @@ export default function App() {
     window.addEventListener('hashchange', checkHash);
     return () => window.removeEventListener('hashchange', checkHash);
   }, []);
+
+  // Resolve standalone #program=<slug> deep link against portalData.items once loaded
+  useEffect(() => {
+    if (!highlightedProgramSlug) return;
+    if (handledProgramSlugRef.current === highlightedProgramSlug) return;
+    const targetSlug = highlightedProgramSlug.toLowerCase();
+    const matched = (portalData.items || []).find(
+      (it) =>
+        it.section === 'programs' &&
+        it.enabled !== false &&
+        ((it.slug || '').toLowerCase() === targetSlug || it.id.toLowerCase() === targetSlug)
+    );
+    if (!matched) return;
+
+    handledProgramSlugRef.current = highlightedProgramSlug;
+    window.setTimeout(() => {
+      const el = document.getElementById(`portal-prog-${matched.slug || matched.id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+
+    if (matched.actionType === 'open_register') {
+      setRegistrationPreselectedProgram(matched.title);
+      setIsRegistrationModalOpen(true);
+    } else if (matched.actionType !== 'none') {
+      setActiveProgramRequestItem(matched);
+    }
+  }, [highlightedProgramSlug, portalData.items]);
 
   // Load from local storage
   useEffect(() => {
@@ -2646,22 +2697,31 @@ export default function App() {
             setRegistrationPreselectedProgram(progLabel);
             setIsRegistrationModalOpen(true);
           }}
+          onOpenProgramRequest={(item) => setActiveProgramRequestItem(item)}
           onOpenStudentLogin={() => setIsLoginModalOpen(true)}
-          onOpenAdminLogin={() => handleOpenAdmin('portal')}
-          isAdminAuthenticated={isAdminAuthenticated}
-          onReturnToAdmin={() => {
-            setIsPortalPreview(false);
-            if (isAdminAuthenticated) {
-              handleOpenAdmin('portal');
-            }
-          }}
+          highlightedProgramSlug={highlightedProgramSlug}
         />
+
+        {isAdminAuthenticated && isPortalPreview && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsPortalPreview(false);
+              handleOpenAdmin('portal');
+            }}
+            className="fixed bottom-4 left-4 z-[85] px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold shadow-lg border border-slate-700 inline-flex items-center gap-2 cursor-pointer"
+          >
+            <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+            <span>العودة للوحة الإدارة (وضع المعاينة)</span>
+          </button>
+        )}
 
         <PortalRegistrationModal
           isOpen={isRegistrationModalOpen}
           onClose={() => {
             setIsRegistrationModalOpen(false);
             setRegistrationPreselectedProgram(undefined);
+            setRegistrationPrefilledName(undefined);
             if (window.location.hash.toLowerCase() === '#register') {
               window.history.replaceState(null, '', window.location.pathname + window.location.search);
             }
@@ -2670,10 +2730,12 @@ export default function App() {
           portalSettings={portalData.settings}
           stage1ProgramName={stage1Prog?.name}
           preselectedProgramLabel={registrationPreselectedProgram}
+          initialPrefilledName={registrationPrefilledName}
           webhookUrl={sheetsConfig.webhookUrl}
           currentLang={currentLang}
           onInstantEnterStudentPage={(student) => {
             setIsRegistrationModalOpen(false);
+            setRegistrationPrefilledName(undefined);
             setIsPortalPreview(false);
             setCurrentView('landing');
             handleLoginSuccess(student);
@@ -2681,6 +2743,33 @@ export default function App() {
           onOpenExistingLogin={() => {
             setIsRegistrationModalOpen(false);
             setIsLoginModalOpen(true);
+          }}
+        />
+
+        <ProgramRequestModal
+          isOpen={Boolean(activeProgramRequestItem)}
+          onClose={() => {
+            setActiveProgramRequestItem(null);
+            if (window.location.hash.toLowerCase().startsWith('#program=')) {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              setHighlightedProgramSlug(undefined);
+              handledProgramSlugRef.current = null;
+            }
+          }}
+          programItem={activeProgramRequestItem}
+          webhookUrl={sheetsConfig.webhookUrl}
+          currentLang={currentLang}
+          onSwitchToRegister={(prefillName, progTitle) => {
+            setActiveProgramRequestItem(null);
+            setRegistrationPrefilledName(prefillName);
+            setRegistrationPreselectedProgram(progTitle);
+            setIsRegistrationModalOpen(true);
+          }}
+          onEnterStudentWorkspace={(student) => {
+            setActiveProgramRequestItem(null);
+            setIsPortalPreview(false);
+            setCurrentView('landing');
+            handleLoginSuccess(student);
           }}
         />
 
@@ -4438,6 +4527,7 @@ export default function App() {
         onClose={() => {
           setIsRegistrationModalOpen(false);
           setRegistrationPreselectedProgram(undefined);
+          setRegistrationPrefilledName(undefined);
         }}
         questions={registrationQuestions}
         portalSettings={portalData.settings}
@@ -4447,10 +4537,12 @@ export default function App() {
           )?.name
         }
         preselectedProgramLabel={registrationPreselectedProgram}
+        initialPrefilledName={registrationPrefilledName}
         webhookUrl={sheetsConfig.webhookUrl}
         currentLang={currentLang}
         onInstantEnterStudentPage={(student) => {
           setIsRegistrationModalOpen(false);
+          setRegistrationPrefilledName(undefined);
           setIsPortalPreview(false);
           setCurrentView('landing');
           handleLoginSuccess(student);
