@@ -44,18 +44,19 @@ export const DEFAULT_PORTAL_SECTIONS: PortalSectionConfig[] = [
 ];
 
 export const DEFAULT_SOCIAL_CHANNELS: PortalSocialChannel[] = [
-  { id: 'soc_fb', appName: 'Facebook', iconKey: 'facebook', url: '', enabled: true, sortOrder: 1 },
-  { id: 'soc_ig', appName: 'Instagram', iconKey: 'instagram', url: '', enabled: true, sortOrder: 2 },
-  { id: 'soc_yt', appName: 'YouTube', iconKey: 'youtube', url: '', enabled: true, sortOrder: 3 },
-  { id: 'soc_line', appName: 'LINE', iconKey: 'line', url: '', enabled: true, sortOrder: 4 },
+  { id: 'soc_fb', appName: 'Facebook', iconKey: 'facebook', url: '', enabled: true, sortOrder: 1, showInContact: true, showInFooter: true },
+  { id: 'soc_ig', appName: 'Instagram', iconKey: 'instagram', url: '', enabled: true, sortOrder: 2, showInContact: true, showInFooter: true },
+  { id: 'soc_yt', appName: 'YouTube', iconKey: 'youtube', url: '', enabled: true, sortOrder: 3, showInContact: true, showInFooter: true },
+  { id: 'soc_line', appName: 'LINE', iconKey: 'line', url: '', enabled: true, sortOrder: 4, showInContact: true, showInFooter: true },
 ];
 
 export const PORTAL_UI_TEXT_METADATA: { key: string; group: string; isButton?: boolean }[] = [
-  { key: 'header_login_btn', group: 'الشريط العلوي', isButton: true },
-  { key: 'header_register_btn', group: 'الشريط العلوي', isButton: true },
+  { key: 'unified_auth_btn', group: 'الدخول والتسجيل الموحد', isButton: true },
+  { key: 'unified_auth_title', group: 'الدخول والتسجيل الموحد' },
+  { key: 'unified_auth_subtitle', group: 'الدخول والتسجيل الموحد' },
+  { key: 'unified_auth_register_btn', group: 'الدخول والتسجيل الموحد', isButton: true },
+  { key: 'unified_auth_login_btn', group: 'الدخول والتسجيل الموحد', isButton: true },
   { key: 'hero_badge_suffix', group: 'القسم الترحيبي' },
-  { key: 'hero_register_btn', group: 'القسم الترحيبي', isButton: true },
-  { key: 'hero_login_btn', group: 'القسم الترحيبي', isButton: true },
   { key: 'hero_step_1', group: 'القسم الترحيبي' },
   { key: 'hero_step_2', group: 'القسم الترحيبي' },
   { key: 'hero_step_3', group: 'القسم الترحيبي' },
@@ -70,17 +71,21 @@ export const PORTAL_UI_TEXT_METADATA: { key: string; group: string; isButton?: b
   { key: 'videos_subheading', group: 'مكتبة الفيديو' },
   { key: 'contact_heading', group: 'تواصل معنا' },
   { key: 'contact_subheading', group: 'تواصل معنا' },
-  { key: 'contact_register_btn', group: 'تواصل معنا', isButton: true },
   { key: 'contact_telegram_btn', group: 'تواصل معنا', isButton: true },
-  { key: 'footer_portal_btn', group: 'الشريط السفلي', isButton: true },
 ];
 
 export const DEFAULT_PORTAL_UI_TEXTS: Record<string, PortalUiTextEntry> = {
-  header_login_btn: { ar: 'دخول المشتركين', en: 'Sign In', th: 'เข้าสู่ระบบผู้เรียน', visible: true },
-  header_register_btn: { ar: 'سجّل الآن', en: 'Register', th: 'สมัครเรียน', visible: true },
+  unified_auth_btn: { ar: 'الدخول والتسجيل', en: 'Sign In / Register', th: 'เข้าสู่ระบบ / สมัครเรียน', visible: true },
+  unified_auth_title: { ar: 'مرحباً بك في بوابة المنصة', en: 'Welcome to the Academy Portal', th: 'ยินดีต้อนรับสู่พอร์ทัลสถาบัน', visible: true },
+  unified_auth_subtitle: {
+    ar: 'اختر تسجيل مشترك جديد للبدء الفوري بالمرحلة التمهيدية، أو دخول المشتركين إذا كان لديك رقم تسجيل (ID).',
+    en: 'Choose New Subscriber Registration to start immediately, or Subscriber Sign In if you already have a Student ID.',
+    th: 'เลือกสมัครสมาชิกใหม่เพื่อเริ่มทันที หรือเข้าสู่ระบบผู้เรียนหากคุณมีรหัสผู้เรียนแล้ว',
+    visible: true,
+  },
+  unified_auth_register_btn: { ar: 'تسجيل مشترك جديد', en: 'New Subscriber Registration', th: 'สมัครสมาชิกใหม่', visible: true },
+  unified_auth_login_btn: { ar: 'دخول المشتركين', en: 'Subscriber Sign In', th: 'เข้าสู่ระบบผู้เรียน', visible: true },
   hero_badge_suffix: { ar: 'التسجيل المباشر والصفحة الخاصة', en: 'Direct Onboarding & Training', th: 'การลงทะเบียนและหน้าส่วนตัว', visible: true },
-  hero_register_btn: { ar: 'سجّل الآن وابدأ المرحلة التمهيدية', en: 'Register & Start Introductory Stage', th: 'สมัครเรียนและเริ่มขั้นแนะนำ', visible: true },
-  hero_login_btn: { ar: 'دخول المشتركين', en: 'Subscriber Sign In', th: 'เข้าสู่ระบบผู้เรียน', visible: true },
   hero_step_1: { ar: '٠١ · تعبئة الاستمارة واستلام رقم ID فوراً', en: '01 · Complete form & get ID instantly', th: '01 · กรอกแบบฟอร์มและรับรหัสทันที', visible: true },
   hero_step_2: { ar: '٠٢ · دخول مباشر للقسم التمهيدي', en: '02 · Instant access to introductory stage', th: '02 · เข้าสู่ส่วนแนะนำเบื้องต้นทันที', visible: true },
   hero_step_3: { ar: '٠٣ · ترقية من الإدارة لمسارك المخصص', en: '03 · Admin assignment to your track', th: '03 · ผู้ดูแลจัดกลุ่มหลักสูตรให้คุณ', visible: true },
@@ -120,9 +125,7 @@ export const DEFAULT_PORTAL_UI_TEXTS: Record<string, PortalUiTextEntry> = {
     th: 'ติดต่อผ่านช่องทางทางการของเรา หรือสมัครเรียนได้ทันที',
     visible: true,
   },
-  contact_register_btn: { ar: 'فتح استمارة التسجيل', en: 'Open Registration', th: 'เปิดแบบฟอร์มสมัคร', visible: true },
   contact_telegram_btn: { ar: 'تيليغرام', en: 'Telegram', th: 'Telegram', visible: true },
-  footer_portal_btn: { ar: 'بوابة المشتركين', en: 'Subscriber Portal', th: 'พอร์ทัลผู้เรียน', visible: true },
 };
 
 export const DEFAULT_PORTAL_SETTINGS: PortalSettingsConfig = {
@@ -487,6 +490,8 @@ export function normalizePortalPublicData(raw?: Partial<PortalPublicData> | null
         url: String(ch.url || '').trim(),
         enabled: ch.enabled !== false,
         sortOrder: Number(ch.sortOrder) || idx + 1,
+        showInContact: ch.showInContact !== false,
+        showInFooter: ch.showInFooter !== false,
       }))
       .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
   } else {
@@ -499,6 +504,8 @@ export function normalizePortalPublicData(raw?: Partial<PortalPublicData> | null
         url: s.whatsappUrl.trim(),
         enabled: true,
         sortOrder: mergedChannels.length + 1,
+        showInContact: true,
+        showInFooter: true,
       });
     }
   }
@@ -690,6 +697,11 @@ export function buildProgramShareUrl(item: PortalContentItem): string {
 export function buildRegistrationShareUrl(): string {
   if (typeof window === 'undefined') return '';
   return `${window.location.origin}${window.location.pathname}#register`;
+}
+
+export function buildAccessShareUrl(): string {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}${window.location.pathname}#access`;
 }
 
 export function normalizeRegistrationQuestions(
@@ -967,6 +979,7 @@ export async function submitPortalRegistrationToSheets(
   telegramDeepLink?: string;
   botUsername?: string;
   studentEmailSent?: boolean;
+  studentEmailError?: string;
   message?: string;
   offlineFallback?: boolean;
 }> {
@@ -974,7 +987,9 @@ export async function submitPortalRegistrationToSheets(
   const stage1ProgId = payload.settings.stage1DefaultProgramId || DEFAULT_PROGRAM_ID;
   const stage1ProgName = payload.stage1ProgramName || 'القسم الافتراضي (المرحلة التمهيدية)';
   const originBase =
-    typeof window !== 'undefined' && !window.location.origin.includes('localhost')
+    typeof window !== 'undefined' &&
+    window.location.origin &&
+    !window.location.origin.startsWith('file')
       ? window.location.origin + window.location.pathname
       : '';
 
@@ -1000,15 +1015,6 @@ export async function submitPortalRegistrationToSheets(
 
       if (res.success && res.data?.portalHandled && res.data?.registrationId) {
         const regId = String(res.data.registrationId);
-        const student: StudentRegistrant = res.data.student || {
-          id: regId,
-          name: payload.studentName.trim(),
-          status: 'مفعّل',
-          maxDevices: 1,
-          devices: [],
-          requireLocation: false,
-          programId: stage1ProgId,
-        };
         const resolvedBot = String(
           res.data.botUsername || payload.settings.telegramBotUsername || getSavedPortalBotUsername()
         )
@@ -1018,6 +1024,24 @@ export async function submitPortalRegistrationToSheets(
         const deepLink =
           String(res.data.telegramDeepLink || '').trim() ||
           buildTelegramBotStartLink(resolvedBot, regId);
+        const rawStudent: StudentRegistrant = res.data.student || {
+          id: regId,
+          name: payload.studentName.trim(),
+          status: 'مفعّل',
+          maxDevices: 1,
+          devices: [],
+          requireLocation: false,
+          programId: stage1ProgId,
+        };
+        const student: StudentRegistrant = {
+          ...rawStudent,
+          telegramDirectUrl: rawStudent.telegramDirectUrl || deepLink || undefined,
+          telegramQrImageUrl:
+            rawStudent.telegramQrImageUrl ||
+            (deepLink
+              ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(deepLink)}`
+              : undefined),
+        };
 
         const localSubs = getLocalRegistrationSubmissions();
         saveLocalRegistrationSubmissions([
@@ -1045,6 +1069,7 @@ export async function submitPortalRegistrationToSheets(
           telegramDeepLink: deepLink,
           botUsername: resolvedBot,
           studentEmailSent: Boolean(res.data.studentEmailSent),
+          studentEmailError: res.data.studentEmailError ? String(res.data.studentEmailError) : undefined,
         };
       }
 

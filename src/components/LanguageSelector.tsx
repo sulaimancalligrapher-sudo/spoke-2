@@ -6,12 +6,14 @@ interface LanguageSelectorProps {
   currentLang: SupportedLang;
   onSelectLang: (lang: SupportedLang) => void;
   className?: string;
+  iconOnly?: boolean;
 }
 
 export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
   currentLang,
   onSelectLang,
   className = '',
+  iconOnly = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,15 +36,29 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer select-none active:scale-95"
-        title="تغيير لغة الواجهة (العربية / ภาษาไทย / English)"
+        className={
+          iconOnly
+            ? 'inline-flex items-center justify-center gap-1 min-w-[40px] h-[40px] px-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl transition-all shadow-2xs cursor-pointer select-none active:scale-95 shrink-0'
+            : 'flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer select-none active:scale-95'
+        }
+        title={`تغيير لغة الواجهة (${currentOption.nativeName})`}
+        aria-label={`تغيير لغة الواجهة (${currentOption.nativeName})`}
       >
-        <span className="text-sm leading-none">{currentOption.flag}</span>
-        <span className="hidden sm:inline text-xs font-bold">{currentOption.nativeName}</span>
-        <span className="sm:hidden text-[10px] font-mono font-extrabold text-slate-700 uppercase">
-          {currentOption.code}
-        </span>
-        <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        {iconOnly ? (
+          <>
+            <Globe className="w-4 h-4 text-slate-600 shrink-0" />
+            <span className="text-sm leading-none" aria-hidden="true">{currentOption.flag}</span>
+          </>
+        ) : (
+          <>
+            <span className="text-sm leading-none">{currentOption.flag}</span>
+            <span className="hidden sm:inline text-xs font-bold">{currentOption.nativeName}</span>
+            <span className="sm:hidden text-[10px] font-mono font-extrabold text-slate-700 uppercase">
+              {currentOption.code}
+            </span>
+            <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+          </>
+        )}
       </button>
 
       {isOpen && (

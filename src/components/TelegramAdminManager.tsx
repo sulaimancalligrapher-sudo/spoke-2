@@ -44,10 +44,12 @@ import {
   normalizeCourseScheduleData,
 } from '../utils/courseSchedule';
 import { normalizeDigits } from '../utils/googleSheets';
+import { savePortalBotUsername } from '../utils/portalSheets';
 
 interface TelegramAdminManagerProps {
   webhookUrl: string;
   courseSchedule?: CourseScheduleData;
+  onBotUsernameSynced?: (botUsername: string) => void;
 }
 
 const MESSAGE_TEMPLATES: { label: string; text: string }[] = [
@@ -68,6 +70,7 @@ const MESSAGE_TEMPLATES: { label: string; text: string }[] = [
 export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
   webhookUrl,
   courseSchedule,
+  onBotUsernameSynced,
 }) => {
   const [tgConfig, setTgConfig] = useState<TelegramConfig>(() => getLocalTelegramConfig());
   const [tgUsers, setTgUsers] = useState<TelegramStudentLink[]>([]);
@@ -105,6 +108,14 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const syncUnifiedBotUsername = (rawUsername?: string) => {
+    const clean = (rawUsername || '').trim().replace(/^@/, '');
+    if (clean) {
+      savePortalBotUsername(clean);
+      onBotUsernameSynced?.(clean);
+    }
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -114,6 +125,7 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
       ]);
       setTgConfig(cfg);
       setTgUsers(users);
+      syncUnifiedBotUsername(cfg.botUsername);
     } catch {
       setStatusBanner({
         type: 'error',
@@ -242,6 +254,9 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
         } catch {}
       }
       const res = await saveTelegramConfig(webhookUrl, configToSave);
+      if (res.success && configToSave.botUsername) {
+        syncUnifiedBotUsername(configToSave.botUsername);
+      }
       setStatusBanner({
         type: res.success ? 'success' : 'error',
         text: res.message,
@@ -264,7 +279,10 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
       const data = await resp.json();
       if (data.ok && data.result) {
         const uname = data.result.username || '';
-        if (uname) setTgConfig((prev) => ({ ...prev, botUsername: uname }));
+        if (uname) {
+          setTgConfig((prev) => ({ ...prev, botUsername: uname }));
+          syncUnifiedBotUsername(uname);
+        }
         setBotDiagnostic(`تم التحقق بنجاح! اسم البوت: ${data.result.first_name} (@${uname})`);
       } else {
         setBotDiagnostic(`فشل التحقق: ${data.description || 'تأكد من صحة Bot Token'}`);
@@ -581,6 +599,68 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
           </button>
         </div>
       )}
+
+      {/* Unified Platform Sync Status Panel */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="text-xs sm:text-sm font-extrabold text-slate-900 flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-sky-600" />
+            <span>حالة الربط الموحّد مع أقسام المنصة</span>
+          </div>
+          <span
+            className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+              cleanBotUsername
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-900 border-amber-200'
+            }`}
+          >
+            {cleanBotUsername ? `البوت الموحد: @${cleanBotUsername}` : 'بانتظار ضبط معرف البوت'}
+          </span>
+        </div>
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+          {[
+            {
+              label: 'البوابة العامة واستمارة التسجيل',
+              ready: Boolean(cleanBotUsername),
+              detail: cleanBotUsername ? 'زر التواصل + QR بعد التسجيل' : 'يحتاج معرف البوت',
+            },
+            {
+              label: 'المتجر وتسويق البرامج',
+              ready: Boolean(cleanBotUsername),
+              detail: tgConfig.enabled && tgConfig.adminChatId ? 'إشعار الطلبات للإدارة مفعّل' : cleanBotUsername ? 'رابط المتجر جاهز' : 'غير مضبوط',
+            },
+            {
+              label: 'المشتركين (ID registrants)',
+              ready: Boolean(cleanBotUsername),
+              detail: cleanBotUsername ? 'رابط وQR تيليغرام لكل مشترك' : 'بانتظار معرف البوت',
+            },
+            {
+              label: 'رسالة البريد الترحيبية',
+              ready: Boolean(cleanBotUsername),
+              detail: cleanBotUsername ? 'بطاقة البوت + QR في الإيميل' : 'يُرسل بدون رابط تيليغرام',
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className={`p-3 rounded-2xl border ${
+                item.ready
+                  ? 'bg-emerald-50/60 border-emerald-200/80'
+                  : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1.5 font-extrabold text-slate-900">
+                <span className="truncate">{item.label}</span>
+                {item.ready ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                )}
+              </div>
+              <div className="text-[11px] text-slate-600 mt-1">{item.detail}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Two-Column Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">

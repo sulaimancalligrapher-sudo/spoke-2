@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   UserPlus,
-  LogIn,
   Play,
   Maximize2,
   X,
@@ -45,6 +44,7 @@ import {
   getLocalizedItemField,
   getLocalizedPortalSetting,
   getPortalUiText,
+  getSavedPortalBotUsername,
   isPortalUiButtonVisible,
 } from '../utils/portalSheets';
 import {
@@ -66,6 +66,7 @@ interface PublicPortalViewProps {
   onUpdatePortalData?: (next: PortalPublicData) => void;
   currentLang: SupportedLang;
   onSelectLang: (lang: SupportedLang) => void;
+  onOpenUnifiedAccess: () => void;
   onOpenRegistration: (programTitle?: string) => void;
   onOpenProgramRequest: (programItem: PortalContentItem) => void;
   onOpenStudentLogin: () => void;
@@ -179,9 +180,10 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   onUpdatePortalData,
   currentLang,
   onSelectLang,
+  onOpenUnifiedAccess,
   onOpenRegistration,
   onOpenProgramRequest,
-  onOpenStudentLogin,
+  onOpenStudentLogin: _onOpenStudentLogin,
   onOpenStore,
   highlightedProgramSlug,
 }) => {
@@ -199,12 +201,35 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   } | null>(null);
   const [activeVideoItem, setActiveVideoItem] = useState<PortalContentItem | null>(null);
   const [gallerySlideMap, setGallerySlideMap] = useState<Record<string, number>>({});
+  const [mobileSlideMap, setMobileSlideMap] = useState<Record<string, number>>({});
+  const mobilePauseUntilRef = useRef<number>(0);
   const [favorites, setFavorites] = useState<string[]>(() => getLocalStoreFavorites());
   const [cartCount, setCartCount] = useState<number>(() =>
     getLocalStoreCart().reduce((sum, entry) => sum + entry.qty, 0)
   );
   const [selectedHomeProduct, setSelectedHomeProduct] = useState<StoreProduct | null>(null);
   const [selectedHomeProgram, setSelectedHomeProgram] = useState<PortalContentItem | null>(null);
+
+  const pauseMobileRotation = () => {
+    mobilePauseUntilRef.current = Date.now() + 9000;
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const timer = window.setInterval(() => {
+      if (Date.now() < mobilePauseUntilRef.current) return;
+      if (selectedHomeProduct || selectedHomeProgram || lightboxState || activeVideoItem) return;
+      setMobileSlideMap((prev) => ({
+        about: (prev.about || 0) + 1,
+        programs: (prev.programs || 0) + 1,
+        gallery: (prev.gallery || 0) + 1,
+        videos: (prev.videos || 0) + 1,
+        store_slot: (prev.store_slot || 0) + 1,
+      }));
+    }, 5500);
+    return () => window.clearInterval(timer);
+  }, [selectedHomeProduct, selectedHomeProgram, lightboxState, activeVideoItem]);
 
   const handleToggleFavorite = (productId: string) => {
     setFavorites((prev) => {
@@ -342,8 +367,18 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       });
   }, [orderedSections, currentLang]);
 
-  const telegramMainLink = buildTelegramBotStartLink(settings.telegramBotUsername);
+  const effectiveBotUsername = settings.telegramBotUsername || getSavedPortalBotUsername();
+  const telegramMainLink = buildTelegramBotStartLink(effectiveBotUsername);
   const heroResolvedImg = settings.heroMediaUrl ? getDirectImageUrl(settings.heroMediaUrl) : '';
+
+  const contactSocialChannels = useMemo(
+    () => activeSocialChannels.filter((ch) => ch.showInContact !== false),
+    [activeSocialChannels]
+  );
+  const footerSocialChannels = useMemo(
+    () => activeSocialChannels.filter((ch) => ch.showInFooter !== false),
+    [activeSocialChannels]
+  );
 
   const triggerItemAction = (item: PortalContentItem) => {
     const resolvedTitle = getLocalizedItemField(item, 'title', currentLang);
@@ -379,8 +414,8 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
 
   const renderSection = (key: PortalSectionType) => {
     if (key === 'hero') {
-      const showHeroRegisterBtn = isPortalUiButtonVisible(settings, 'hero_register_btn');
-      const showHeroLoginBtn = isPortalUiButtonVisible(settings, 'hero_login_btn');
+      const showUnifiedAuth = isPortalUiButtonVisible(settings, 'unified_auth_btn');
+      const unifiedAuthText = getPortalUiText(settings, 'unified_auth_btn', currentLang);
       const badgeSuffix = getPortalUiText(settings, 'hero_badge_suffix', currentLang);
       const step1 = getPortalUiText(settings, 'hero_step_1', currentLang);
       const step2 = getPortalUiText(settings, 'hero_step_2', currentLang);
@@ -428,31 +463,18 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                   </p>
                 </div>
 
-                {/* Single Primary CTA + Calm Login Action */}
+                {/* Unified Auth Button (opens 2-option modal) */}
                 <div className="space-y-4 pt-2">
-                  {(showHeroRegisterBtn || showHeroLoginBtn) && (
+                  {showUnifiedAuth && (
                     <div className="flex flex-wrap items-center gap-3">
-                      {showHeroRegisterBtn && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenRegistration()}
-                          className="px-6 py-3.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-sm font-extrabold inline-flex items-center gap-2.5 shadow-sm transition-colors cursor-pointer whitespace-nowrap min-h-[46px]"
-                        >
-                          <UserPlus className="w-4 h-4 text-amber-300" />
-                          <span>{getPortalUiText(settings, 'hero_register_btn', currentLang)}</span>
-                        </button>
-                      )}
-
-                      {showHeroLoginBtn && (
-                        <button
-                          type="button"
-                          onClick={onOpenStudentLogin}
-                          className="px-5 py-3.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer whitespace-nowrap min-h-[46px]"
-                        >
-                          <LogIn className="w-4 h-4 text-emerald-800" />
-                          <span>{getPortalUiText(settings, 'hero_login_btn', currentLang)}</span>
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={onOpenUnifiedAccess}
+                        className="px-6 py-3.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-sm font-extrabold inline-flex items-center gap-2.5 shadow-sm transition-colors cursor-pointer whitespace-nowrap shrink-0 min-h-[46px]"
+                      >
+                        <UserPlus className="w-4 h-4 text-amber-300" />
+                        <span>{unifiedAuthText}</span>
+                      </button>
                     </div>
                   )}
 
@@ -520,13 +542,91 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     if (key === 'about') {
       const list = itemsBySection.about;
       if (list.length === 0) return null;
+      const activeAboutIdx = (mobileSlideMap.about || 0) % list.length;
+
+      const renderAboutCard = (it: PortalContentItem, idx: number) => {
+        const imgUrl = it.mediaUrl ? getDirectImageUrl(it.mediaUrl) : '';
+        const title = getLocalizedItemField(it, 'title', currentLang);
+        const subtitle = getLocalizedItemField(it, 'subtitle', currentLang);
+        const description = getLocalizedItemField(it, 'description', currentLang);
+        const badgeText = getLocalizedItemField(it, 'badgeText', currentLang);
+        const metaPrimary = getLocalizedItemField(it, 'metaPrimary', currentLang);
+        const metaSecondary = getLocalizedItemField(it, 'metaSecondary', currentLang);
+        const linkLabel = getLocalizedItemField(it, 'linkLabel', currentLang);
+        const hasAction = Boolean(linkLabel && it.actionType && it.actionType !== 'none');
+        const safeExtUrl = it.actionType === 'external_url' ? sanitizeExternalUrl(it.linkUrl) : '';
+
+        return (
+          <article
+            key={it.id}
+            className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden flex flex-col justify-between"
+          >
+            {imgUrl && (
+              <div className="h-44 w-full bg-slate-100 overflow-hidden border-b border-slate-200/80">
+                <img
+                  src={imgUrl}
+                  alt={title}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+            <div className="p-5 sm:p-6 space-y-2.5 flex-1 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="text-xs font-bold text-emerald-800">
+                  {badgeText || `${String(idx + 1).padStart(2, '0')}.`}
+                </div>
+                <h3 className="text-base sm:text-lg font-extrabold text-slate-900">{title}</h3>
+                {subtitle && <div className="text-xs font-semibold text-slate-500">{subtitle}</div>}
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">{description}</p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                {(metaPrimary || metaSecondary) && (
+                  <div className="pt-3 border-t border-slate-100 text-xs text-slate-500 font-medium flex flex-wrap items-center gap-2">
+                    {metaPrimary && <span>{metaPrimary}</span>}
+                    {metaPrimary && metaSecondary && <span aria-hidden="true">·</span>}
+                    {metaSecondary && <span>{metaSecondary}</span>}
+                  </div>
+                )}
+
+                {hasAction &&
+                  (it.actionType === 'external_url' && safeExtUrl ? (
+                    <a
+                      href={safeExtUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2 px-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-emerald-900 border border-slate-200 hover:border-emerald-300 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <span>{linkLabel}</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => triggerItemAction(it)}
+                      className="w-full py-2 px-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-emerald-900 border border-slate-200 hover:border-emerald-300 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <span>{linkLabel}</span>
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </article>
+        );
+      };
+
       return (
         <section
           key="about"
           id="portal-about"
-          className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16"
+          className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-16"
         >
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 pb-4 border-b border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 sm:mb-8 pb-4 border-b border-slate-200">
             <div>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
                 {getPortalUiText(settings, 'about_heading', currentLang)}
@@ -537,91 +637,57 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {list.map((it, idx) => {
-              const imgUrl = it.mediaUrl ? getDirectImageUrl(it.mediaUrl) : '';
-              const title = getLocalizedItemField(it, 'title', currentLang);
-              const subtitle = getLocalizedItemField(it, 'subtitle', currentLang);
-              const description = getLocalizedItemField(it, 'description', currentLang);
-              const badgeText = getLocalizedItemField(it, 'badgeText', currentLang);
-              const metaPrimary = getLocalizedItemField(it, 'metaPrimary', currentLang);
-              const metaSecondary = getLocalizedItemField(it, 'metaSecondary', currentLang);
-              const linkLabel = getLocalizedItemField(it, 'linkLabel', currentLang);
-              const hasAction = Boolean(
-                linkLabel && it.actionType && it.actionType !== 'none'
-              );
-              const safeExtUrl =
-                it.actionType === 'external_url' ? sanitizeExternalUrl(it.linkUrl) : '';
+          {/* Desktop 3-column grid */}
+          <div className="hidden lg:grid lg:grid-cols-3 gap-6">
+            {list.map((it, idx) => renderAboutCard(it, idx))}
+          </div>
 
-              return (
-                <article
-                  key={it.id}
-                  className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden flex flex-col justify-between"
-                >
-                  {imgUrl && (
-                    <div className="h-44 w-full bg-slate-100 overflow-hidden border-b border-slate-200/80">
-                      <img
-                        src={imgUrl}
-                        alt={title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  )}
-                  <div className="p-5 sm:p-6 space-y-2.5 flex-1 flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="text-xs font-bold text-emerald-800">
-                        {badgeText || `${String(idx + 1).padStart(2, '0')}.`}
-                      </div>
-                      <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+          {/* Mobile & Tablet Spotlight Card + Horizontal Mini-Card Strip */}
+          <div className="lg:hidden space-y-3.5">
+            {renderAboutCard(list[activeAboutIdx], activeAboutIdx)}
+            {list.length > 1 && (
+              <div
+                className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {list.map((it, idx) => {
+                  const isActive = idx === activeAboutIdx;
+                  const imgUrl = it.mediaUrl ? getDirectImageUrl(it.mediaUrl) : '';
+                  const title = getLocalizedItemField(it, 'title', currentLang);
+                  return (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() => {
+                        pauseMobileRotation();
+                        setMobileSlideMap((p) => ({ ...p, about: idx }));
+                      }}
+                      className={`w-40 shrink-0 snap-start rounded-xl border p-2 text-start flex items-center gap-2.5 transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-emerald-50/80 border-emerald-600 ring-1 ring-emerald-500/30 shadow-2xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      {imgUrl ? (
+                        <img
+                          src={imgUrl}
+                          alt={title}
+                          referrerPolicy="no-referrer"
+                          className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200"
+                        />
+                      ) : (
+                        <span className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-extrabold font-mono flex items-center justify-center shrink-0">
+                          {String(idx + 1).padStart(2, '0')}
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug">
                         {title}
-                      </h3>
-                      {subtitle && (
-                        <div className="text-xs font-semibold text-slate-500">{subtitle}</div>
-                      )}
-                      <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                        {description}
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 pt-2">
-                      {(metaPrimary || metaSecondary) && (
-                        <div className="pt-3 border-t border-slate-100 text-xs text-slate-500 font-medium flex flex-wrap items-center gap-2">
-                          {metaPrimary && <span>{metaPrimary}</span>}
-                          {metaPrimary && metaSecondary && <span aria-hidden="true">·</span>}
-                          {metaSecondary && <span>{metaSecondary}</span>}
-                        </div>
-                      )}
-
-                      {hasAction &&
-                        (it.actionType === 'external_url' && safeExtUrl ? (
-                          <a
-                            href={safeExtUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="w-full py-2 px-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-emerald-900 border border-slate-200 hover:border-emerald-300 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition-colors"
-                          >
-                            <span>{linkLabel}</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => triggerItemAction(it)}
-                            className="w-full py-2 px-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50 text-emerald-900 border border-slate-200 hover:border-emerald-300 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <span>{linkLabel}</span>
-                            <ArrowLeft className="w-3.5 h-3.5" />
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </section>
       );
@@ -632,6 +698,160 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       if (list.length === 0) return null;
       const showHeaderBtn = isPortalUiButtonVisible(settings, 'programs_header_btn');
       const currency = storeData?.settings.currency || DEFAULT_STORE_SETTINGS.currency;
+      const activeProgIdx = (mobileSlideMap.programs || 0) % list.length;
+
+      const renderProgramCard = (prog: PortalContentItem, idx: number) => {
+        const isFirstStage =
+          prog.actionType === 'open_register' ||
+          (!prog.actionType && idx === 0);
+        const isHighlighted =
+          Boolean(highlightedProgramSlug) &&
+          (prog.slug === highlightedProgramSlug || prog.id === highlightedProgramSlug);
+
+        const title = getLocalizedItemField(prog, 'title', currentLang);
+        const subtitle = getLocalizedItemField(prog, 'subtitle', currentLang);
+        const description = getLocalizedItemField(prog, 'description', currentLang);
+        const badgeText = getLocalizedItemField(prog, 'badgeText', currentLang);
+        const metaPrimary = getLocalizedItemField(prog, 'metaPrimary', currentLang);
+        const metaSecondary = getLocalizedItemField(prog, 'metaSecondary', currentLang);
+        const priceNum = Math.max(0, Number(prog.price) || 0);
+        const isFree = priceNum <= 0;
+        const formatLabel = prog.format ? HOME_PROGRAM_FORMAT_LABELS[prog.format] : '';
+        const seatsLeft =
+          prog.seatsLeft !== undefined ? Number(prog.seatsLeft) : undefined;
+        const buttonLabel =
+          getLocalizedItemField(prog, 'linkLabel', currentLang) ||
+          (currentLang === 'en'
+            ? 'Program Details & Enroll'
+            : currentLang === 'th'
+            ? 'รายละเอียดและสมัครเรียน'
+            : 'التفاصيل والتسجيل');
+
+        return (
+          <article
+            key={prog.id}
+            id={`portal-prog-${prog.slug || prog.id}`}
+            onClick={() => setSelectedHomeProgram(prog)}
+            className={`group rounded-2xl overflow-hidden flex flex-col justify-between border transition-all cursor-pointer ${
+              isFirstStage
+                ? 'bg-emerald-950 text-white border-emerald-900 hover:border-amber-400/60'
+                : 'bg-slate-50/70 text-slate-900 border-slate-200 hover:border-emerald-300'
+            } ${isHighlighted ? 'ring-2 ring-amber-400 shadow-lg' : ''}`}
+          >
+            <div>
+              {prog.mediaUrl && (
+                <div className="border-b border-current/10 overflow-hidden">
+                  <StoreImage
+                    src={prog.mediaUrl}
+                    alt={title}
+                    aspectClass="aspect-[16/9]"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+              )}
+
+              <div className="p-5 sm:p-6 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span
+                    className={`text-xs font-bold ${
+                      isFirstStage ? 'text-amber-300' : 'text-emerald-800'
+                    }`}
+                  >
+                    {badgeText || (isFirstStage ? 'المرحلة ١' : 'برنامج تدريبي')}
+                  </span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold tabular-nums ${
+                      isFirstStage
+                        ? isFree
+                          ? 'bg-emerald-800/80 text-amber-200'
+                          : 'bg-amber-400 text-slate-950'
+                        : isFree
+                        ? 'bg-emerald-100 text-emerald-900'
+                        : 'bg-emerald-800 text-white'
+                    }`}
+                  >
+                    {isFree ? 'مجاني' : `${priceNum} ${currency}`}
+                  </span>
+                </div>
+
+                <h3 className="text-lg font-extrabold leading-snug">{title}</h3>
+
+                {subtitle && (
+                  <div
+                    className={`text-xs font-semibold ${
+                      isFirstStage ? 'text-emerald-100/80' : 'text-slate-500'
+                    }`}
+                  >
+                    {subtitle}
+                  </div>
+                )}
+
+                <p
+                  className={`text-xs sm:text-sm leading-relaxed line-clamp-3 ${
+                    isFirstStage ? 'text-emerald-50/90' : 'text-slate-600'
+                  }`}
+                >
+                  {description}
+                </p>
+
+                {(formatLabel || prog.duration || seatsLeft !== undefined) && (
+                  <div
+                    className={`flex flex-wrap items-center gap-3 pt-1 text-[11px] font-bold ${
+                      isFirstStage ? 'text-emerald-200/80' : 'text-slate-500'
+                    }`}
+                  >
+                    {formatLabel && <span>{formatLabel}</span>}
+                    {(prog.duration || metaPrimary) && (
+                      <span className="inline-flex items-center gap-1">
+                        <ClockIcon className="w-3 h-3" />
+                        <span>{prog.duration || metaPrimary}</span>
+                      </span>
+                    )}
+                    {seatsLeft !== undefined && (
+                      <span className="inline-flex items-center gap-1 tabular-nums">
+                        <Users className="w-3 h-3" />
+                        <span>
+                          {seatsLeft <= 0 ? 'مكتمل' : `متبقي ${seatsLeft} مقعد`}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-5 sm:px-6 pb-5 sm:pb-6 pt-4 border-t border-current/10 space-y-3">
+              {!prog.duration && (metaPrimary || metaSecondary) && (
+                <div
+                  className={`text-xs font-medium flex items-center gap-2 ${
+                    isFirstStage ? 'text-emerald-100/75' : 'text-slate-500'
+                  }`}
+                >
+                  {metaPrimary && <span>{metaPrimary}</span>}
+                  {metaPrimary && metaSecondary && <span aria-hidden="true">·</span>}
+                  {metaSecondary && <span>{metaSecondary}</span>}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedHomeProgram(prog);
+                }}
+                className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-colors cursor-pointer min-h-[42px] ${
+                  isFirstStage
+                    ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                    : 'bg-white hover:bg-emerald-50 text-emerald-900 border border-slate-300'
+                }`}
+              >
+                <span>{buttonLabel}</span>
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </article>
+        );
+      };
 
       return (
         <section
@@ -639,8 +859,8 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           id="portal-programs"
           className="border-y border-slate-200/80 bg-white"
         >
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 pb-4 border-b border-slate-200">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 sm:mb-8 pb-4 border-b border-slate-200">
               <div>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
                   {getPortalUiText(settings, 'programs_heading', currentLang)}
@@ -661,159 +881,60 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {list.map((prog, idx) => {
-                const isFirstStage =
-                  prog.actionType === 'open_register' ||
-                  (!prog.actionType && idx === 0);
-                const isHighlighted =
-                  Boolean(highlightedProgramSlug) &&
-                  (prog.slug === highlightedProgramSlug || prog.id === highlightedProgramSlug);
+            <div className="hidden lg:grid lg:grid-cols-3 gap-6">
+              {list.map((prog, idx) => renderProgramCard(prog, idx))}
+            </div>
 
-                const title = getLocalizedItemField(prog, 'title', currentLang);
-                const subtitle = getLocalizedItemField(prog, 'subtitle', currentLang);
-                const description = getLocalizedItemField(prog, 'description', currentLang);
-                const badgeText = getLocalizedItemField(prog, 'badgeText', currentLang);
-                const metaPrimary = getLocalizedItemField(prog, 'metaPrimary', currentLang);
-                const metaSecondary = getLocalizedItemField(prog, 'metaSecondary', currentLang);
-                const priceNum = Math.max(0, Number(prog.price) || 0);
-                const isFree = priceNum <= 0;
-                const formatLabel = prog.format ? HOME_PROGRAM_FORMAT_LABELS[prog.format] : '';
-                const seatsLeft =
-                  prog.seatsLeft !== undefined ? Number(prog.seatsLeft) : undefined;
-                const buttonLabel =
-                  getLocalizedItemField(prog, 'linkLabel', currentLang) ||
-                  (currentLang === 'en'
-                    ? 'Program Details & Enroll'
-                    : currentLang === 'th'
-                    ? 'รายละเอียดและสมัครเรียน'
-                    : 'التفاصيل والتسجيل');
-
-                return (
-                  <article
-                    key={prog.id}
-                    id={`portal-prog-${prog.slug || prog.id}`}
-                    onClick={() => setSelectedHomeProgram(prog)}
-                    className={`group rounded-2xl overflow-hidden flex flex-col justify-between border transition-all cursor-pointer ${
-                      isFirstStage
-                        ? 'bg-emerald-950 text-white border-emerald-900 hover:border-amber-400/60'
-                        : 'bg-slate-50/70 text-slate-900 border-slate-200 hover:border-emerald-300'
-                    } ${isHighlighted ? 'ring-2 ring-amber-400 shadow-lg' : ''}`}
-                  >
-                    <div>
-                      {prog.mediaUrl && (
-                        <div className="border-b border-current/10 overflow-hidden">
+            <div className="lg:hidden space-y-3.5">
+              {renderProgramCard(list[activeProgIdx], activeProgIdx)}
+              {list.length > 1 && (
+                <div
+                  className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
+                  style={{ scrollbarWidth: 'none' }}
+                >
+                  {list.map((prog, idx) => {
+                    const isActive = idx === activeProgIdx;
+                    const title = getLocalizedItemField(prog, 'title', currentLang);
+                    const priceNum = Math.max(0, Number(prog.price) || 0);
+                    return (
+                      <button
+                        key={prog.id}
+                        type="button"
+                        onClick={() => {
+                          pauseMobileRotation();
+                          setMobileSlideMap((p) => ({ ...p, programs: idx }));
+                        }}
+                        className={`w-44 shrink-0 snap-start rounded-xl border p-2 text-start flex items-center gap-2.5 transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-emerald-50/80 border-emerald-600 ring-1 ring-emerald-500/30 shadow-2xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        {prog.mediaUrl ? (
                           <StoreImage
                             src={prog.mediaUrl}
                             alt={title}
-                            aspectClass="aspect-[16/9]"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            aspectClass="w-10 h-10"
+                            className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200"
                           />
-                        </div>
-                      )}
-
-                      <div className="p-6 space-y-3">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span
-                            className={`text-xs font-bold ${
-                              isFirstStage ? 'text-amber-300' : 'text-emerald-800'
-                            }`}
-                          >
-                            {badgeText || (isFirstStage ? 'المرحلة ١' : 'برنامج تدريبي')}
+                        ) : (
+                          <span className="w-10 h-10 rounded-lg bg-emerald-950 text-amber-300 text-xs font-extrabold flex items-center justify-center shrink-0">
+                            {idx + 1}
                           </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold tabular-nums ${
-                              isFirstStage
-                                ? isFree
-                                  ? 'bg-emerald-800/80 text-amber-200'
-                                  : 'bg-amber-400 text-slate-950'
-                                : isFree
-                                ? 'bg-emerald-100 text-emerald-900'
-                                : 'bg-emerald-800 text-white'
-                            }`}
-                          >
-                            {isFree ? 'مجاني' : `${priceNum} ${currency}`}
-                          </span>
-                        </div>
-
-                        <h3 className="text-lg font-extrabold leading-snug">{title}</h3>
-
-                        {subtitle && (
-                          <div
-                            className={`text-xs font-semibold ${
-                              isFirstStage ? 'text-emerald-100/80' : 'text-slate-500'
-                            }`}
-                          >
-                            {subtitle}
-                          </div>
                         )}
-
-                        <p
-                          className={`text-xs sm:text-sm leading-relaxed line-clamp-3 ${
-                            isFirstStage ? 'text-emerald-50/90' : 'text-slate-600'
-                          }`}
-                        >
-                          {description}
-                        </p>
-
-                        {(formatLabel || prog.duration || seatsLeft !== undefined) && (
-                          <div
-                            className={`flex flex-wrap items-center gap-3 pt-1 text-[11px] font-bold ${
-                              isFirstStage ? 'text-emerald-200/80' : 'text-slate-500'
-                            }`}
-                          >
-                            {formatLabel && <span>{formatLabel}</span>}
-                            {(prog.duration || metaPrimary) && (
-                              <span className="inline-flex items-center gap-1">
-                                <ClockIcon className="w-3 h-3" />
-                                <span>{prog.duration || metaPrimary}</span>
-                              </span>
-                            )}
-                            {seatsLeft !== undefined && (
-                              <span className="inline-flex items-center gap-1 tabular-nums">
-                                <Users className="w-3 h-3" />
-                                <span>
-                                  {seatsLeft <= 0 ? 'مكتمل' : `متبقي ${seatsLeft} مقعد`}
-                                </span>
-                              </span>
-                            )}
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-900 line-clamp-1">
+                            {title}
                           </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="px-6 pb-6 pt-4 border-t border-current/10 space-y-3">
-                      {!prog.duration && (metaPrimary || metaSecondary) && (
-                        <div
-                          className={`text-xs font-medium flex items-center gap-2 ${
-                            isFirstStage ? 'text-emerald-100/75' : 'text-slate-500'
-                          }`}
-                        >
-                          {metaPrimary && <span>{metaPrimary}</span>}
-                          {metaPrimary && metaSecondary && <span aria-hidden="true">·</span>}
-                          {metaSecondary && <span>{metaSecondary}</span>}
+                          <div className="text-[11px] font-bold text-emerald-700 tabular-nums mt-0.5">
+                            {priceNum <= 0 ? 'مجاني' : `${priceNum} ${currency}`}
+                          </div>
                         </div>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedHomeProgram(prog);
-                        }}
-                        className={`w-full py-2.5 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-2 transition-colors cursor-pointer min-h-[42px] ${
-                          isFirstStage
-                            ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
-                            : 'bg-white hover:bg-emerald-50 text-emerald-900 border border-slate-300'
-                        }`}
-                      >
-                        <span>{buttonLabel}</span>
-                        <ArrowLeft className="w-3.5 h-3.5" />
                       </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -823,13 +944,101 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     if (key === 'gallery') {
       const list = itemsBySection.gallery;
       if (list.length === 0) return null;
+      const activeGalIdx = (mobileSlideMap.gallery || 0) % list.length;
+
+      const renderGalleryCard = (item: PortalContentItem) => {
+        const slides = getGallerySlideUrls(item);
+        const total = slides.length;
+        const currentIdx = total > 0 ? (gallerySlideMap[item.id] || 0) % total : 0;
+        const activeImg = slides[currentIdx] || '';
+        const title = getLocalizedItemField(item, 'title', currentLang);
+        const description = getLocalizedItemField(item, 'description', currentLang);
+        const badgeText = getLocalizedItemField(item, 'badgeText', currentLang);
+
+        return (
+          <div
+            key={item.id}
+            onClick={() => setLightboxState({ item, slideIdx: currentIdx })}
+            className="group bg-white rounded-2xl border border-slate-200 overflow-hidden cursor-pointer flex flex-col"
+          >
+            <div className="relative h-56 bg-slate-100 overflow-hidden">
+              {activeImg && (
+                <img
+                  src={activeImg}
+                  alt={title}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              )}
+
+              {total > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      pauseMobileRotation();
+                      setGallerySlideMap((prev) => ({
+                        ...prev,
+                        [item.id]: (currentIdx - 1 + total) % total,
+                      }));
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950/65 hover:bg-slate-950/85 text-white flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label="الصورة السابقة"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      pauseMobileRotation();
+                      setGallerySlideMap((prev) => ({
+                        ...prev,
+                        [item.id]: (currentIdx + 1) % total,
+                      }));
+                    }}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950/65 hover:bg-slate-950/85 text-white flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label="الصورة التالية"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-lg bg-slate-950/70 text-white text-[11px] font-bold tabular-nums">
+                    {currentIdx + 1} / {total}
+                  </div>
+                </>
+              )}
+
+              <div className="absolute bottom-3 left-3 w-8 h-8 rounded-lg bg-slate-950/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <Maximize2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="p-4 space-y-1">
+              {badgeText && (
+                <div className="text-[11px] font-bold text-emerald-800">{badgeText}</div>
+              )}
+              <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
+              {description && (
+                <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                  {description}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      };
+
       return (
         <section
           key="gallery"
           id="portal-gallery"
-          className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16"
+          className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-16"
         >
-          <div className="mb-8 pb-4 border-b border-slate-200">
+          <div className="mb-6 sm:mb-8 pb-4 border-b border-slate-200">
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
               {getPortalUiText(settings, 'gallery_heading', currentLang)}
             </h2>
@@ -838,90 +1047,56 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {list.map((item) => {
-              const slides = getGallerySlideUrls(item);
-              const total = slides.length;
-              const currentIdx = total > 0 ? (gallerySlideMap[item.id] || 0) % total : 0;
-              const activeImg = slides[currentIdx] || '';
-              const title = getLocalizedItemField(item, 'title', currentLang);
-              const description = getLocalizedItemField(item, 'description', currentLang);
-              const badgeText = getLocalizedItemField(item, 'badgeText', currentLang);
+          <div className="hidden lg:grid lg:grid-cols-3 gap-6">
+            {list.map((item) => renderGalleryCard(item))}
+          </div>
 
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => setLightboxState({ item, slideIdx: currentIdx })}
-                  className="group bg-white rounded-2xl border border-slate-200 overflow-hidden cursor-pointer flex flex-col"
-                >
-                  <div className="relative h-56 bg-slate-100 overflow-hidden">
-                    {activeImg && (
-                      <img
-                        src={activeImg}
-                        alt={title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-200"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    )}
-
-                    {total > 1 && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setGallerySlideMap((prev) => ({
-                              ...prev,
-                              [item.id]: (currentIdx - 1 + total) % total,
-                            }));
-                          }}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950/65 hover:bg-slate-950/85 text-white flex items-center justify-center transition-colors cursor-pointer"
-                          aria-label="الصورة السابقة"
-                        >
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setGallerySlideMap((prev) => ({
-                              ...prev,
-                              [item.id]: (currentIdx + 1) % total,
-                            }));
-                          }}
-                          className="absolute left-2.5 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-slate-950/65 hover:bg-slate-950/85 text-white flex items-center justify-center transition-colors cursor-pointer"
-                          aria-label="الصورة التالية"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                        </button>
-
-                        <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-lg bg-slate-950/70 text-white text-[11px] font-bold tabular-nums">
-                          {currentIdx + 1} / {total}
-                        </div>
-                      </>
-                    )}
-
-                    <div className="absolute bottom-3 left-3 w-8 h-8 rounded-lg bg-slate-950/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Maximize2 className="w-4 h-4" />
-                    </div>
-                  </div>
-                  <div className="p-4 space-y-1">
-                    {badgeText && (
-                      <div className="text-[11px] font-bold text-emerald-800">{badgeText}</div>
-                    )}
-                    <h3 className="text-sm font-extrabold text-slate-900">{title}</h3>
-                    {description && (
-                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
-                        {description}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="lg:hidden space-y-3.5">
+            {renderGalleryCard(list[activeGalIdx])}
+            {list.length > 1 && (
+              <div
+                className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {list.map((item, idx) => {
+                  const isActive = idx === activeGalIdx;
+                  const slides = getGallerySlideUrls(item);
+                  const thumb = slides[0] || '';
+                  const title = getLocalizedItemField(item, 'title', currentLang);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        pauseMobileRotation();
+                        setMobileSlideMap((p) => ({ ...p, gallery: idx }));
+                      }}
+                      className={`w-40 shrink-0 snap-start rounded-xl border p-2 text-start flex items-center gap-2.5 transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-emerald-50/80 border-emerald-600 ring-1 ring-emerald-500/30 shadow-2xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      {thumb ? (
+                        <img
+                          src={thumb}
+                          alt={title}
+                          referrerPolicy="no-referrer"
+                          className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200"
+                        />
+                      ) : (
+                        <span className="w-10 h-10 rounded-lg bg-slate-100 text-slate-600 text-xs font-extrabold flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                      )}
+                      <span className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug">
+                        {title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </section>
       );
@@ -930,14 +1105,82 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     if (key === 'videos') {
       const list = itemsBySection.videos;
       if (list.length === 0) return null;
+      const activeVidIdx = (mobileSlideMap.videos || 0) % list.length;
+
+      const renderVideoCard = (vid: PortalContentItem) => {
+        const safeVidLink = sanitizeExternalUrl(vid.mediaUrl || vid.linkUrl);
+        const thumbUrl = getAutoVideoThumbnail(vid);
+        const title = getLocalizedItemField(vid, 'title', currentLang);
+        const description = getLocalizedItemField(vid, 'description', currentLang);
+        const badgeText = getLocalizedItemField(vid, 'badgeText', currentLang);
+        const buttonLabel = getLocalizedItemField(vid, 'linkLabel', currentLang);
+
+        return (
+          <div
+            key={vid.id}
+            className="rounded-2xl border border-slate-200 bg-slate-50/70 overflow-hidden flex flex-col justify-between"
+          >
+            <button
+              type="button"
+              onClick={() => safeVidLink && setActiveVideoItem(vid)}
+              className="relative aspect-video w-full bg-slate-900 overflow-hidden group cursor-pointer block"
+            >
+              {thumbUrl ? (
+                <img
+                  src={thumbUrl}
+                  alt={title}
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-200"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-800" />
+              )}
+              <div className="absolute inset-0 bg-slate-950/30 group-hover:bg-slate-950/45 transition-colors flex items-center justify-center">
+                <span className="w-12 h-12 rounded-full bg-white/95 text-emerald-900 shadow-lg flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Play className="w-5 h-5 fill-current" />
+                </span>
+              </div>
+            </button>
+
+            <div className="p-5 flex-1 flex flex-col justify-between gap-4">
+              <div className="space-y-2">
+                {badgeText && (
+                  <div className="text-xs font-bold text-emerald-800">{badgeText}</div>
+                )}
+                <h3 className="text-base font-extrabold text-slate-900">{title}</h3>
+                {description && (
+                  <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                    {description}
+                  </p>
+                )}
+              </div>
+
+              {safeVidLink && buttonLabel && (
+                <button
+                  type="button"
+                  onClick={() => setActiveVideoItem(vid)}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold flex items-center justify-center gap-2 transition-colors cursor-pointer min-h-[42px]"
+                >
+                  <Play className="w-4 h-4 fill-current" />
+                  <span>{buttonLabel}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      };
+
       return (
         <section
           key="videos"
           id="portal-videos"
           className="border-t border-slate-200/80 bg-white"
         >
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
-            <div className="mb-8 pb-4 border-b border-slate-200">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
+            <div className="mb-6 sm:mb-8 pb-4 border-b border-slate-200">
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
                 {getPortalUiText(settings, 'videos_heading', currentLang)}
               </h2>
@@ -946,73 +1189,54 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {list.map((vid) => {
-                const safeVidLink = sanitizeExternalUrl(vid.mediaUrl || vid.linkUrl);
-                const thumbUrl = getAutoVideoThumbnail(vid);
-                const title = getLocalizedItemField(vid, 'title', currentLang);
-                const description = getLocalizedItemField(vid, 'description', currentLang);
-                const badgeText = getLocalizedItemField(vid, 'badgeText', currentLang);
-                const buttonLabel = getLocalizedItemField(vid, 'linkLabel', currentLang);
+            <div className="hidden lg:grid lg:grid-cols-3 gap-6">
+              {list.map((vid) => renderVideoCard(vid))}
+            </div>
 
-                return (
-                  <div
-                    key={vid.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50/70 overflow-hidden flex flex-col justify-between"
-                  >
-                    {/* Clickable Video / Animated GIF Thumbnail Preview */}
-                    <button
-                      type="button"
-                      onClick={() => safeVidLink && setActiveVideoItem(vid)}
-                      className="relative aspect-video w-full bg-slate-900 overflow-hidden group cursor-pointer block"
-                    >
-                      {thumbUrl ? (
-                        <img
-                          src={thumbUrl}
-                          alt={title}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-200"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-emerald-950 via-slate-900 to-slate-800" />
-                      )}
-                      <div className="absolute inset-0 bg-slate-950/30 group-hover:bg-slate-950/45 transition-colors flex items-center justify-center">
-                        <span className="w-12 h-12 rounded-full bg-white/95 text-emerald-900 shadow-lg flex items-center justify-center group-hover:scale-105 transition-transform">
-                          <Play className="w-5 h-5 fill-current" />
+            <div className="lg:hidden space-y-3.5">
+              {renderVideoCard(list[activeVidIdx])}
+              {list.length > 1 && (
+                <div
+                  className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
+                  style={{ scrollbarWidth: 'none' }}
+                >
+                  {list.map((vid, idx) => {
+                    const isActive = idx === activeVidIdx;
+                    const thumb = getAutoVideoThumbnail(vid);
+                    const title = getLocalizedItemField(vid, 'title', currentLang);
+                    return (
+                      <button
+                        key={vid.id}
+                        type="button"
+                        onClick={() => {
+                          pauseMobileRotation();
+                          setMobileSlideMap((p) => ({ ...p, videos: idx }));
+                        }}
+                        className={`w-44 shrink-0 snap-start rounded-xl border p-2 text-start flex items-center gap-2.5 transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-emerald-50/80 border-emerald-600 ring-1 ring-emerald-500/30 shadow-2xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="relative w-12 h-9 rounded-lg overflow-hidden bg-slate-900 shrink-0 flex items-center justify-center">
+                          {thumb ? (
+                            <img
+                              src={thumb}
+                              alt={title}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover opacity-85"
+                            />
+                          ) : null}
+                          <Play className="w-3.5 h-3.5 text-white fill-current absolute" />
+                        </div>
+                        <span className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug">
+                          {title}
                         </span>
-                      </div>
-                    </button>
-
-                    <div className="p-5 flex-1 flex flex-col justify-between gap-4">
-                      <div className="space-y-2">
-                        {badgeText && (
-                          <div className="text-xs font-bold text-emerald-800">{badgeText}</div>
-                        )}
-                        <h3 className="text-base font-extrabold text-slate-900">{title}</h3>
-                        {description && (
-                          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                            {description}
-                          </p>
-                        )}
-                      </div>
-
-                      {safeVidLink && buttonLabel && (
-                        <button
-                          type="button"
-                          onClick={() => setActiveVideoItem(vid)}
-                          className="w-full py-2.5 px-4 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold flex items-center justify-center gap-2 transition-colors cursor-pointer min-h-[42px]"
-                        >
-                          <Play className="w-4 h-4 fill-current" />
-                          <span>{buttonLabel}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -1027,14 +1251,113 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       const catNameById = new Map(
         (storeData?.categories || []).map((c) => [c.id, c.name])
       );
+      const activeProdIdx =
+        showcaseProducts.length > 0 ? (mobileSlideMap.store_slot || 0) % showcaseProducts.length : 0;
+
+      const renderProductCard = (product: StoreProduct) => {
+        const summary = getProductPriceSummary(product);
+        const isFav = favorites.includes(product.id);
+        const outOfStock = product.stock <= 0;
+        const catLabel = catNameById.get(product.category_id) || 'أداة خط';
+
+        return (
+          <article
+            key={product.id}
+            className="group rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col justify-between shadow-xs hover:border-emerald-300 transition-colors"
+          >
+            <div>
+              <div
+                onClick={() => setSelectedHomeProduct(product)}
+                className="relative cursor-pointer overflow-hidden"
+              >
+                <StoreImage
+                  src={product.image_url}
+                  alt={product.name}
+                  aspectClass="aspect-[4/3]"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleFavorite(product.id);
+                  }}
+                  aria-label="المفضلة"
+                  className={`absolute top-3 left-3 p-2 rounded-xl border backdrop-blur-xs cursor-pointer transition-colors ${
+                    isFav
+                      ? 'bg-rose-50 text-rose-600 border-rose-200'
+                      : 'bg-white/90 text-slate-500 border-slate-200 hover:text-rose-600'
+                  }`}
+                >
+                  <Heart className={`w-4 h-4 ${isFav ? 'fill-current' : ''}`} />
+                </button>
+
+                {outOfStock && (
+                  <div className="absolute inset-0 bg-slate-950/55 flex items-center justify-center">
+                    <span className="px-3 py-1 rounded-lg bg-white text-slate-900 text-xs font-extrabold">
+                      نفدت الكمية
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-5 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
+                  <span>{catLabel}</span>
+                  <span className="font-mono tabular-nums">{product.sku}</span>
+                </div>
+
+                <h3
+                  onClick={() => setSelectedHomeProduct(product)}
+                  className="text-base font-extrabold text-slate-900 hover:text-emerald-800 cursor-pointer line-clamp-1"
+                >
+                  {product.name}
+                </h3>
+
+                <p className="text-xs text-slate-600 leading-relaxed line-clamp-2 min-h-[36px]">
+                  {product.description}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 pb-5 pt-2 flex items-center justify-between gap-3 border-t border-slate-100">
+              <div>
+                <div className="text-lg font-extrabold text-emerald-900 tabular-nums">
+                  {summary.hasRange
+                    ? `${summary.minPrice} - ${summary.maxPrice}`
+                    : summary.defaultPrice}{' '}
+                  {currency}
+                </div>
+                {product.compare_at_price && product.compare_at_price > summary.minPrice && (
+                  <span className="text-[11px] text-slate-400 line-through tabular-nums">
+                    {product.compare_at_price} {currency}
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={outOfStock}
+                onClick={() => addToCartAndOpenStore(product)}
+                title={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
+                aria-label={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
+                className="p-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 disabled:bg-slate-300 text-white inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              >
+                <ShoppingCart className="w-4 h-4" />
+              </button>
+            </div>
+          </article>
+        );
+      };
 
       return (
         <section
           key="store_slot"
           id="portal-store_slot"
-          className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16"
+          className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-16"
         >
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 pb-4 border-b border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6 sm:mb-8 pb-4 border-b border-slate-200">
             <div>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
                 {storeSlotTitle || 'منتجات مختارة من المتجر'}
@@ -1062,104 +1385,56 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           </div>
 
           {showcaseProducts.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {showcaseProducts.map((product) => {
-                const summary = getProductPriceSummary(product);
-                const isFav = favorites.includes(product.id);
-                const outOfStock = product.stock <= 0;
-                const catLabel = catNameById.get(product.category_id) || 'أداة خط';
+            <>
+              <div className="hidden lg:grid lg:grid-cols-3 gap-6">
+                {showcaseProducts.map((product) => renderProductCard(product))}
+              </div>
 
-                return (
-                  <article
-                    key={product.id}
-                    className="group rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col justify-between shadow-xs hover:border-emerald-300 transition-colors"
+              <div className="lg:hidden space-y-3.5">
+                {renderProductCard(showcaseProducts[activeProdIdx])}
+                {showcaseProducts.length > 1 && (
+                  <div
+                    className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
+                    style={{ scrollbarWidth: 'none' }}
                   >
-                    <div>
-                      <div
-                        onClick={() => setSelectedHomeProduct(product)}
-                        className="relative cursor-pointer overflow-hidden"
-                      >
-                        <StoreImage
-                          src={product.image_url}
-                          alt={product.name}
-                          aspectClass="aspect-[4/3]"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-
+                    {showcaseProducts.map((product, idx) => {
+                      const isActive = idx === activeProdIdx;
+                      const summary = getProductPriceSummary(product);
+                      return (
                         <button
+                          key={product.id}
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleFavorite(product.id);
+                          onClick={() => {
+                            pauseMobileRotation();
+                            setMobileSlideMap((p) => ({ ...p, store_slot: idx }));
                           }}
-                          aria-label="المفضلة"
-                          className={`absolute top-3 left-3 p-2 rounded-xl border backdrop-blur-xs cursor-pointer transition-colors ${
-                            isFav
-                              ? 'bg-rose-50 text-rose-600 border-rose-200'
-                              : 'bg-white/90 text-slate-500 border-slate-200 hover:text-rose-600'
+                          className={`w-44 shrink-0 snap-start rounded-xl border p-2 text-start flex items-center gap-2.5 transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-emerald-50/80 border-emerald-600 ring-1 ring-emerald-500/30 shadow-2xs'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          <Heart className={`w-4 h-4 ${isFav ? 'fill-current' : ''}`} />
-                        </button>
-
-                        {outOfStock && (
-                          <div className="absolute inset-0 bg-slate-950/55 flex items-center justify-center">
-                            <span className="px-3 py-1 rounded-lg bg-white text-slate-900 text-xs font-extrabold">
-                              نفدت الكمية
-                            </span>
+                          <StoreImage
+                            src={product.image_url}
+                            alt={product.name}
+                            aspectClass="w-10 h-10"
+                            className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 line-clamp-1">
+                              {product.name}
+                            </div>
+                            <div className="text-[11px] font-bold text-emerald-700 tabular-nums mt-0.5">
+                              {summary.minPrice} {currency}
+                            </div>
                           </div>
-                        )}
-                      </div>
-
-                      <div className="p-5 space-y-2">
-                        <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-slate-500">
-                          <span>{catLabel}</span>
-                          <span className="font-mono tabular-nums">{product.sku}</span>
-                        </div>
-
-                        <h3
-                          onClick={() => setSelectedHomeProduct(product)}
-                          className="text-base font-extrabold text-slate-900 hover:text-emerald-800 cursor-pointer line-clamp-1"
-                        >
-                          {product.name}
-                        </h3>
-
-                        <p className="text-xs text-slate-600 leading-relaxed line-clamp-2 min-h-[36px]">
-                          {product.description}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="px-5 pb-5 pt-2 flex items-center justify-between gap-3 border-t border-slate-100">
-                      <div>
-                        <div className="text-lg font-extrabold text-emerald-900 tabular-nums">
-                          {summary.hasRange
-                            ? `${summary.minPrice} - ${summary.maxPrice}`
-                            : summary.defaultPrice}{' '}
-                          {currency}
-                        </div>
-                        {product.compare_at_price && product.compare_at_price > summary.minPrice && (
-                          <span className="text-[11px] text-slate-400 line-through tabular-nums">
-                            {product.compare_at_price} {currency}
-                          </span>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={outOfStock}
-                        onClick={() => addToCartAndOpenStore(product)}
-                        title={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
-                        aria-label={outOfStock ? 'نفدت الكمية' : 'أضف للسلة'}
-                        className="p-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 disabled:bg-slate-300 text-white inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
-                      >
-                        <ShoppingCart className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/40 p-8 sm:p-10 text-center space-y-4 shadow-xs">
               <div className="w-14 h-14 rounded-2xl bg-emerald-800 text-amber-300 flex items-center justify-center mx-auto shadow-xs">
@@ -1186,7 +1461,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
 
     if (key === 'contact') {
       const safeTelegram = sanitizeExternalUrl(telegramMainLink);
-      const showRegBtn = isPortalUiButtonVisible(settings, 'contact_register_btn');
+      const showUnifiedAuth = isPortalUiButtonVisible(settings, 'unified_auth_btn');
       const showTgBtn = isPortalUiButtonVisible(settings, 'contact_telegram_btn');
 
       const contactCards = [
@@ -1249,7 +1524,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           id="portal-contact"
           className="border-t border-slate-200/80 bg-slate-50"
         >
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
               <div className={hasContactCards ? 'lg:col-span-5 space-y-4' : 'lg:col-span-12 space-y-4'}>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
@@ -1260,14 +1535,14 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 </p>
 
                 <div className="flex flex-wrap gap-2.5 pt-2">
-                  {showRegBtn && (
+                  {showUnifiedAuth && (
                     <button
                       type="button"
-                      onClick={() => onOpenRegistration()}
-                      className="px-5 py-3 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-2 cursor-pointer min-h-[42px]"
+                      onClick={onOpenUnifiedAccess}
+                      className="px-5 py-3 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-2 cursor-pointer min-h-[42px] whitespace-nowrap shrink-0"
                     >
                       <UserPlus className="w-4 h-4 text-amber-300" />
-                      <span>{getPortalUiText(settings, 'contact_register_btn', currentLang)}</span>
+                      <span>{getPortalUiText(settings, 'unified_auth_btn', currentLang)}</span>
                     </button>
                   )}
 
@@ -1276,7 +1551,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                       href={safeTelegram}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-3 rounded-xl bg-white hover:bg-sky-50 text-sky-800 border border-slate-300 text-xs font-extrabold inline-flex items-center gap-2 min-h-[42px]"
+                      className="px-4 py-3 rounded-xl bg-white hover:bg-sky-50 text-sky-800 border border-slate-300 text-xs font-extrabold inline-flex items-center gap-2 min-h-[42px] whitespace-nowrap shrink-0"
                     >
                       <Send className="w-4 h-4" />
                       <span>{getPortalUiText(settings, 'contact_telegram_btn', currentLang)}</span>
@@ -1285,10 +1560,10 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                   )}
                 </div>
 
-                {/* Dynamic Social Channels */}
-                {activeSocialChannels.length > 0 && (
+                {/* Dynamic Social Channels shown in Contact section */}
+                {contactSocialChannels.length > 0 && (
                   <div className="pt-3 flex flex-wrap items-center gap-2">
-                    {activeSocialChannels.map((ch) => {
+                    {contactSocialChannels.map((ch) => {
                       const safeHref = sanitizeExternalUrl(ch.url);
                       if (!safeHref) return null;
                       return (
@@ -1346,9 +1621,8 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     return null;
   };
 
-  const showHeaderLogin = isPortalUiButtonVisible(settings, 'header_login_btn');
-  const showHeaderRegister = isPortalUiButtonVisible(settings, 'header_register_btn');
-  const showFooterPortalBtn = isPortalUiButtonVisible(settings, 'footer_portal_btn');
+  const showHeaderUnifiedAuth = isPortalUiButtonVisible(settings, 'unified_auth_btn');
+  const headerUnifiedAuthText = getPortalUiText(settings, 'unified_auth_btn', currentLang);
 
   return (
     <div className="min-h-screen bg-[#F8FAF9] text-slate-800 font-cairo flex flex-col" dir={dir}>
@@ -1361,7 +1635,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
 
       {/* 3-Zone Top Bar Contract */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4 sm:gap-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-6">
           {/* Zone 1: Brand Wordmark */}
           <a
             href="#portal-hero"
@@ -1378,7 +1652,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 }}
               />
             ) : null}
-            <span className="truncate max-w-[190px] sm:max-w-none">{academyName}</span>
+            <span className="truncate max-w-[160px] sm:max-w-[230px] lg:max-w-none">{academyName}</span>
           </a>
 
           {/* Zone 2: Clean Single-Line Text Nav Links + Icon-Only Store Cart */}
@@ -1398,7 +1672,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 onClick={openFullStore}
                 title="المتجر"
                 aria-label="المتجر"
-                className="relative p-2 rounded-xl text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50 border border-emerald-200/80 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0"
+                className="relative p-2 rounded-xl text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50 border border-emerald-200/80 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0 min-h-[40px] min-w-[40px]"
               >
                 <ShoppingCart className="w-4 h-4" />
                 {cartCount > 0 && (
@@ -1410,29 +1684,18 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             )}
           </nav>
 
-          {/* Zone 3: Primary Action + Language / Login */}
+          {/* Zone 3: Icon-Only Language + Unified Access Button + Mobile Controls */}
           <div className="flex items-center gap-2 shrink-0">
-            <div className="hidden sm:block">
-              <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
-            </div>
+            <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} iconOnly />
 
-            {showHeaderLogin && (
+            {showHeaderUnifiedAuth && (
               <button
                 type="button"
-                onClick={onOpenStudentLogin}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer whitespace-nowrap shrink-0 min-h-[40px]"
-              >
-                {getPortalUiText(settings, 'header_login_btn', currentLang)}
-              </button>
-            )}
-
-            {showHeaderRegister && (
-              <button
-                type="button"
-                onClick={() => onOpenRegistration()}
+                onClick={onOpenUnifiedAccess}
                 className="hidden sm:inline-flex px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-800 hover:bg-emerald-900 text-white transition-colors cursor-pointer whitespace-nowrap shrink-0 items-center gap-1.5 min-h-[40px]"
               >
-                <span>{getPortalUiText(settings, 'header_register_btn', currentLang)}</span>
+                <UserPlus className="w-3.5 h-3.5 text-amber-300" />
+                <span>{headerUnifiedAuthText}</span>
               </button>
             )}
 
@@ -1456,7 +1719,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             <button
               type="button"
               onClick={() => setMobileMenuOpen((v) => !v)}
-              className="lg:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
+              className="lg:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
               aria-label="القائمة"
             >
               {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
@@ -1464,36 +1727,36 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           </div>
         </div>
 
-        {/* Mobile Drawer */}
+        {/* Mobile / Tablet Drawer */}
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3">
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2.5">
               {navLinks.map((lnk) => (
                 <a
                   key={lnk.key}
                   href={lnk.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1 px-2"
+                  className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1.5 px-2.5 rounded-lg hover:bg-slate-50"
                 >
                   {lnk.label}
                 </a>
               ))}
             </div>
-            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
-              <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
-              {showHeaderRegister && (
+            {showHeaderUnifiedAuth && (
+              <div className="pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => {
                     setMobileMenuOpen(false);
-                    onOpenRegistration();
+                    onOpenUnifiedAccess();
                   }}
-                  className="px-4 py-2 rounded-xl bg-emerald-800 text-white text-xs font-extrabold cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer min-h-[42px]"
                 >
-                  {getPortalUiText(settings, 'header_register_btn', currentLang)}
+                  <UserPlus className="w-4 h-4 text-amber-300" />
+                  <span>{headerUnifiedAuthText}</span>
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </header>
@@ -1501,45 +1764,33 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
       {/* Main Content */}
       <main className="flex-1">{orderedSections.map((sec) => renderSection(sec.key))}</main>
 
-      {/* Clean Footer: Social Channels + Subscriber Portal ONLY (zero admin/copyright links) */}
-      {(activeSocialChannels.length > 0 || showFooterPortalBtn) && (
+      {/* Clean Icon-Only Social Channels Footer */}
+      {footerSocialChannels.length > 0 && (
         <footer className="border-t border-slate-200 bg-white py-5 px-4 sm:px-6">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {activeSocialChannels.map((ch) => {
-                const safeHref = sanitizeExternalUrl(ch.url);
-                if (!safeHref) return null;
-                return (
-                  <a
-                    key={ch.id}
-                    href={safeHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${getSocialButtonStyle(
-                      ch.iconKey
-                    )}`}
-                  >
-                    <BrandSocialSvg
-                      iconKey={ch.iconKey}
-                      iconUrl={ch.iconUrl}
-                      label={ch.appName}
-                    />
-                    <span>{ch.appName}</span>
-                  </a>
-                );
-              })}
-            </div>
-
-            {showFooterPortalBtn && (
-              <button
-                type="button"
-                onClick={onOpenStudentLogin}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-emerald-50 text-slate-800 hover:text-emerald-900 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
-              >
-                <LogIn className="w-3.5 h-3.5 text-emerald-700" />
-                <span>{getPortalUiText(settings, 'footer_portal_btn', currentLang)}</span>
-              </button>
-            )}
+          <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-center gap-2.5">
+            {footerSocialChannels.map((ch) => {
+              const safeHref = sanitizeExternalUrl(ch.url);
+              if (!safeHref) return null;
+              return (
+                <a
+                  key={ch.id}
+                  href={safeHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={ch.appName}
+                  aria-label={ch.appName}
+                  className={`w-10 h-10 rounded-xl border inline-flex items-center justify-center transition-colors shrink-0 ${getSocialButtonStyle(
+                    ch.iconKey
+                  )}`}
+                >
+                  <BrandSocialSvg
+                    iconKey={ch.iconKey}
+                    iconUrl={ch.iconUrl}
+                    label={ch.appName}
+                  />
+                </a>
+              );
+            })}
           </div>
         </footer>
       )}
@@ -1705,7 +1956,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           product={selectedHomeProduct}
           category={storeData.categories.find((c) => c.id === selectedHomeProduct.category_id)}
           settings={storeData.settings}
-          botUsername={settings.telegramBotUsername}
+          botUsername={effectiveBotUsername}
           isFavorite={favorites.includes(selectedHomeProduct.id)}
           onToggleFavorite={handleToggleFavorite}
           onClose={() => setSelectedHomeProduct(null)}
@@ -1724,7 +1975,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               Array.isArray(selectedHomeProgram.recommendedProductIds) &&
               selectedHomeProgram.recommendedProductIds.includes(p.id)
           )}
-          botUsername={settings.telegramBotUsername}
+          botUsername={effectiveBotUsername}
           webhookUrl={webhookUrl || ''}
           onAddToCart={(prod) => addToCartAndOpenStore(prod)}
           onEnrolled={(programId) => {

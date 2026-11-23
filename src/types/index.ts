@@ -132,6 +132,8 @@ export interface StudentRegistrant {
   directLoginUrl?: string; // رابط الدخول المباشر
   qrImageUrl?: string; // رابط/صيغة صورة QR
   programId?: string; // معرف البرنامج التدريبي المخصص للطالب
+  telegramDirectUrl?: string; // رابط الدخول السريع لتيليغرام
+  telegramQrImageUrl?: string; // رابط صورة QR للدخول السريع لتيليغرام
 }
 
 export interface SocialLinkItem {
@@ -478,6 +480,8 @@ export interface PortalSocialChannel {
   url: string;
   enabled: boolean;
   sortOrder: number;
+  showInContact?: boolean;
+  showInFooter?: boolean;
 }
 
 export interface PortalUiTextEntry {

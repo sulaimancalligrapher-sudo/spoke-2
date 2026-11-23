@@ -93,7 +93,7 @@ import { TelegramAdminManager } from './TelegramAdminManager';
 import { HomeContentAdminManager } from './HomeContentManager';
 import { PdfSettingsAdminPanel } from './StatsModal';
 import { PortalAdminManager } from './PortalAdminManager';
-import { getLocalPortalData, getLocalRegistrationQuestions } from '../utils/portalSheets';
+import { getLocalPortalData, getLocalRegistrationQuestions, getSavedPortalBotUsername, savePortalBotUsername } from '../utils/portalSheets';
 import {
   CourseScheduleData,
   createEmptyCourseSchedule,
@@ -3057,6 +3057,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
         {activeTab === 'subscribers' && (
           <SubscribersAdminManager
             webhookUrl={sheetsConfig.webhookUrl}
+            botUsername={portalData?.settings?.telegramBotUsername || getSavedPortalBotUsername()}
             coursePrograms={
               normalizeCourseScheduleData(
                 courseSchedule || createEmptyCourseSchedule()
@@ -3070,6 +3071,20 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           <TelegramAdminManager
             webhookUrl={sheetsConfig.webhookUrl}
             courseSchedule={courseSchedule}
+            onBotUsernameSynced={(cleanBot) => {
+              if (!cleanBot) return;
+              savePortalBotUsername(cleanBot);
+              const basePortal = portalData || getLocalPortalData();
+              if (basePortal.settings.telegramBotUsername !== cleanBot) {
+                onUpdatePortalData?.({
+                  ...basePortal,
+                  settings: {
+                    ...basePortal.settings,
+                    telegramBotUsername: cleanBot,
+                  },
+                });
+              }
+            }}
           />
         )}
 

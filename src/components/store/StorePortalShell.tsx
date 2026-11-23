@@ -25,6 +25,7 @@ import {
   saveLocalStoreFavorites,
 } from '../../utils/storeSheets';
 import { getDirectImageUrl } from '../../utils/mediaUrl';
+import { getSavedPortalBotUsername } from '../../utils/portalSheets';
 import { StorefrontView } from './StorefrontView';
 import { OrdersTrackingView } from './OrdersTrackingView';
 import { ProductModal } from './ProductModal';
@@ -184,7 +185,7 @@ export const StorePortalShell: React.FC<StorePortalShellProps> = ({
   };
 
   const totalCartItems = useMemo(() => cart.reduce((sum, x) => sum + x.qty, 0), [cart]);
-  const botUsername = portalData.settings?.telegramBotUsername;
+  const botUsername = portalData.settings?.telegramBotUsername || getSavedPortalBotUsername();
 
   return (
     <div className="min-h-screen bg-[#F8FAF9] text-slate-800 font-cairo flex flex-col" dir="rtl">

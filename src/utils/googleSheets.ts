@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzefzu9OVtj732r_WTdsRzOHJcWOkQuTzJLFzXggf0JDwmprdwJVwHhlx4HpNrA_ivCeA/exec';
+  'https://script.google.com/macros/s/AKfycbye8VZzh7lvHwjdVhgXwfc7Gjs9wFDJumk-ucDKnCGFMa9PcO03Aw7eeLFv-18cCRqc0w/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -655,11 +655,14 @@ function normalizeRegistrantRow(r: any): StudentRegistrant {
     directLoginUrl: r?.directLoginUrl ? String(r.directLoginUrl).trim() : undefined,
     qrImageUrl: r?.qrImageUrl ? String(r.qrImageUrl).trim() : undefined,
     programId: r?.programId ? String(r.programId).trim() : undefined,
+    telegramDirectUrl: r?.telegramDirectUrl ? String(r.telegramDirectUrl).trim() : undefined,
+    telegramQrImageUrl: r?.telegramQrImageUrl ? String(r.telegramQrImageUrl).trim() : undefined,
   };
 }
 
 /**
- * Initialize or ensure sheet "ID registrants" exists with 8 columns (ID, Name, Status, MaxDevices, DevicesJSON, RequireLocation, DirectLoginUrl, QRImage)
+ * Initialize or ensure sheet "ID registrants" exists with 11 columns
+ * (ID, Name, Status, MaxDevices, DevicesJSON, RequireLocation, DirectLoginUrl, QRImage, ProgramId, TelegramDirectUrl, TelegramQRImage)
  */
 export async function ensureIDRegistrantsSheet(
   webhookUrl: string
@@ -676,7 +679,7 @@ export async function ensureIDRegistrantsSheet(
   return {
     success: res.success,
     supportsDeviceSecurity: Boolean(res.data?.registrantHandled),
-    message: res.message || (res.success ? 'تم تجهيز وتحديث أعمدة ورقة ID registrants بنجاح' : (res.error || 'خطأ في الاتصال')),
+    message: res.message || (res.success ? 'تم تجهيز وتحديث الأعمدة الـ 11 لورقة ID registrants بنجاح' : (res.error || 'خطأ في الاتصال')),
   };
 }
 
@@ -3771,17 +3774,32 @@ function getLessonsSheet(ss) {
   return sheet;
 }
 
-// دالة مساعدة لضمان ترويسة الأعمدة التسعة لورقة المشتركين "ID registrants"
+// دالة مساعدة لضمان ترويسة الأعمدة الـ 11 لورقة المشتركين "ID registrants"
 function ensureIDRegistrantsHeadersGS(sheet) {
-  var expected = ["ID", "اسم المشترك", "الحالة", "الحد الأقصى للأجهزة", "الأجهزة المسجلة JSON", "إجبار الموقع", "رابط الدخول المباشر", "صورة QR", "البرنامج التدريبي"];
+  var expected = [
+    "ID",
+    "اسم المشترك",
+    "الحالة",
+    "الحد الأقصى للأجهزة",
+    "الأجهزة المسجلة JSON",
+    "إجبار الموقع",
+    "رابط الدخول المباشر",
+    "صورة QR",
+    "البرنامج التدريبي",
+    "رابط الدخول السريع لتيليغرام",
+    "QR الدخول السريع لتيليغرام"
+  ];
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, 9).setValues([expected])
+    sheet.getRange(1, 1, 1, 11).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
     return;
   }
   var existingCols = Math.max(2, sheet.getLastColumn());
   if (existingCols < 9) {
-    sheet.getRange(1, 1, 1, 9).setValues([expected])
+    sheet.getRange(1, 1, 1, 11).setValues([expected])
+      .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+  } else if (existingCols < 11) {
+    sheet.getRange(1, 10, 1, 2).setValues([[expected[9], expected[10]]])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
   }
 }
@@ -3809,18 +3827,45 @@ function buildDirectLoginUrlGS(baseUrl, studentId, studentName) {
   return cleanBase + (cleanBase.indexOf("?") === -1 ? "?" : "&") + q;
 }
 
+function buildTelegramQuickJoinUrlGS(botUsername, studentId) {
+  var cleanBot = String(botUsername || "").replace(/^@/, "").replace(/^https?:\\/\\/t\\.me\\//i, "").trim();
+  if (!cleanBot) return "";
+  var cleanId = normRegDigitsGS(studentId || "");
+  if (!cleanId) return "https://t.me/" + cleanBot;
+  return "https://t.me/" + cleanBot + "?start=" + encodeURIComponent(cleanId);
+}
+
 function buildQrImageUrlGS(directUrl) {
   if (!directUrl) return "";
   return "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + encodeURIComponent(directUrl);
 }
 
-function syncRegistrantLinkAndQrCellsGS(sheet, rowNum, studentId, studentName, baseUrl) {
+function syncRegistrantLinkAndQrCellsGS(sheet, rowNum, studentId, studentName, baseUrl, botUsernameOverride) {
   var directUrl = buildDirectLoginUrlGS(baseUrl, studentId, studentName);
-  if (!directUrl) return { directLoginUrl: "", qrImageUrl: "" };
-  var qrImgUrl = buildQrImageUrlGS(directUrl);
-  sheet.getRange(rowNum, 7).setValue(directUrl);
-  sheet.getRange(rowNum, 8).setFormula('=IMAGE("' + qrImgUrl + '")');
-  return { directLoginUrl: directUrl, qrImageUrl: qrImgUrl };
+  var qrImgUrl = directUrl ? buildQrImageUrlGS(directUrl) : "";
+  if (directUrl) {
+    sheet.getRange(rowNum, 7).setValue(directUrl);
+    sheet.getRange(rowNum, 8).setFormula('=IMAGE("' + qrImgUrl + '")');
+  }
+  var resolvedBot = String(botUsernameOverride || "").replace(/^@/, "").trim();
+  if (!resolvedBot) {
+    try {
+      var tgSheetCfg = readTelegramConfigGS(sheet.getParent());
+      resolvedBot = String(tgSheetCfg.botUsername || "").replace(/^@/, "").trim();
+    } catch (e) {}
+  }
+  var tgDirectUrl = buildTelegramQuickJoinUrlGS(resolvedBot, studentId);
+  var tgQrImgUrl = tgDirectUrl ? buildQrImageUrlGS(tgDirectUrl) : "";
+  if (tgDirectUrl) {
+    sheet.getRange(rowNum, 10).setValue(tgDirectUrl);
+    sheet.getRange(rowNum, 11).setFormula('=IMAGE("' + tgQrImgUrl + '")');
+  }
+  return {
+    directLoginUrl: directUrl,
+    qrImageUrl: qrImgUrl,
+    telegramDirectUrl: tgDirectUrl,
+    telegramQrImageUrl: tgQrImgUrl
+  };
 }
 
 function isLocationRequiredGS(val) {
@@ -3900,9 +3945,13 @@ function readAllRegistrantsGS(sheet) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var colCount = Math.max(9, sheet.getLastColumn());
+  var colCount = Math.max(11, sheet.getLastColumn());
   var vals = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
   var baseUrl = getAppBaseUrlGS();
+  var botUserFromCfg = "";
+  try {
+    botUserFromCfg = String(readTelegramConfigGS(sheet.getParent()).botUsername || "").replace(/^@/, "").trim();
+  } catch (e) {}
   for (var i = 0; i < vals.length; i++) {
     var rId = normRegDigitsGS(vals[i][0]);
     var rName = String(vals[i][1] || "").trim();
@@ -3915,6 +3964,8 @@ function readAllRegistrantsGS(sheet) {
       var directUrl = String(vals[i][6] || "").trim() || buildDirectLoginUrlGS(baseUrl, rId, rName);
       var qrUrl = buildQrImageUrlGS(directUrl);
       var progId = String(vals[i][8] || "").trim();
+      var tgDirectUrl = String(vals[i][9] || "").trim() || buildTelegramQuickJoinUrlGS(botUserFromCfg, rId);
+      var tgQrUrl = buildQrImageUrlGS(tgDirectUrl);
       list.push({
         rowNumber: i + 2,
         id: rId,
@@ -3925,7 +3976,9 @@ function readAllRegistrantsGS(sheet) {
         requireLocation: reqLoc,
         directLoginUrl: directUrl,
         qrImageUrl: qrUrl,
-        programId: progId
+        programId: progId,
+        telegramDirectUrl: tgDirectUrl,
+        telegramQrImageUrl: tgQrUrl
       });
     }
   }
@@ -3938,7 +3991,7 @@ function getIDRegistrantsSheet(ss) {
   if (!sheet) {
     sheet = ss.insertSheet("ID registrants");
     ensureIDRegistrantsHeadersGS(sheet);
-    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", "", ""]);
+    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", "", "", "", ""]);
   } else {
     ensureIDRegistrantsHeadersGS(sheet);
   }
@@ -7499,11 +7552,15 @@ function doPost(e) {
       var nowSub = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Riyadh", "yyyy/MM/dd HH:mm");
 
       // 1. إضافة المشترك فوراً في ورقة ID registrants على البرنامج الافتراضي (المرحلة الأولى)
-      regSheetSub.appendRow([newRegId, regStudentName, "مفعّل", 1, "[]", "مسموح", "", "", stage1ProgramId]);
+      var tgCfgSub = readTelegramConfigGS(ss);
+      var cleanBotUser = String(tgCfgSub.botUsername || data.botUsername || "").replace(/^@/, "").trim();
+      regSheetSub.appendRow([newRegId, regStudentName, "مفعّل", 1, "[]", "مسموح", "", "", stage1ProgramId, "", ""]);
       var createdRegRowNum = regSheetSub.getLastRow();
-      syncRegistrantLinkAndQrCellsGS(regSheetSub, createdRegRowNum, newRegId, regStudentName, activeBaseUrlSub);
-      var createdDirectUrl = String(regSheetSub.getRange(createdRegRowNum, 7).getValue() || "").trim();
-      var createdQrUrl = String(regSheetSub.getRange(createdRegRowNum, 8).getValue() || "").trim();
+      var syncSubRes = syncRegistrantLinkAndQrCellsGS(regSheetSub, createdRegRowNum, newRegId, regStudentName, activeBaseUrlSub, cleanBotUser);
+      var createdDirectUrl = String(syncSubRes.directLoginUrl || "").trim();
+      var createdQrUrl = String(syncSubRes.qrImageUrl || "").trim();
+      var tgDeepLink = String(syncSubRes.telegramDirectUrl || "").trim() || (cleanBotUser ? ("https://t.me/" + cleanBotUser + "?start=" + newRegId) : "");
+      var createdTgQrUrl = String(syncSubRes.telegramQrImageUrl || "").trim() || (tgDeepLink ? buildQrImageUrlGS(tgDeepLink) : "");
 
       // 2. حفظ تفاصيل الطلب في ورقة طلبات_التسجيل
       var ansMap = (data.answers && typeof data.answers === "object") ? data.answers : {};
@@ -7528,9 +7585,7 @@ function doPost(e) {
       ]);
 
       // 3. إشعار الإدارة عبر تيليغرام (باستخدام البوت المربوط)
-      var tgCfgSub = readTelegramConfigGS(ss);
-      var cleanBotUser = String(tgCfgSub.botUsername || data.botUsername || "").replace(/^@/, "").trim();
-      var tgDeepLink = cleanBotUser ? ("https://t.me/" + cleanBotUser + "?start=" + newRegId) : "";
+      var tgAdminNotified = false;
       if (data.notifyAdminTelegram !== false && tgCfgSub.botToken && tgCfgSub.adminChatId) {
         var tgText = "<b>طلب تسجيل طالب جديد (المرحلة 1)</b>\\n"
           + "الاسم: <b>" + regStudentName + "</b>\\n"
@@ -7555,10 +7610,10 @@ function doPost(e) {
             }
           }
         }
-        sendTelegramBotMessageGS(ss, tgCfgSub.adminChatId, tgText, "");
+        tgAdminNotified = Boolean(sendTelegramBotMessageGS(ss, tgCfgSub.adminChatId, tgText, "").ok);
       }
 
-      // 4. إرسال نسخة بريد إلكتروني للإدارة (اختياري) + بريد ترحيبي للمشترك يحتوي اسمه ورقم ID ورابط تيليغرام
+      // 4. إرسال نسخة بريد إلكتروني للإدارة (اختياري) + بريد ترحيبي HTML للمشترك مع روابط ورموز QR
       var notifyEmailAddr = String(data.adminNotificationEmail || "").trim();
       if (notifyEmailAddr && notifyEmailAddr.indexOf("@") !== -1) {
         try {
@@ -7575,9 +7630,11 @@ function doPost(e) {
       }
 
       var studentEmailSent = false;
+      var studentEmailError = "";
       if (data.sendStudentWelcomeEmail !== false && regEmail && regEmail.indexOf("@") !== -1) {
         try {
           var portalTitleMail = String(data.academyName || "المنصة التعليمية").trim();
+          var loginHrefMail = createdDirectUrl || activeBaseUrlSub;
           var stuMailBody = "مرحباً بك يا " + regStudentName + " في " + portalTitleMail + "!\\n\\n"
             + "تم تسجيلك بنجاح في المرحلة التمهيدية (" + stage1ProgramName + ").\\n\\n"
             + "بيانات دخولك الخاصة:\\n"
@@ -7588,12 +7645,63 @@ function doPost(e) {
               + "افتح هذا الرابط واضغط (بدء / Start) لتفعيل الإشعارات ومتابعة المعلم:\\n"
               + tgDeepLink + "\\n";
           }
-          if (createdDirectUrl || activeBaseUrlSub) {
-            stuMailBody += "\\nرابط الدخول المباشر إلى صفحتك الخاصة:\\n" + (createdDirectUrl || activeBaseUrlSub) + "\\n";
+          if (loginHrefMail) {
+            stuMailBody += "\\nرابط الدخول المباشر إلى صفحتك الخاصة:\\n" + loginHrefMail + "\\n";
           }
-          MailApp.sendEmail(regEmail, portalTitleMail + " — تأكيد التسجيل ورقم المشترك (" + newRegId + ")", stuMailBody);
+
+          var escHtmlMail = function(txt) {
+            return String(txt || "")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;");
+          };
+          var stuHtmlBody = '<div dir="rtl" style="font-family: Tahoma, Arial, sans-serif; background:#f8fafc; padding:24px; color:#0f172a;">'
+            + '<div style="max-width:600px; margin:0 auto; background:#ffffff; border:1px solid #e2e8f0; border-radius:16px; overflow:hidden;">'
+            + '<div style="background:#064e3b; color:#ffffff; padding:20px 24px;">'
+            + '<h2 style="margin:0; font-size:20px;">' + escHtmlMail(portalTitleMail) + '</h2>'
+            + '<p style="margin:6px 0 0; font-size:13px; color:#a7f3d0;">تأكيد التسجيل وبيانات الدخول السريع</p>'
+            + '</div>'
+            + '<div style="padding:24px;">'
+            + '<p style="margin:0 0 12px; font-size:15px;">مرحباً بك يا <strong>' + escHtmlMail(regStudentName) + '</strong>،</p>'
+            + '<p style="margin:0 0 16px; font-size:13px; color:#475569; line-height:1.7;">تم اعتماد تسجيلك في المرحلة التمهيدية (<strong>' + escHtmlMail(stage1ProgramName) + '</strong>). احتفظ ببياناتك أدناه للدخول في أي وقت:</p>'
+            + '<div style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:12px; padding:16px; margin-bottom:18px; text-align:center;">'
+            + '<div style="font-size:12px; color:#047857; font-weight:bold;">رقم التسجيل الخاص بك (Student ID)</div>'
+            + '<div style="font-size:28px; font-weight:bold; color:#064e3b; letter-spacing:2px; margin-top:4px;">' + escHtmlMail(newRegId) + '</div>'
+            + '<div style="font-size:12px; color:#065f46; margin-top:4px;">الاسم المسجل: ' + escHtmlMail(regStudentName) + '</div>'
+            + '</div>';
+
+          if (tgDeepLink) {
+            stuHtmlBody += '<div style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:12px; padding:16px; margin-bottom:16px; text-align:center;">'
+              + '<div style="font-size:14px; font-weight:bold; color:#0369a1; margin-bottom:6px;">١ · ربط تيليغرام لمتابعة المعلم والإشعارات</div>'
+              + '<p style="margin:0 0 12px; font-size:12px; color:#0c4a6e;">افتح الرابط أو امسح رمز QR ثم اضغط (بدء / Start) داخل البوت:</p>'
+              + (createdTgQrUrl ? '<div style="margin-bottom:12px;"><img src="' + escHtmlMail(createdTgQrUrl) + '" alt="Telegram QR" width="160" height="160" style="border-radius:10px; border:1px solid #bae6fd; background:#ffffff; padding:6px;" /></div>' : '')
+              + '<a href="' + escHtmlMail(tgDeepLink) + '" style="display:inline-block; background:#0284c7; color:#ffffff; text-decoration:none; padding:10px 20px; border-radius:10px; font-weight:bold; font-size:13px;">فتح بوت تيليغرام الآن</a>'
+              + '</div>';
+          }
+
+          if (loginHrefMail) {
+            stuHtmlBody += '<div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:16px; margin-bottom:16px; text-align:center;">'
+              + '<div style="font-size:14px; font-weight:bold; color:#0f172a; margin-bottom:6px;">٢ · الدخول المباشر إلى صفحتك الخاصة</div>'
+              + '<p style="margin:0 0 12px; font-size:12px; color:#475569;">ابدأ الإرشادات والنماذج التمهيدية عبر الرابط أو بمسح رمز QR:</p>'
+              + (createdQrUrl ? '<div style="margin-bottom:12px;"><img src="' + escHtmlMail(createdQrUrl) + '" alt="Login QR" width="160" height="160" style="border-radius:10px; border:1px solid #cbd5e1; background:#ffffff; padding:6px;" /></div>' : '')
+              + '<a href="' + escHtmlMail(loginHrefMail) + '" style="display:inline-block; background:#059669; color:#ffffff; text-decoration:none; padding:10px 20px; border-radius:10px; font-weight:bold; font-size:13px;">الدخول المباشر للمنصة</a>'
+              + '</div>';
+          }
+
+          stuHtmlBody += '<p style="margin:12px 0 0; font-size:11px; color:#94a3b8; text-align:center;">هذه رسالة آلية من ' + escHtmlMail(portalTitleMail) + ' — نرجو الاحتفاظ بها.</p>'
+            + '</div></div></div>';
+
+          MailApp.sendEmail({
+            to: regEmail,
+            subject: portalTitleMail + " — تأكيد التسجيل ورقم المشترك (" + newRegId + ")",
+            body: stuMailBody,
+            htmlBody: stuHtmlBody
+          });
           studentEmailSent = true;
-        } catch (stuMailErr) {}
+        } catch (stuMailErr) {
+          studentEmailError = String(stuMailErr && stuMailErr.message ? stuMailErr.message : stuMailErr || "MailApp error");
+        }
       }
 
       return ContentService.createTextOutput(JSON.stringify({
@@ -7602,7 +7710,9 @@ function doPost(e) {
         registrationId: newRegId,
         telegramDeepLink: tgDeepLink,
         botUsername: cleanBotUser,
+        tgAdminNotified: tgAdminNotified,
         studentEmailSent: studentEmailSent,
+        studentEmailError: studentEmailError,
         student: {
           id: newRegId,
           name: regStudentName,
@@ -7612,7 +7722,9 @@ function doPost(e) {
           requireLocation: false,
           directLoginUrl: createdDirectUrl,
           qrImageUrl: createdQrUrl,
-          programId: stage1ProgramId
+          programId: stage1ProgramId,
+          telegramDirectUrl: tgDeepLink,
+          telegramQrImageUrl: createdTgQrUrl
         }
       })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -7865,10 +7977,11 @@ function doPost(e) {
         // إذا كان المتقدم عبر المتجر طالباً جديداً (لا يملك ID مسبقاً) -> إنشاء رقم ID تلقائي وتفعيله على البرنامج
         if (!foundExistingReg && matchedNameU) {
           finalAssignedRegId = generateNextRegistrantIdGS(rSheetU);
-          rSheetU.appendRow([finalAssignedRegId, matchedNameU, "مفعّل", 1, "[]", "مسموح", "", "", uTargetProgId]);
+          rSheetU.appendRow([finalAssignedRegId, matchedNameU, "مفعّل", 1, "[]", "مسموح", "", "", uTargetProgId, "", ""]);
           var newRegRowNum = rSheetU.getLastRow();
           var activeBaseU = String(getAppBaseUrlGS() || "").trim();
-          syncRegistrantLinkAndQrCellsGS(rSheetU, newRegRowNum, finalAssignedRegId, matchedNameU, activeBaseU);
+          var tgBotApprove = String(readTelegramConfigGS(ss).botUsername || "").replace(/^@/, "").trim();
+          syncRegistrantLinkAndQrCellsGS(rSheetU, newRegRowNum, finalAssignedRegId, matchedNameU, activeBaseU, tgBotApprove);
           if (targetPrRow >= 2) {
             prSheetU.getRange(targetPrRow, 3).setValue(finalAssignedRegId);
           }
@@ -8264,7 +8377,9 @@ function doPost(e) {
           requireLocation: Boolean(r.requireLocation),
           directLoginUrl: r.directLoginUrl || "",
           qrImageUrl: r.qrImageUrl || "",
-          programId: r.programId || ""
+          programId: r.programId || "",
+          telegramDirectUrl: r.telegramDirectUrl || "",
+          telegramQrImageUrl: r.telegramQrImageUrl || ""
         };
       });
       return ContentService.createTextOutput(JSON.stringify({
@@ -8383,7 +8498,9 @@ function doPost(e) {
           requireLocation: Boolean(matchedRow.requireLocation),
           directLoginUrl: matchedRow.directLoginUrl || "",
           qrImageUrl: matchedRow.qrImageUrl || "",
-          programId: matchedRow.programId || ""
+          programId: matchedRow.programId || "",
+          telegramDirectUrl: matchedRow.telegramDirectUrl || "",
+          telegramQrImageUrl: matchedRow.telegramQrImageUrl || ""
         }
       })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -8393,6 +8510,7 @@ function doPost(e) {
       if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
       var regSheet = getIDRegistrantsSheet(ss);
       var activeBaseUrl = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
+      var activeBotReg = String(readTelegramConfigGS(ss).botUsername || data.botUsername || "").replace(/^@/, "").trim();
 
       if (data.id && data.name) {
         var newId = normRegDigitsGS(data.id);
@@ -8416,12 +8534,12 @@ function doPost(e) {
           regSheet.getRange(targetRowNum, 6).setValue(newReqLoc);
           regSheet.getRange(targetRowNum, 9).setValue(newProgId);
         } else {
-          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", "", newProgId]);
+          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", "", newProgId, "", ""]);
           targetRowNum = regSheet.getLastRow();
         }
-        syncRegistrantLinkAndQrCellsGS(regSheet, targetRowNum, newId, newName, activeBaseUrl);
+        syncRegistrantLinkAndQrCellsGS(regSheet, targetRowNum, newId, newName, activeBaseUrl, activeBotReg);
       } else if (data.action === "init_registrants_sheet") {
-        // تعبئة الأعمدة الناقصة (إجبار الموقع + الرابط المباشر + صورة QR) لجميع الصفوف الحالية
+        // تعبئة الأعمدة الناقصة (إجبار الموقع + الرابط المباشر + QR + رابط وQR تيليغرام السريع) لجميع الصفوف الحالية
         var allToUpgrade = readAllRegistrantsGS(regSheet);
         for (var ui = 0; ui < allToUpgrade.length; ui++) {
           var uRow = allToUpgrade[ui];
@@ -8429,15 +8547,13 @@ function doPost(e) {
           if (!curReqVal) {
             regSheet.getRange(uRow.rowNumber, 6).setValue("مسموح");
           }
-          if (activeBaseUrl) {
-            syncRegistrantLinkAndQrCellsGS(regSheet, uRow.rowNumber, uRow.id, uRow.name, activeBaseUrl);
-          }
+          syncRegistrantLinkAndQrCellsGS(regSheet, uRow.rowNumber, uRow.id, uRow.name, activeBaseUrl, activeBotReg);
         }
       }
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         registrantHandled: true,
-        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة التسعة بنجاح"
+        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة الـ 11 بنجاح"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -8475,7 +8591,8 @@ function doPost(e) {
       regSheet.getRange(targetRow.rowNumber, 6).setValue(nextReqLoc);
       regSheet.getRange(targetRow.rowNumber, 9).setValue(nextProgId);
       var activeBaseUrlUpd = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
-      syncRegistrantLinkAndQrCellsGS(regSheet, targetRow.rowNumber, nextId, nextName, activeBaseUrlUpd);
+      var activeBotUpd = String(readTelegramConfigGS(ss).botUsername || data.botUsername || "").replace(/^@/, "").trim();
+      syncRegistrantLinkAndQrCellsGS(regSheet, targetRow.rowNumber, nextId, nextName, activeBaseUrlUpd, activeBotUpd);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         registrantHandled: true,

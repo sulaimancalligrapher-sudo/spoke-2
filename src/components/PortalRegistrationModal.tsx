@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   X,
   UserPlus,
@@ -8,6 +9,7 @@ import {
   Check,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Loader2,
   ExternalLink,
   Copy,
@@ -18,6 +20,8 @@ import {
   FileText,
   Sparkles,
   LogIn,
+  Download,
+  Mail,
 } from 'lucide-react';
 import {
   PortalSettingsConfig,
@@ -67,14 +71,16 @@ const REG_UI = {
     successBadge: 'تم التسجيل بنجاح — المرحلة التمهيدية',
     successTitle: 'أهلاً بك! حسابك جاهز للدخول المباشر',
     successSubtitle:
-      'تم حفظ طلبك وإشعار الإدارة، وإرسال نسخة من بيانات دخولك إلى بريدك الإلكتروني. الخطوة التالية هي ربط تيليغرام ثم الدخول المباشر باسمك ورقمك.',
-    emailSentBadge: 'تم إرسال بيانات التسجيل (الاسم + الرقم + رابط تيليغرام) إلى بريدك:',
+      'تم حفظ طلبك وإشعار الإدارة بنجاح. يمكنك ربط تيليغرام عبر الرابط أو رمز QR أدناه ثم الدخول المباشر باسمك ورقمك.',
+    emailSentBadge: 'تم إرسال رسالة تأكيد بالرابطين ورمزي QR إلى بريدك الإلكتروني:',
+    emailFailedTitle: 'تعذر إرسال رسالة البريد الإلكتروني تلقائياً إلى:',
+    emailFailedHint: 'يمكنك حفظ بيانات الدخول أعلاه وتصوير رمز QR لتيليغرام مباشرة.',
     regIdLabel: 'رقم التسجيل الخاص بك (ID)',
     copyId: 'نسخ الرقم',
     copied: 'تم النسخ',
-    tgStepTitle: 'الخطوة الاختيارية الموصى بها: ربط بوت تيليغرام المباشر',
+    tgStepTitle: 'ربط بوت تيليغرام المباشر (رابط + QR)',
     tgStepDesc:
-      'افتح الرابط المباشر واضغط Start في تيليغرام ليتم ربط معرفك تلقائياً وتلقي إشعار قبولك وترقيتك للبرنامج الأساسي.',
+      'افتح الرابط أو امسح رمز QR واضغط Start في تيليغرام ليتم ربط معرفك تلقائياً وتلقي إشعار قبولك وترقيتك للبرنامج الأساسي.',
     tgBtn: 'فتح رابط تيليغرام المباشر الآن',
     tgNoBotHint:
       'بمجرد ضبط اسم مستخدم البوت في إعدادات تيليغرام، سيظهر رابط الربط التلقائي هنا.',
@@ -103,14 +109,16 @@ const REG_UI = {
     successBadge: 'Registration Complete — Stage 1',
     successTitle: 'Welcome! Your introductory account is ready',
     successSubtitle:
-      'Your application has been saved and your login details sent to your email. Next step: link Telegram and enter directly using your Name & ID.',
-    emailSentBadge: 'Welcome details sent to your email:',
+      'Your application has been saved. Link Telegram via the button or QR code below, then enter directly using your Name & ID.',
+    emailSentBadge: 'Welcome email with links & QR codes sent to:',
+    emailFailedTitle: 'Automatic welcome email could not be delivered to:',
+    emailFailedHint: 'Please copy your Registration ID and scan/save the Telegram QR below.',
     regIdLabel: 'Your Registration ID',
     copyId: 'Copy ID',
     copied: 'Copied',
-    tgStepTitle: 'Recommended: Connect Direct Telegram Bot',
+    tgStepTitle: 'Direct Telegram Connection (Link + QR)',
     tgStepDesc:
-      'Open the direct link and press Start in Telegram so we receive your Telegram ID for instant promotion & teacher updates.',
+      'Open the direct link or scan the QR code and press Start in Telegram so we receive your Telegram ID for instant promotion & teacher updates.',
     tgBtn: 'Open Direct Telegram Link',
     tgNoBotHint: 'Configure bot username in Admin Telegram Settings to enable instant deep linking.',
     enterNowBtn: 'Enter My Private Page (Introductory Stage)',
@@ -138,13 +146,15 @@ const REG_UI = {
     successBadge: 'ลงทะเบียนสำเร็จ — ขั้นตอนที่ 1',
     successTitle: 'ยินดีต้อนรับ! บัญชีเบื้องต้นของคุณพร้อมใช้งานแล้ว',
     successSubtitle:
-      'ระบบได้บันทึกข้อมูลและส่งรายละเอียดเข้าสู่ระบบไปยังอีเมลของคุณแล้ว ขั้นตอนถัดไปคือเชื่อมต่อ Telegram และกดเข้าสู่หน้าส่วนตัวด้วยชื่อและรหัสของคุณทันที',
-    emailSentBadge: 'ส่งข้อมูลการลงทะเบียนไปยังอีเมลของคุณแล้ว:',
+      'ระบบได้บันทึกข้อมูลเรียบร้อยแล้ว เชื่อมต่อ Telegram ผ่านปุ่มหรือสแกน QR ด้านล่าง จากนั้นเข้าสู่หน้าส่วนตัวด้วยชื่อและรหัสของคุณทันที',
+    emailSentBadge: 'ส่งอีเมลยืนยันพร้อมลิงก์และ QR Code ไปยังอีเมลของคุณแล้ว:',
+    emailFailedTitle: 'ไม่สามารถส่งอีเมลอัตโนมัติไปยัง:',
+    emailFailedHint: 'กรุณาบันทึกรหัสผู้เรียนและสแกน QR Telegram ด้านล่างไว้ใช้งาน',
     regIdLabel: 'รหัสลงทะเบียนของคุณ (ID)',
     copyId: 'คัดลอกรหัส',
     copied: 'คัดลอกแล้ว',
-    tgStepTitle: 'แนะนำ: เชื่อมต่อบอท Telegram โดยตรง',
-    tgStepDesc: 'กดลิงก์เพื่อเปิด Telegram แล้วกด Start เพื่อให้ระบบบันทึกรหัส Telegram สำหรับแจ้งเตือนผลการอนุมัติ',
+    tgStepTitle: 'เชื่อมต่อบอท Telegram โดยตรง (ลิงก์ + QR)',
+    tgStepDesc: 'กดลิงก์หรือสแกน QR Code เพื่อเปิด Telegram แล้วกด Start เพื่อให้ระบบบันทึกรหัส Telegram สำหรับแจ้งเตือนผลการอนุมัติ',
     tgBtn: 'เปิดลิงก์ Telegram โดยตรง',
     tgNoBotHint: 'ผู้ดูแลระบบสามารถตั้งค่าชื่อบอทในหน้าตั้งค่า Telegram เพื่อเปิดใช้งานลิงก์ตรง',
     enterNowBtn: 'เข้าสู่หน้าส่วนตัวและข้อมูลเบื้องต้นทันที',
@@ -185,6 +195,8 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState(false);
+  const [copiedTgLink, setCopiedTgLink] = useState(false);
+  const [tgQrDataUrl, setTgQrDataUrl] = useState<string>('');
 
   const [completedResult, setCompletedResult] = useState<{
     registrationId: string;
@@ -193,6 +205,7 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
     botUsername: string;
     studentEmail?: string;
     studentEmailSent?: boolean;
+    studentEmailError?: string;
   } | null>(null);
 
   // Camera capture state
@@ -228,6 +241,29 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
       }
     }
   }, [isOpen, initialPrefilledName]);
+
+  useEffect(() => {
+    const deepUrl = completedResult?.telegramDeepLink;
+    if (!deepUrl) {
+      setTgQrDataUrl('');
+      return;
+    }
+    let active = true;
+    QRCode.toDataURL(deepUrl, {
+      width: 240,
+      margin: 2,
+      color: { dark: '#0369a1', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (active) setTgQrDataUrl(url);
+      })
+      .catch(() => {
+        if (active) setTgQrDataUrl('');
+      });
+    return () => {
+      active = false;
+    };
+  }, [completedResult?.telegramDeepLink]);
 
   useEffect(() => {
     if (!cameraQuestionId || capturedDataUrl) return;
@@ -418,6 +454,7 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
           botUsername: botU,
           studentEmail: submittedEmail,
           studentEmailSent: res.studentEmailSent,
+          studentEmailError: res.studentEmailError,
         });
       } else {
         setErrorMsg(res.message || 'تعذر إكمال التسجيل حالياً. حاول مرة أخرى.');
@@ -491,15 +528,33 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
             <div className="space-y-5">
               <p className="text-sm text-slate-600 leading-relaxed">{ui.successSubtitle}</p>
 
-              {completedResult.studentEmail && (
+              {completedResult.studentEmail && completedResult.studentEmailSent === true ? (
                 <div className="px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-950 text-xs font-bold flex flex-wrap items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <Mail className="w-4 h-4 text-blue-600 shrink-0" />
                   <span>{ui.emailSentBadge}</span>
                   <span dir="ltr" className="font-mono underline">
                     {completedResult.studentEmail}
                   </span>
                 </div>
-              )}
+              ) : completedResult.studentEmail ? (
+                <div className="px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs space-y-1">
+                  <div className="font-bold flex flex-wrap items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>{ui.emailFailedTitle}</span>
+                    <span dir="ltr" className="font-mono underline">
+                      {completedResult.studentEmail}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-amber-800 leading-relaxed">
+                    {ui.emailFailedHint}
+                    {completedResult.studentEmailError
+                      ? ` (${completedResult.studentEmailError})`
+                      : portalSettings.sendStudentWelcomeEmail === false
+                      ? ''
+                      : ' — تأكد من نشر أحدث إصدار Apps Script ومنح صلاحية البريد (MailApp).'}
+                  </div>
+                </div>
+              ) : null}
 
               {/* 1. Registration ID Showcase */}
               <div className="p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -532,8 +587,8 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
                 </button>
               </div>
 
-              {/* 2. Direct Telegram Link */}
-              <div className="p-5 rounded-2xl bg-sky-50/70 border border-sky-200 space-y-3">
+              {/* 2. Direct Telegram Link + Scannable QR Code */}
+              <div className="p-5 rounded-2xl bg-sky-50/70 border border-sky-200 space-y-4">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0">
                     <Bot className="w-5 h-5" />
@@ -545,16 +600,51 @@ export const PortalRegistrationModal: React.FC<PortalRegistrationModalProps> = (
                 </div>
 
                 {completedResult.telegramDeepLink ? (
-                  <a
-                    href={completedResult.telegramDeepLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-3 px-4 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 transition-colors min-h-[44px]"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>{ui.tgBtn}</span>
-                    <ExternalLink className="w-3.5 h-3.5 opacity-80" />
-                  </a>
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    {tgQrDataUrl && (
+                      <div className="p-2.5 bg-white rounded-2xl border border-sky-200 shadow-2xs shrink-0 flex flex-col items-center gap-1.5">
+                        <img
+                          src={tgQrDataUrl}
+                          alt="Telegram Quick-Join QR"
+                          className="w-32 h-32 object-contain rounded-lg"
+                        />
+                        <a
+                          href={tgQrDataUrl}
+                          download={`telegram_qr_${completedResult.registrationId}.png`}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 hover:text-sky-900"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>حفظ QR</span>
+                        </a>
+                      </div>
+                    )}
+
+                    <div className="flex-1 w-full space-y-2.5">
+                      <a
+                        href={completedResult.telegramDeepLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3 px-4 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 transition-colors min-h-[44px]"
+                      >
+                        <Send className="w-4 h-4" />
+                        <span>{ui.tgBtn}</span>
+                        <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(completedResult.telegramDeepLink);
+                          setCopiedTgLink(true);
+                          setTimeout(() => setCopiedTgLink(false), 2000);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-white hover:bg-sky-100 border border-sky-200 text-sky-900 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer min-h-[40px]"
+                      >
+                        {copiedTgLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedTgLink ? ui.copied : 'نسخ رابط تيليغرام المباشر'}</span>
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <div className="text-xs text-sky-900 bg-white/80 border border-sky-200 rounded-xl p-3 font-medium">
                     {ui.tgNoBotHint}

@@ -26,6 +26,8 @@ import {
   Download,
   Link2,
   Layers,
+  Send,
+  ExternalLink,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import {
@@ -42,15 +44,18 @@ import {
   deleteIDRegistrantFromSheet,
   normalizeDigits,
 } from '../utils/googleSheets';
+import { buildTelegramBotStartLink, getSavedPortalBotUsername } from '../utils/portalSheets';
 
 interface SubscribersAdminManagerProps {
   webhookUrl: string;
   coursePrograms?: CourseProgram[];
+  botUsername?: string;
 }
 
 export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = ({
   webhookUrl,
   coursePrograms,
+  botUsername,
 }) => {
   const programsList = useMemo(() => {
     if (Array.isArray(coursePrograms) && coursePrograms.length > 0) {
@@ -103,7 +108,9 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
 
   // QR Card modal
   const [qrStudent, setQrStudent] = useState<StudentRegistrant | null>(null);
+  const [qrTab, setQrTab] = useState<'login' | 'telegram'>('login');
   const [qrImageUrl, setQrImageUrl] = useState<string>('');
+  const [tgQrImageUrl, setTgQrImageUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedRowLinkId, setCopiedRowLinkId] = useState<string | null>(null);
 
@@ -163,8 +170,8 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       setStatusBanner({
         type: res.supportsDeviceSecurity ? 'success' : 'warning',
         text: res.supportsDeviceSecurity
-          ? 'تم تجهيز وترقية أعمدة ورقة ID registrants (9 أعمدة تشمل البرنامج التدريبي والموقع والرابط المباشر وQR) بنجاح!'
-          : 'تم إرسال الطلب، ولكن يرجى نشر النسخة الجديدة من Google Apps Script (New Version) لتفعيل الأعمدة التسعة.',
+          ? 'تم تجهيز وترقية أعمدة ورقة ID registrants (11 عموداً تشمل البرنامج التدريبي، الموقع، الرابط المباشر وQR، ورابط وQR الدخول السريع لتيليغرام) بنجاح!'
+          : 'تم إرسال الطلب، ولكن يرجى نشر النسخة الجديدة من Google Apps Script (New Version) لتفعيل الأعمدة الإحدى عشرة.',
       });
       await loadRegistrants();
     } else {
@@ -200,8 +207,8 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
       setStatusBanner({
         type: res.needsScriptUpdate ? 'warning' : 'success',
         text: res.needsScriptUpdate
-          ? 'تمت إضافة المشترك بالصيغة الأساسية. لتفعيل الأعمدة التسعة يرجى نشر New Version من Apps Script.'
-          : `تمت إضافة/تحديث المشترك (${cleanName}) مع رابط الدخول وQR في ورقة ID registrants بنجاح.`,
+          ? 'تمت إضافة المشترك بالصيغة الأساسية. لتفعيل الأعمدة الـ 11 يرجى نشر New Version من Apps Script.'
+          : `تمت إضافة/تحديث المشترك (${cleanName}) مع روابط الدخول المباشر وتيليغرام وQR في ورقة ID registrants بنجاح.`,
       });
       await loadRegistrants();
     } else {
@@ -364,27 +371,43 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
     setIsSavingEdit(false);
   };
 
+  const resolvedBotUsername = useMemo(
+    () => (botUsername || getSavedPortalBotUsername() || '').replace(/^@/, '').trim(),
+    [botUsername]
+  );
+
   const getAutoLoginUrl = (student: StudentRegistrant) =>
     student.directLoginUrl ||
     `${window.location.origin}${window.location.pathname}?student_id=${encodeURIComponent(
       student.id
     )}&student_name=${encodeURIComponent(student.name)}`;
 
+  const getTelegramQuickJoinUrl = (student: StudentRegistrant) =>
+    student.telegramDirectUrl ||
+    (resolvedBotUsername ? buildTelegramBotStartLink(resolvedBotUsername, student.id) : '');
+
   const handleOpenQrModal = async (student: StudentRegistrant) => {
     setQrStudent(student);
+    setQrTab('login');
     setCopiedLink(false);
     const autoLoginUrl = getAutoLoginUrl(student);
+    const tgUrl = getTelegramQuickJoinUrl(student);
     try {
-      const url = await QRCode.toDataURL(autoLoginUrl, { width: 280, margin: 2 });
-      setQrImageUrl(url);
+      const [loginDataUrl, tgDataUrl] = await Promise.all([
+        QRCode.toDataURL(autoLoginUrl, { width: 280, margin: 2 }),
+        tgUrl ? QRCode.toDataURL(tgUrl, { width: 280, margin: 2 }) : Promise.resolve(''),
+      ]);
+      setQrImageUrl(loginDataUrl);
+      setTgQrImageUrl(tgDataUrl);
     } catch {
       setQrImageUrl('');
+      setTgQrImageUrl('');
     }
   };
 
-  const handleCopyAutoLoginLink = async (student: StudentRegistrant) => {
+  const handleCopyAutoLoginLink = async (student: StudentRegistrant, customUrl?: string) => {
     try {
-      await navigator.clipboard.writeText(getAutoLoginUrl(student));
+      await navigator.clipboard.writeText(customUrl || getAutoLoginUrl(student));
       setCopiedLink(true);
       setCopiedRowLinkId(student.id);
       window.setTimeout(() => {
@@ -1140,64 +1163,130 @@ export const SubscribersAdminManager: React.FC<SubscribersAdminManagerProps> = (
         </div>
       )}
 
-      {/* QR Card Modal */}
-      {qrStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="text-sm font-extrabold text-slate-900">بطاقة دخول الطالب (QR)</h3>
-              <button
-                type="button"
-                onClick={() => setQrStudent(null)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-1">
-              <div className="text-base font-black text-slate-900">{qrStudent.name}</div>
-              <div className="text-xs font-mono font-bold text-indigo-700">ID: {qrStudent.id}</div>
-            </div>
-
-            {qrImageUrl && (
-              <div className="flex justify-center">
-                <img
-                  src={qrImageUrl}
-                  alt="Student QR"
-                  className="w-52 h-52 rounded-2xl border border-slate-200 p-2 bg-white shadow-xs"
-                />
-              </div>
-            )}
-
-            <div className="text-[11px] font-mono text-slate-500 bg-slate-50 p-2 rounded-xl border border-slate-200 break-all select-all" dir="ltr">
-              {getAutoLoginUrl(qrStudent)}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleCopyAutoLoginLink(qrStudent)}
-                className="py-2.5 px-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                <span>{copiedLink ? 'تم النسخ' : 'نسخ الرابط'}</span>
-              </button>
-
-              {qrImageUrl && (
-                <a
-                  href={qrImageUrl}
-                  download={`QR_${qrStudent.id}_${qrStudent.name}.png`}
-                  className="py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+      {/* QR Card Modal (Direct Login + Telegram Quick-Join QR) */}
+      {qrStudent && (() => {
+        const activeUrl =
+          qrTab === 'telegram' ? getTelegramQuickJoinUrl(qrStudent) : getAutoLoginUrl(qrStudent);
+        const activeQr = qrTab === 'telegram' ? tgQrImageUrl : qrImageUrl;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <h3 className="text-sm font-extrabold text-slate-900">بطاقات دخول الطالب (QR)</h3>
+                <button
+                  type="button"
+                  onClick={() => setQrStudent(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>تنزيل QR</span>
-                </a>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-0.5">
+                <div className="text-base font-black text-slate-900">{qrStudent.name}</div>
+                <div className="text-xs font-mono font-bold text-indigo-700 tabular-nums">ID: {qrStudent.id}</div>
+              </div>
+
+              {/* Dual QR Switcher Tabs */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-2xl bg-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQrTab('login');
+                    setCopiedLink(false);
+                  }}
+                  className={`py-2 px-2 rounded-xl text-xs font-extrabold transition-colors cursor-pointer whitespace-nowrap ${
+                    qrTab === 'login'
+                      ? 'bg-white text-indigo-800 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  دخول الدروس المباشر
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQrTab('telegram');
+                    setCopiedLink(false);
+                  }}
+                  className={`py-2 px-2 rounded-xl text-xs font-extrabold transition-colors cursor-pointer flex items-center justify-center gap-1 whitespace-nowrap ${
+                    qrTab === 'telegram'
+                      ? 'bg-white text-sky-700 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Send className="w-3 h-3" />
+                  <span>دخول تيليغرام</span>
+                </button>
+              </div>
+
+              {activeUrl ? (
+                <>
+                  {activeQr && (
+                    <div className="flex justify-center">
+                      <img
+                        src={activeQr}
+                        alt={qrTab === 'telegram' ? 'Telegram Quick-Join QR' : 'Student Login QR'}
+                        className="w-48 h-48 rounded-2xl border border-slate-200 p-2 bg-white shadow-xs"
+                      />
+                    </div>
+                  )}
+
+                  <div
+                    className="text-[11px] font-mono text-slate-600 bg-slate-50 p-2 rounded-xl border border-slate-200 break-all select-all"
+                    dir="ltr"
+                  >
+                    {activeUrl}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyAutoLoginLink(qrStudent, activeUrl)}
+                      className="flex-1 py-2.5 px-3 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedLink ? 'تم النسخ' : 'نسخ الرابط'}</span>
+                    </button>
+
+                    {qrTab === 'telegram' && (
+                      <a
+                        href={activeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="py-2.5 px-3 rounded-2xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>فتح</span>
+                      </a>
+                    )}
+
+                    {activeQr && (
+                      <a
+                        href={activeQr}
+                        download={
+                          qrTab === 'telegram'
+                            ? `Telegram_QR_${qrStudent.id}_${qrStudent.name}.png`
+                            : `QR_${qrStudent.id}_${qrStudent.name}.png`
+                        }
+                        className="flex-1 py-2.5 px-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>تنزيل QR</span>
+                      </a>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 leading-relaxed">
+                  لم يُضبط اسم بوت تيليغرام بعد. يرجى إدخال معرف البوت في تبويب{' '}
+                  <strong>بوت تيليغرام والإشعارات</strong> ليتم إنشاء رابط ورمز QR الدخول السريع تلقائياً.
+                </div>
               )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

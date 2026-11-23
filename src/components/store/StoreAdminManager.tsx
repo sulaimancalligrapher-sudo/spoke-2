@@ -2001,6 +2001,136 @@ export const StoreAdminManager: React.FC<StoreAdminManagerProps> = ({
                 </div>
               )}
 
+              {/* Bilingual Program Translations (EN / TH) */}
+              <details className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                <summary className="text-xs font-extrabold text-slate-900 cursor-pointer select-none">
+                  ترجمة تفاصيل البرنامج (English / ภาษาไทย) — اختياري
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        Title (English)
+                      </label>
+                      <input
+                        dir="ltr"
+                        value={editingProgCard.titleEn || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, titleEn: e.target.value })
+                        }
+                        placeholder="Program Title (EN)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        ชื่อหลักสูตร (ภาษาไทย)
+                      </label>
+                      <input
+                        value={editingProgCard.titleTh || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, titleTh: e.target.value })
+                        }
+                        placeholder="ชื่อหลักสูตร (TH)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        Badge / Subtitle (EN)
+                      </label>
+                      <input
+                        dir="ltr"
+                        value={editingProgCard.badgeTextEn || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, badgeTextEn: e.target.value })
+                        }
+                        placeholder="Badge (EN)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        ป้ายกำกับ (TH)
+                      </label>
+                      <input
+                        value={editingProgCard.badgeTextTh || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, badgeTextTh: e.target.value })
+                        }
+                        placeholder="ป้ายกำกับ (TH)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        Description (EN)
+                      </label>
+                      <textarea
+                        rows={2}
+                        dir="ltr"
+                        value={editingProgCard.descriptionEn || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, descriptionEn: e.target.value })
+                        }
+                        placeholder="Program description (EN)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        รายละเอียด (TH)
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={editingProgCard.descriptionTh || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, descriptionTh: e.target.value })
+                        }
+                        placeholder="รายละเอียดหลักสูตร (TH)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        Button Label (EN)
+                      </label>
+                      <input
+                        dir="ltr"
+                        value={editingProgCard.linkLabelEn || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, linkLabelEn: e.target.value })
+                        }
+                        placeholder="Enroll Now (EN)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[11px] font-bold text-slate-600">
+                        ข้อความปุ่ม (TH)
+                      </label>
+                      <input
+                        value={editingProgCard.linkLabelTh || ''}
+                        onChange={(e) =>
+                          setEditingProgCard({ ...editingProgCard, linkLabelTh: e.target.value })
+                        }
+                        placeholder="สมัครเรียน (TH)"
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </details>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                 <button
                   type="button"

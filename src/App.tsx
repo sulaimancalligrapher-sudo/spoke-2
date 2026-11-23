@@ -58,12 +58,14 @@ import { HomeContentShowcase } from './components/HomeContentManager';
 import { PublicPortalView } from './components/PublicPortalView';
 import { StorePortalShell } from './components/store/StorePortalShell';
 import { PortalRegistrationModal } from './components/PortalRegistrationModal';
+import { UnifiedAccessModal } from './components/UnifiedAccessModal';
 import { ProgramRequestModal } from './components/ProgramRequestModal';
 import {
   fetchPortalDataFromSheets,
   fetchRegistrationQuestionsFromSheets,
   getLocalPortalData,
   getLocalRegistrationQuestions,
+  getSavedPortalBotUsername,
   saveLocalPortalData,
   saveLocalRegistrationQuestions,
   buildTelegramBotStartLink,
@@ -388,6 +390,7 @@ export default function App() {
     getLocalRegistrationQuestions()
   );
   const [isRegistrationModalOpen, setIsRegistrationModalOpen] = useState(false);
+  const [isUnifiedAccessOpen, setIsUnifiedAccessOpen] = useState(false);
   const [registrationPreselectedProgram, setRegistrationPreselectedProgram] = useState<string | undefined>(
     undefined
   );
@@ -940,6 +943,12 @@ export default function App() {
         }
         if (lowerHash === '#register') {
           setIsRegistrationModalOpen(true);
+        } else if (
+          lowerHash === '#access' ||
+          new URLSearchParams(window.location.search).get('portal')?.toLowerCase() === 'access'
+        ) {
+          setStoreRouteMode('none');
+          setIsUnifiedAccessOpen(true);
         }
         let slugFromUrl = '';
         if (lowerHash.startsWith('#program=')) {
@@ -2773,6 +2782,7 @@ export default function App() {
             }}
             currentLang={currentLang}
             onSelectLang={handleSelectLang}
+            onOpenUnifiedAccess={() => setIsUnifiedAccessOpen(true)}
             onOpenRegistration={(progLabel) => {
               setRegistrationPreselectedProgram(progLabel);
               setIsRegistrationModalOpen(true);
@@ -2801,6 +2811,26 @@ export default function App() {
             <span>العودة للوحة الإدارة (وضع المعاينة)</span>
           </button>
         )}
+
+        <UnifiedAccessModal
+          isOpen={isUnifiedAccessOpen}
+          onClose={() => {
+            setIsUnifiedAccessOpen(false);
+            if (window.location.hash.toLowerCase() === '#access') {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+          }}
+          portalSettings={portalData.settings}
+          currentLang={currentLang}
+          onSelectRegister={() => {
+            setIsUnifiedAccessOpen(false);
+            setIsRegistrationModalOpen(true);
+          }}
+          onSelectLogin={() => {
+            setIsUnifiedAccessOpen(false);
+            setIsLoginModalOpen(true);
+          }}
+        />
 
         <PortalRegistrationModal
           isOpen={isRegistrationModalOpen}
@@ -3147,7 +3177,7 @@ export default function App() {
               (!currentStudent.programId ||
                 currentStudent.programId === portalData.settings.stage1DefaultProgramId) && (() => {
                 const tgLink = buildTelegramBotStartLink(
-                  portalData.settings.telegramBotUsername,
+                  portalData.settings.telegramBotUsername || getSavedPortalBotUsername(),
                   currentStudent.id
                 );
                 return (
