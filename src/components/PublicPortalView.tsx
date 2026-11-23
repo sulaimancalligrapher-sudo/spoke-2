@@ -49,6 +49,7 @@ interface PublicPortalViewProps {
   onOpenRegistration: (programTitle?: string) => void;
   onOpenProgramRequest: (programItem: PortalContentItem) => void;
   onOpenStudentLogin: () => void;
+  onOpenStore?: () => void;
   highlightedProgramSlug?: string;
 }
 
@@ -152,6 +153,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   onOpenRegistration,
   onOpenProgramRequest,
   onOpenStudentLogin,
+  onOpenStore,
   highlightedProgramSlug,
 }) => {
   const dir = currentLang === 'ar' ? 'rtl' : 'ltr';
@@ -238,7 +240,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
 
     return orderedSections
       .filter((s) => s.key !== 'hero' && s.key !== 'announcement')
-      .slice(0, 5)
+      .slice(0, 6)
       .map((s) => {
         const label =
           currentLang === 'en'
@@ -904,16 +906,39 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
           id="portal-store_slot"
           className="max-w-6xl mx-auto px-4 sm:px-6 py-12"
         >
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center mx-auto">
-              <ShoppingBag className="w-6 h-6" />
+          <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/40 p-8 sm:p-10 text-center space-y-4 shadow-xs">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-800 text-amber-300 flex items-center justify-center mx-auto shadow-xs">
+              <ShoppingBag className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-extrabold text-slate-900">
-              {storeSlotTitle || 'المتجر'}
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-amiri">
+              {storeSlotTitle || 'المتجر والأدوات'}
             </h2>
             <p className="text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
-              {storeSlotNote}
+              {storeSlotNote ||
+                'تصفح الأقلام والأحبار والأوراق الأصلية والباقات التدريبية المعتمدة مع توصيل لجميع المدن.'}
             </p>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenStore) {
+                    onOpenStore();
+                  } else {
+                    window.location.hash = '#store';
+                  }
+                }}
+                className="px-6 py-3 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <ShoppingBag className="w-4 h-4 text-amber-300" />
+                <span>
+                  {currentLang === 'en'
+                    ? 'Visit Store & Programs'
+                    : currentLang === 'th'
+                    ? 'เข้าสู่ร้านค้าและหลักสูตร'
+                    : 'دخول المتجر وتصفح الأدوات والبرامج'}
+                </span>
+              </button>
+            </div>
           </div>
         </section>
       );
@@ -1118,15 +1143,30 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
 
           {/* Zone 2: Clean Single-Line Text Nav Links */}
           <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold text-slate-600">
-            {navLinks.map((lnk) => (
-              <a
-                key={lnk.key}
-                href={lnk.href}
-                className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0"
-              >
-                {lnk.label}
-              </a>
-            ))}
+            {navLinks.map((lnk) =>
+              lnk.key === 'store_slot' ? (
+                <button
+                  key={lnk.key}
+                  type="button"
+                  onClick={() => {
+                    if (onOpenStore) onOpenStore();
+                    else window.location.hash = '#store';
+                  }}
+                  className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer inline-flex items-center gap-1.5 text-emerald-800 font-extrabold"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span>{lnk.label}</span>
+                </button>
+              ) : (
+                <a
+                  key={lnk.key}
+                  href={lnk.href}
+                  className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0"
+                >
+                  {lnk.label}
+                </a>
+              )
+            )}
           </nav>
 
           {/* Zone 3: Primary Action + Language / Login */}
@@ -1170,16 +1210,32 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3">
             <div className="flex flex-wrap gap-3">
-              {navLinks.map((lnk) => (
-                <a
-                  key={lnk.key}
-                  href={lnk.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1 px-2"
-                >
-                  {lnk.label}
-                </a>
-              ))}
+              {navLinks.map((lnk) =>
+                lnk.key === 'store_slot' ? (
+                  <button
+                    key={lnk.key}
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      if (onOpenStore) onOpenStore();
+                      else window.location.hash = '#store';
+                    }}
+                    className="text-sm font-extrabold text-emerald-800 hover:text-emerald-900 py-1 px-2 cursor-pointer inline-flex items-center gap-1.5"
+                  >
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                    <span>{lnk.label}</span>
+                  </button>
+                ) : (
+                  <a
+                    key={lnk.key}
+                    href={lnk.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1 px-2"
+                  >
+                    {lnk.label}
+                  </a>
+                )
+              )}
             </div>
             <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
               <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />

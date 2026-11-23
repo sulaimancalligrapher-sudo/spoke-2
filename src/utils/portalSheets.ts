@@ -40,7 +40,7 @@ export const DEFAULT_PORTAL_SECTIONS: PortalSectionConfig[] = [
   { key: 'gallery', label: 'معرض الأعمال والصور', labelEn: 'Showcase Gallery', labelTh: 'แกลเลอรีผลงาน', enabled: true, sortOrder: 4 },
   { key: 'videos', label: 'مكتبة الفيديو التعريفية', labelEn: 'Introductory Videos', labelTh: 'วิดีโอแนะนำ', enabled: true, sortOrder: 5 },
   { key: 'contact', label: 'التواصل والاستفسارات', labelEn: 'Contact & Channels', labelTh: 'ติดต่อเรา', enabled: true, sortOrder: 6 },
-  { key: 'store_slot', label: 'المتجر (مساحة محجوزة)', labelEn: 'Store', labelTh: 'ร้านค้า', enabled: false, sortOrder: 7 },
+  { key: 'store_slot', label: 'المتجر الإلكتروني', labelEn: 'Store', labelTh: 'ร้านค้า', enabled: true, sortOrder: 7 },
 ];
 
 export const DEFAULT_SOCIAL_CHANNELS: PortalSocialChannel[] = [
@@ -166,14 +166,14 @@ export const DEFAULT_PORTAL_SETTINGS: PortalSettingsConfig = {
   sendStudentWelcomeEmail: true,
   notifyAdminTelegramOnRegister: true,
   notifyStudentTelegramOnTransfer: true,
-  showStoreNavSlot: false,
+  showStoreNavSlot: true,
   storeSlotTitle: 'المتجر',
   storeSlotTitleEn: 'Store',
   storeSlotTitleTh: 'ร้านค้า',
   storeSlotNote:
-    'هذه المساحة محجوزة ومهيّأة لربط متجر الأدوات والمستلزمات المتكامل في المرحلة القادمة دون التأثير على البوابة أو نظام التدريب.',
-  storeSlotNoteEn: 'This area is reserved for connecting the dedicated tools and supplies store later.',
-  storeSlotNoteTh: 'พื้นที่นี้สงวนไว้สำหรับเชื่อมต่อร้านค้าอุปกรณ์ในระยะถัดไป',
+    'استعرض أدوات الخط العربي والقرطاسية المختارة والبرامج التدريبية المتخصصة في متجرنا المتكامل مع تتبع فوري للطلبات.',
+  storeSlotNoteEn: 'Explore calligraphy supplies, curated stationery, and specialized training tracks in our store.',
+  storeSlotNoteTh: 'เลือกชมอุปกรณ์คัดลายมือ เครื่องเขียน และหลักสูตรอบรมเฉพาะทางในร้านค้าของเรา',
   uiTexts: DEFAULT_PORTAL_UI_TEXTS,
   sections: DEFAULT_PORTAL_SECTIONS,
 };
@@ -250,6 +250,7 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     subtitle: 'المرحلة الأولى فور التسجيل',
     description:
       'يفتح لك فور إرسال استمارة التسجيل؛ يحتوي على إرشادات المنصة ونماذج تجريبية لفهم طريقة التمرين قبل التحويل إلى برنامجك الكامل.',
+    mediaUrl: heroCalligraphyImg,
     badgeText: 'دخول فوري بعد التسجيل',
     metaPrimary: 'نماذج وإرشادات',
     metaSecondary: 'تأهيل مبدئي',
@@ -260,6 +261,19 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     linkLabelTh: 'สมัครและเริ่มทันที',
     enabled: true,
     sortOrder: 1,
+    showInStore: true,
+    price: 0,
+    format: 'online_live',
+    duration: 'تمهيدي مرن',
+    startDate: 'دخول فوري',
+    instructor: 'فريق الإشراف الأكاديمي',
+    seatsTotal: 200,
+    seatsLeft: 185,
+    syllabus: [
+      'التعرف على بيئة المنصة وتجربة تمارين النطق والإملاء',
+      'فحص جاهزية الميكروفون والكاميرا للسبورة',
+      'التمهيد قبل اعتماد الانتقال للبرنامج الأساسي',
+    ],
   },
   {
     id: 'prog_card_2',
@@ -270,6 +284,7 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     subtitle: 'المرحلة الثانية · بناء الأساس',
     description:
       'تمارين مركزة لتأسيس مخارج الحروف وتشكيل الكلمات الأساسية والكتابة الموجهة وفق جدول يومي منضبط.',
+    mediaUrl: aboutStudioImg,
     badgeText: 'للمشتركين المسجلين',
     metaPrimary: 'تأسيس شامل',
     metaSecondary: 'مجموعات يومية',
@@ -280,6 +295,20 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     linkLabelTh: 'ขอเข้าร่วมหลักสูตรนี้',
     enabled: true,
     sortOrder: 2,
+    showInStore: true,
+    price: 250,
+    compareAtPrice: 320,
+    format: 'online_live',
+    duration: '4 أسابيع · 16 ساعة',
+    startDate: 'تسجيل مستمر',
+    instructor: 'أ. سليمان الخطاط',
+    seatsTotal: 30,
+    seatsLeft: 14,
+    syllabus: [
+      'ضبط مخارج الحروف الأساسية وتمييز الحركات',
+      'تدريبات وصل الحروف وبناء الكلمة على السطر',
+      'متابعة يومية عبر تيليغرام وتقارير أداء أسبوعية',
+    ],
   },
   {
     id: 'prog_card_3',
@@ -290,6 +319,7 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     subtitle: 'المرحلة الثانية · الإتقان والتكامل',
     description:
       'منهج مكثف للمتدربين المتقنين يشمل الجمل المركبة، التصحيح الصوتي والبصري الدقيق، وشهادة إتمام بنهاية البرنامج.',
+    mediaUrl: galleryArtworkImg,
     badgeText: 'للمشتركين المسجلين',
     metaPrimary: 'مستوى متقدم',
     metaSecondary: 'شهادة وتقرير PDF',
@@ -300,6 +330,20 @@ export const DEFAULT_PORTAL_ITEMS: PortalContentItem[] = [
     linkLabelTh: 'ขอเข้าร่วมหลักสูตรนี้',
     enabled: true,
     sortOrder: 3,
+    showInStore: true,
+    price: 380,
+    compareAtPrice: 480,
+    format: 'online_live',
+    duration: '6 أسابيع · 24 ساعة',
+    startDate: 'الدفعة الجديدة',
+    instructor: 'أ. سليمان الخطاط',
+    seatsTotal: 25,
+    seatsLeft: 9,
+    syllabus: [
+      'إتقان التراكيب والكتابة الخطية وفق الميزان',
+      'التصحيح الفردي بالفيديو والتقييم الصوتي الدقيق',
+      'تقرير ختامي شامل وشهادة إتمام معتمدة PDF',
+    ],
   },
   {
     id: 'gal_01',
@@ -533,6 +577,24 @@ export function normalizePortalPublicData(raw?: Partial<PortalPublicData> | null
       targetProgramId: it.targetProgramId ? String(it.targetProgramId).trim() : undefined,
       enabled: it.enabled !== false,
       sortOrder: Number(it.sortOrder) || idx + 1,
+      showInStore: it.showInStore !== undefined ? Boolean(it.showInStore) : undefined,
+      price: it.price !== undefined && it.price !== null ? Math.max(0, Number(it.price) || 0) : undefined,
+      compareAtPrice:
+        it.compareAtPrice !== undefined && it.compareAtPrice !== null && Number(it.compareAtPrice) > 0
+          ? Number(it.compareAtPrice)
+          : null,
+      format: it.format || undefined,
+      duration: it.duration ? String(it.duration).trim() : undefined,
+      startDate: it.startDate ? String(it.startDate).trim() : undefined,
+      instructor: it.instructor ? String(it.instructor).trim() : undefined,
+      seatsTotal:
+        it.seatsTotal !== undefined && it.seatsTotal !== null ? Math.max(0, Number(it.seatsTotal) || 0) : undefined,
+      seatsLeft:
+        it.seatsLeft !== undefined && it.seatsLeft !== null ? Math.max(0, Number(it.seatsLeft) || 0) : undefined,
+      syllabus: Array.isArray(it.syllabus) ? it.syllabus.map((x) => String(x || '').trim()).filter(Boolean) : undefined,
+      recommendedProductIds: Array.isArray(it.recommendedProductIds)
+        ? it.recommendedProductIds.map((x) => String(x || '').trim()).filter(Boolean)
+        : undefined,
     };
   });
   items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));

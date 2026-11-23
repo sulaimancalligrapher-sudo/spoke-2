@@ -6,6 +6,7 @@ import {
   EvaluationMode,
   DifficultyLevel,
   Answers1SubmissionRow,
+  StorePublicData,
 } from '../types';
 import {
   ALL_CURRICULUM,
@@ -200,6 +201,9 @@ interface AdminPanelProps {
   registrationQuestions?: RegistrationQuestion[];
   onUpdateRegistrationQuestions?: (next: RegistrationQuestion[]) => void;
   onPreviewPublicPortal?: () => void;
+  storeData?: StorePublicData;
+  onUpdateStoreData?: (next: StorePublicData) => void;
+  onOpenStorePreview?: () => void;
   initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
@@ -289,6 +293,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   registrationQuestions,
   onUpdateRegistrationQuestions,
   onPreviewPublicPortal,
+  storeData,
+  onUpdateStoreData,
+  onOpenStorePreview,
   initialTab = 'lessons',
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
@@ -3117,6 +3124,9 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               onRefreshFromSheets?.();
             }}
             onPreviewPublicPortal={onPreviewPublicPortal}
+            storeData={storeData}
+            onUpdateStoreData={onUpdateStoreData}
+            onOpenStorePreview={onOpenStorePreview}
           />
         )}
 

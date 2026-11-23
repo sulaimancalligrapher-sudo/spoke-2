@@ -22,6 +22,7 @@ import {
   PortalContentItem,
   PortalPublicData,
   RegistrationQuestion,
+  StorePublicData,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -55,6 +56,7 @@ import { VideoCorrectionModal } from './video/components/VideoCorrectionModal';
 import { CourseScheduleModal } from './components/CourseScheduleModal';
 import { HomeContentShowcase } from './components/HomeContentManager';
 import { PublicPortalView } from './components/PublicPortalView';
+import { StorePortalShell } from './components/store/StorePortalShell';
 import { PortalRegistrationModal } from './components/PortalRegistrationModal';
 import { ProgramRequestModal } from './components/ProgramRequestModal';
 import {
@@ -66,6 +68,11 @@ import {
   saveLocalRegistrationQuestions,
   buildTelegramBotStartLink,
 } from './utils/portalSheets';
+import {
+  fetchStoreDataFromSheets,
+  getLocalStoreData,
+  saveLocalStoreData,
+} from './utils/storeSheets';
 import {
   AttendanceRecord,
   CourseScheduleData,
@@ -396,6 +403,8 @@ export default function App() {
   const handledProgramSlugRef = useRef<string | null>(null);
   const [isPortalPreview, setIsPortalPreview] = useState(false);
   const [isRefreshingStudentStage, setIsRefreshingStudentStage] = useState(false);
+  const [storeData, setStoreData] = useState<StorePublicData>(() => getLocalStoreData());
+  const [storeRouteMode, setStoreRouteMode] = useState<'none' | 'store' | 'orders'>('none');
 
   const activeStudentProgramId = isAdminAuthenticated
     ? schedulePreviewProgramId
@@ -607,7 +616,7 @@ export default function App() {
 
     writingSheetService.setOverrideUrl(url);
 
-    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes, pdfRes, portalRes, regQuestionsRes] =
+    const [currRes, homeCfg, homeContentRes, transRes, matchRes, dictRes, catchRes, catchRewardsRes, writingLessons, writingRewards, videoLessonsRes, scheduleRes, pdfRes, portalRes, regQuestionsRes, storeRes] =
       await Promise.all([
         fetchCurriculumFromSheets(url),
         fetchHomeConfigFromSheets(url),
@@ -624,6 +633,7 @@ export default function App() {
         fetchPdfSettingsFromSheets(url).catch(() => null),
         fetchPortalDataFromSheets(url).catch(() => null),
         fetchRegistrationQuestionsFromSheets(url).catch(() => null),
+        fetchStoreDataFromSheets(url, true).catch(() => null),
       ]);
 
     // 1. Update curriculum from sheet "الدروس"
@@ -766,6 +776,10 @@ export default function App() {
       setRegistrationQuestions(regQuestionsRes.questions);
       saveLocalRegistrationQuestions(regQuestionsRes.questions);
     }
+    if (storeRes?.data) {
+      setStoreData(storeRes.data);
+      saveLocalStoreData(storeRes.data);
+    }
     if (currentStudent && url) {
       fetchStudentVideoProgress(url, currentStudent.id, currentStudent.name)
         .then((vp) => {
@@ -904,6 +918,7 @@ export default function App() {
         path === '/admin';
 
       if (isControlRoute) {
+        setStoreRouteMode('none');
         const authed = sessionStorage.getItem('faseeh_admin_auth') === 'true';
         if (authed) {
           setIsAdminView(true);
@@ -914,10 +929,17 @@ export default function App() {
         }
       } else {
         setIsAdminView(false);
-        if (hash.toLowerCase() === '#register') {
+        const lowerHash = hash.toLowerCase();
+        if (lowerHash === '#store-orders' || path === '/store-orders') {
+          setStoreRouteMode('orders');
+        } else if (lowerHash === '#store' || path === '/store') {
+          setStoreRouteMode('store');
+        } else {
+          setStoreRouteMode('none');
+        }
+        if (lowerHash === '#register') {
           setIsRegistrationModalOpen(true);
         }
-        const lowerHash = hash.toLowerCase();
         let slugFromUrl = '';
         if (lowerHash.startsWith('#program=')) {
           slugFromUrl = decodeURIComponent(hash.slice('#program='.length)).trim();
@@ -1328,6 +1350,16 @@ export default function App() {
             if (rq?.questions && rq.questions.length > 0) {
               setRegistrationQuestions(rq.questions);
               saveLocalRegistrationQuestions(rq.questions);
+            }
+          })
+          .catch(() => {});
+
+        // Auto-fetch Storefront Settings, Catalog & Unified Program Data ("متجر_*")
+        fetchStoreDataFromSheets(activeConfig.webhookUrl, false)
+          .then((st) => {
+            if (st?.data) {
+              setStoreData(st.data);
+              saveLocalStoreData(st.data);
             }
           })
           .catch(() => {});
@@ -2658,8 +2690,20 @@ export default function App() {
           }}
           onPreviewPublicPortal={() => {
             window.location.hash = '';
+            setStoreRouteMode('none');
             setIsAdminView(false);
             setIsPortalPreview(true);
+          }}
+          storeData={storeData}
+          onUpdateStoreData={(next) => {
+            setStoreData(next);
+            saveLocalStoreData(next);
+          }}
+          onOpenStorePreview={() => {
+            setIsAdminView(false);
+            setIsPortalPreview(true);
+            setStoreRouteMode('store');
+            window.location.hash = '#store';
           }}
         />
 
@@ -2689,18 +2733,49 @@ export default function App() {
     );
     return (
       <>
-        <PublicPortalView
-          portalData={portalData}
-          currentLang={currentLang}
-          onSelectLang={handleSelectLang}
-          onOpenRegistration={(progLabel) => {
-            setRegistrationPreselectedProgram(progLabel);
-            setIsRegistrationModalOpen(true);
-          }}
-          onOpenProgramRequest={(item) => setActiveProgramRequestItem(item)}
-          onOpenStudentLogin={() => setIsLoginModalOpen(true)}
-          highlightedProgramSlug={highlightedProgramSlug}
-        />
+        {storeRouteMode !== 'none' ? (
+          <StorePortalShell
+            key={storeRouteMode}
+            storeData={storeData}
+            onUpdateStoreData={(next) => {
+              setStoreData(next);
+              saveLocalStoreData(next);
+            }}
+            portalData={portalData}
+            onUpdatePortalData={(next) => {
+              setPortalData(next);
+              saveLocalPortalData(next);
+            }}
+            initialView={storeRouteMode === 'orders' ? 'orders' : 'store'}
+            webhookUrl={sheetsConfig.webhookUrl}
+            onBackToPortal={() => {
+              setStoreRouteMode('none');
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }}
+            onOpenStage1Registration={(progLabel) => {
+              setRegistrationPreselectedProgram(progLabel);
+              setIsRegistrationModalOpen(true);
+            }}
+            onOpenStudentLogin={() => setIsLoginModalOpen(true)}
+          />
+        ) : (
+          <PublicPortalView
+            portalData={portalData}
+            currentLang={currentLang}
+            onSelectLang={handleSelectLang}
+            onOpenRegistration={(progLabel) => {
+              setRegistrationPreselectedProgram(progLabel);
+              setIsRegistrationModalOpen(true);
+            }}
+            onOpenProgramRequest={(item) => setActiveProgramRequestItem(item)}
+            onOpenStudentLogin={() => setIsLoginModalOpen(true)}
+            onOpenStore={() => {
+              setStoreRouteMode('store');
+              window.location.hash = '#store';
+            }}
+            highlightedProgramSlug={highlightedProgramSlug}
+          />
+        )}
 
         {isAdminAuthenticated && isPortalPreview && (
           <button
@@ -2737,6 +2812,7 @@ export default function App() {
             setIsRegistrationModalOpen(false);
             setRegistrationPrefilledName(undefined);
             setIsPortalPreview(false);
+            setStoreRouteMode('none');
             setCurrentView('landing');
             handleLoginSuccess(student);
           }}
@@ -2768,6 +2844,7 @@ export default function App() {
           onEnterStudentWorkspace={(student) => {
             setActiveProgramRequestItem(null);
             setIsPortalPreview(false);
+            setStoreRouteMode('none');
             setCurrentView('landing');
             handleLoginSuccess(student);
           }}
@@ -2780,7 +2857,13 @@ export default function App() {
           initialId={loginModalPrefill.id}
           initialError={loginModalPrefill.error}
           onClose={() => setIsLoginModalOpen(false)}
-          onLoginSuccess={handleLoginSuccess}
+          onLoginSuccess={(student) => {
+            setStoreRouteMode('none');
+            if (window.location.hash.toLowerCase().startsWith('#store')) {
+              window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+            handleLoginSuccess(student);
+          }}
           onOpenRegistration={() => {
             setIsLoginModalOpen(false);
             setIsRegistrationModalOpen(true);

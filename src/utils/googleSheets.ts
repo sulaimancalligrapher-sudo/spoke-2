@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwGNNjhKE4Kyg8xFvdoXBXqUg3HNPETYpj2y-ULYBoReESbpQ2Z3tGQC5-EaO35CKgf/exec';
+  'https://script.google.com/macros/s/AKfycbwKf-nOfwNBLD0R4D1a8SoQOKg_RQ3KV5CYAH3yIITV6Rnl66hzK97t_qK87doV56D7kQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -5041,7 +5041,18 @@ function readPortalDataGS(ss) {
       slug: extra.slug || undefined,
       targetProgramId: extra.targetProgramId || undefined,
       enabled: !(enStr === "false" || enStr === "0" || enStr === "لا"),
-      sortOrder: Number(row[12]) || (i + 1)
+      sortOrder: Number(row[12]) || (i + 1),
+      showInStore: extra.showInStore !== undefined ? Boolean(extra.showInStore) : undefined,
+      price: extra.price !== undefined && extra.price !== null && extra.price !== "" ? Number(extra.price) || 0 : undefined,
+      compareAtPrice: extra.compareAtPrice ? Number(extra.compareAtPrice) : null,
+      format: extra.format || undefined,
+      duration: extra.duration || undefined,
+      startDate: extra.startDate || undefined,
+      instructor: extra.instructor || undefined,
+      seatsTotal: extra.seatsTotal !== undefined && extra.seatsTotal !== null && extra.seatsTotal !== "" ? Number(extra.seatsTotal) : undefined,
+      seatsLeft: extra.seatsLeft !== undefined && extra.seatsLeft !== null && extra.seatsLeft !== "" ? Number(extra.seatsLeft) : undefined,
+      syllabus: Array.isArray(extra.syllabus) ? extra.syllabus : undefined,
+      recommendedProductIds: Array.isArray(extra.recommendedProductIds) ? extra.recommendedProductIds : undefined
     });
   }
   items.sort(function(a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
@@ -5095,7 +5106,18 @@ function writePortalDataGS(ss, dataObj) {
       metaSecondaryTh: it.metaSecondaryTh || "",
       actionType: it.actionType || "",
       slug: it.slug || "",
-      targetProgramId: it.targetProgramId || ""
+      targetProgramId: it.targetProgramId || "",
+      showInStore: it.showInStore !== undefined ? Boolean(it.showInStore) : undefined,
+      price: it.price !== undefined && it.price !== null ? Number(it.price) : undefined,
+      compareAtPrice: it.compareAtPrice !== undefined && it.compareAtPrice !== null ? Number(it.compareAtPrice) : null,
+      format: it.format || "",
+      duration: it.duration || "",
+      startDate: it.startDate || "",
+      instructor: it.instructor || "",
+      seatsTotal: it.seatsTotal !== undefined && it.seatsTotal !== null ? Number(it.seatsTotal) : undefined,
+      seatsLeft: it.seatsLeft !== undefined && it.seatsLeft !== null ? Number(it.seatsLeft) : undefined,
+      syllabus: Array.isArray(it.syllabus) ? it.syllabus : undefined,
+      recommendedProductIds: Array.isArray(it.recommendedProductIds) ? it.recommendedProductIds : undefined
     };
     rows.push([
       String(it.id || ("pitem_" + (i + 1))),
@@ -5275,7 +5297,7 @@ function getProgramRequestsSheetGS(ss) {
     var headers = [
       "رقم الطلب", "التاريخ والوقت", "رقم المشترك ID", "اسم المشترك",
       "البرنامج الحالي", "معرف بطاقة البرنامج", "اسم البرنامج المطلوب", "معرف البرنامج بالجدول",
-      "الحالة", "وصف الحالة", "ملاحظة المشترك", "ملاحظة الإدارة"
+      "الحالة", "وصف الحالة", "ملاحظة المشترك", "ملاحظة الإدارة", "بيانات المتجر JSON"
     ];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#1e3a8a").setFontColor("#ffffff").setFontWeight("bold");
@@ -5288,14 +5310,18 @@ function getProgramRequestsSheetGS(ss) {
 function readProgramRequestsGS(ss) {
   var sheet = ss.getSheetByName(PROGRAM_REQUESTS_SHEET_NAME);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(12, sheet.getLastColumn())).getValues();
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.max(13, sheet.getLastColumn())).getValues();
   var list = [];
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     var reqId = String(row[0] || "").trim();
-    var regId = normRegDigitsGS(row[2]);
+    var regId = String(row[2] || "").trim().toUpperCase() === "NEW" ? "NEW" : normRegDigitsGS(row[2]);
     var sName = String(row[3] || "").trim();
     if (!reqId && !regId && !sName) continue;
+    var extraStore = {};
+    try {
+      if (row[12]) extraStore = JSON.parse(String(row[12])) || {};
+    } catch (e) {}
     list.push({
       rowIndex: i + 2,
       requestId: reqId || ("preq_" + (i + 1)),
@@ -5309,11 +5335,331 @@ function readProgramRequestsGS(ss) {
       status: String(row[8] || "pending").trim() || "pending",
       statusLabel: String(row[9] || "قيد المراجعة").trim(),
       studentNote: String(row[10] || "").trim() || undefined,
-      adminNotes: String(row[11] || "").trim() || undefined
+      adminNotes: String(row[11] || "").trim() || undefined,
+      phone: extraStore.phone || undefined,
+      telegramUsername: extraStore.telegramUsername || undefined,
+      paymentMethod: extraStore.paymentMethod || undefined,
+      bankReference: extraStore.bankReference || undefined,
+      pricePaid: extraStore.pricePaid !== undefined ? Number(extraStore.pricePaid) : undefined,
+      source: extraStore.source || undefined
     });
   }
   return list.reverse();
 }
+
+// =========================================================================
+// دوال مساعدة مستقلة للمتجر الإلكتروني (أوراق متجر_*)
+// =========================================================================
+var STORE_SETTINGS_SHEET = "متجر_الإعدادات";
+var STORE_CATEGORIES_SHEET = "متجر_الأقسام";
+var STORE_BANNERS_SHEET = "متجر_البانرات";
+var STORE_PRODUCTS_SHEET = "متجر_المنتجات";
+var STORE_CITIES_SHEET = "متجر_المدن_والشحن";
+var STORE_COUPONS_SHEET = "متجر_الكوبونات";
+var STORE_ORDERS_SHEET = "متجر_الطلبات";
+var STORE_ORDER_ITEMS_SHEET = "متجر_تفاصيل_الطلبات";
+
+function ensureStoreSheetGS(ss, name, headers, bgHex) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground(bgHex || "#065f46").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    sheet.setRightToLeft(true);
+  }
+  return sheet;
+}
+
+function storeBoolGS(v, defVal) {
+  if (v === undefined || v === null || v === "") return defVal;
+  var s = String(v).trim().toLowerCase();
+  if (s === "false" || s === "0" || s === "لا" || s === "no") return false;
+  if (s === "true" || s === "1" || s === "نعم" || s === "yes") return true;
+  return Boolean(v);
+}
+
+function storeSheetToObjectsGS(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var lastC = sheet.getLastColumn();
+  if (lastC < 1) return [];
+  var headers = sheet.getRange(1, 1, 1, lastC).getValues()[0];
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastC).getValues();
+  var out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    var obj = {};
+    var hasAny = false;
+    for (var c = 0; c < headers.length; c++) {
+      var h = String(headers[c] || "").trim();
+      if (!h) continue;
+      obj[h] = row[c];
+      if (row[c] !== "" && row[c] !== null && row[c] !== undefined) hasAny = true;
+    }
+    if (hasAny) out.push(obj);
+  }
+  return out;
+}
+
+function readStoreDataGS(ss, includeAdminOrders) {
+  var stSheet = ss.getSheetByName(STORE_SETTINGS_SHEET);
+  var settingsObj = null;
+  if (stSheet && stSheet.getLastRow() >= 2) {
+    var stRows = stSheet.getRange(2, 1, stSheet.getLastRow() - 1, Math.max(2, stSheet.getLastColumn())).getValues();
+    settingsObj = {};
+    for (var si = 0; si < stRows.length; si++) {
+      var sk = String(stRows[si][0] || "").trim();
+      if (!sk) continue;
+      var sv = stRows[si][1];
+      if (sk === "cod_enabled" || sk === "bank_transfer_enabled" || sk === "notify_telegram_on_order") {
+        settingsObj[sk] = storeBoolGS(sv, true);
+      } else if (sk === "default_delivery_fee" || sk === "free_shipping_min") {
+        settingsObj[sk] = Number(sv) || 0;
+      } else {
+        settingsObj[sk] = String(sv === undefined || sv === null ? "" : sv);
+      }
+    }
+  }
+
+  var catObjs = storeSheetToObjectsGS(ss.getSheetByName(STORE_CATEGORIES_SHEET));
+  var categories = catObjs.map(function(r, idx) {
+    return {
+      id: String(r.id || ("cat_" + (idx + 1))).trim(),
+      name: String(r.name || "").trim(),
+      slug: String(r.slug || ("cat-" + (idx + 1))).trim(),
+      image_url: String(r.image_url || "").trim(),
+      sort_order: Number(r.sort_order) || (idx + 1),
+      is_active: storeBoolGS(r.is_active, true)
+    };
+  });
+
+  var banObjs = storeSheetToObjectsGS(ss.getSheetByName(STORE_BANNERS_SHEET));
+  var banners = banObjs.map(function(r, idx) {
+    return {
+      id: String(r.id || ("ban_" + (idx + 1))).trim(),
+      title: String(r.title || ""),
+      subtitle: String(r.subtitle || ""),
+      image_url: String(r.image_url || ""),
+      link_url: String(r.link_url || "#catalog"),
+      sort_order: Number(r.sort_order) || (idx + 1),
+      is_active: storeBoolGS(r.is_active, true)
+    };
+  });
+
+  var prodObjs = storeSheetToObjectsGS(ss.getSheetByName(STORE_PRODUCTS_SHEET));
+  var products = prodObjs.map(function(r, idx) {
+    var gal = [];
+    try {
+      if (r.gallery_urls) {
+        var pg = JSON.parse(String(r.gallery_urls));
+        if (Array.isArray(pg)) gal = pg;
+      }
+    } catch (e) {}
+    var vars = [];
+    try {
+      if (r.variants) {
+        var pv = JSON.parse(String(r.variants));
+        if (Array.isArray(pv)) vars = pv;
+      }
+    } catch (e) {}
+    return {
+      id: String(r.id || ("prod_" + (idx + 1))).trim(),
+      category_id: String(r.category_id || "").trim(),
+      name: String(r.name || "").trim(),
+      sku: String(r.sku || "").trim(),
+      description: String(r.description || ""),
+      price: Number(r.price) || 0,
+      compare_at_price: r.compare_at_price !== "" && r.compare_at_price !== null && r.compare_at_price !== undefined ? Number(r.compare_at_price) : null,
+      stock: Number(r.stock) || 0,
+      image_url: String(r.image_url || "").trim(),
+      gallery_urls: gal,
+      variants: vars,
+      is_featured: storeBoolGS(r.is_featured, false),
+      is_active: storeBoolGS(r.is_active, true),
+      created_at: String(r.created_at || new Date().toISOString())
+    };
+  });
+
+  var cityObjs = storeSheetToObjectsGS(ss.getSheetByName(STORE_CITIES_SHEET));
+  var cities = cityObjs.map(function(r, idx) {
+    return {
+      id: String(r.id || ("city_" + (idx + 1))).trim(),
+      name: String(r.name || "").trim(),
+      delivery_fee: Number(r.delivery_fee) || 0,
+      estimated_days: String(r.estimated_days || "2 - 4 أيام"),
+      free_shipping_min: Number(r.free_shipping_min) || 0,
+      is_active: storeBoolGS(r.is_active, true)
+    };
+  });
+
+  var coupObjs = storeSheetToObjectsGS(ss.getSheetByName(STORE_COUPONS_SHEET));
+  var coupons = coupObjs.map(function(r, idx) {
+    return {
+      id: String(r.id || ("coup_" + (idx + 1))).trim(),
+      code: String(r.code || "").trim().toUpperCase(),
+      discount_type: String(r.discount_type || "percent") === "fixed" ? "fixed" : "percent",
+      discount_value: Number(r.discount_value) || 0,
+      min_order: Number(r.min_order) || 0,
+      max_uses: Number(r.max_uses) || 0,
+      used_count: Number(r.used_count) || 0,
+      expires_at: String(r.expires_at || ""),
+      is_active: storeBoolGS(r.is_active, true)
+    };
+  });
+
+  var orders = [];
+  if (includeAdminOrders) {
+    var ordObjs = storeSheetToObjectsGS(ss.getSheetByName(STORE_ORDERS_SHEET));
+    orders = ordObjs.map(function(r) {
+      var parsedItems = [];
+      try { parsedItems = JSON.parse(String(r.items_json || "[]")); } catch (e) {}
+      return {
+        id: String(r.id || "").trim(),
+        created_at: String(r.created_at || ""),
+        customer_name: String(r.customer_name || ""),
+        customer_phone: String(r.customer_phone || ""),
+        customer_city: String(r.customer_city || ""),
+        customer_address: String(r.customer_address || ""),
+        telegram_username: String(r.telegram_username || ""),
+        payment_method: String(r.payment_method || "cod") === "bank_transfer" ? "bank_transfer" : "cod",
+        bank_reference: String(r.bank_reference || ""),
+        coupon_code: String(r.coupon_code || ""),
+        discount_amount: Number(r.discount_amount) || 0,
+        items: Array.isArray(parsedItems) ? parsedItems : [],
+        subtotal: Number(r.subtotal) || 0,
+        delivery_fee: Number(r.delivery_fee) || 0,
+        total: Number(r.total) || 0,
+        status: String(r.status || "pending").trim() || "pending",
+        notes: String(r.notes || "")
+      };
+    }).reverse();
+  }
+
+  return {
+    settings: settingsObj,
+    categories: categories,
+    banners: banners,
+    products: products,
+    cities: cities,
+    coupons: coupons,
+    orders: orders
+  };
+}
+
+function writeStoreDataGS(ss, storeData) {
+  if (!storeData || typeof storeData !== "object") return;
+
+  if (storeData.settings && typeof storeData.settings === "object") {
+    var stSheet = ensureStoreSheetGS(ss, STORE_SETTINGS_SHEET, ["key", "value"], "#065f46");
+    if (stSheet.getLastRow() > 1) stSheet.getRange(2, 1, stSheet.getLastRow() - 1, Math.max(2, stSheet.getLastColumn())).clearContent();
+    var keys = Object.keys(storeData.settings);
+    if (keys.length > 0) {
+      var stRows = keys.map(function(k) { return [k, String(storeData.settings[k] === undefined ? "" : storeData.settings[k])]; });
+      stSheet.getRange(2, 1, stRows.length, 2).setValues(stRows);
+    }
+  }
+
+  if (Array.isArray(storeData.categories)) {
+    var catHeaders = ["id", "name", "slug", "image_url", "sort_order", "is_active"];
+    var catSheet = ensureStoreSheetGS(ss, STORE_CATEGORIES_SHEET, catHeaders, "#0f766e");
+    if (catSheet.getLastRow() > 1) catSheet.getRange(2, 1, catSheet.getLastRow() - 1, catHeaders.length).clearContent();
+    if (storeData.categories.length > 0) {
+      var catRows = storeData.categories.map(function(c, i) {
+        return [String(c.id || ("cat_" + (i + 1))), String(c.name || ""), String(c.slug || ""), String(c.image_url || ""), Number(c.sort_order) || (i + 1), c.is_active === false ? "false" : "true"];
+      });
+      catSheet.getRange(2, 1, catRows.length, catHeaders.length).setValues(catRows);
+    }
+  }
+
+  if (Array.isArray(storeData.banners)) {
+    var banHeaders = ["id", "title", "subtitle", "image_url", "link_url", "sort_order", "is_active"];
+    var banSheet = ensureStoreSheetGS(ss, STORE_BANNERS_SHEET, banHeaders, "#0f766e");
+    if (banSheet.getLastRow() > 1) banSheet.getRange(2, 1, banSheet.getLastRow() - 1, banHeaders.length).clearContent();
+    if (storeData.banners.length > 0) {
+      var banRows = storeData.banners.map(function(b, i) {
+        return [String(b.id || ("ban_" + (i + 1))), String(b.title || ""), String(b.subtitle || ""), String(b.image_url || ""), String(b.link_url || ""), Number(b.sort_order) || (i + 1), b.is_active === false ? "false" : "true"];
+      });
+      banSheet.getRange(2, 1, banRows.length, banHeaders.length).setValues(banRows);
+    }
+  }
+
+  if (Array.isArray(storeData.products)) {
+    var prodHeaders = ["id", "category_id", "name", "sku", "description", "price", "compare_at_price", "stock", "image_url", "gallery_urls", "variants", "is_featured", "is_active", "created_at"];
+    var prodSheet = ensureStoreSheetGS(ss, STORE_PRODUCTS_SHEET, prodHeaders, "#115e59");
+    if (prodSheet.getLastRow() > 1) prodSheet.getRange(2, 1, prodSheet.getLastRow() - 1, prodHeaders.length).clearContent();
+    if (storeData.products.length > 0) {
+      var prodRows = storeData.products.map(function(p, i) {
+        return [
+          String(p.id || ("prod_" + (i + 1))),
+          String(p.category_id || ""),
+          String(p.name || ""),
+          String(p.sku || ""),
+          String(p.description || ""),
+          Number(p.price) || 0,
+          p.compare_at_price !== null && p.compare_at_price !== undefined ? Number(p.compare_at_price) : "",
+          Number(p.stock) || 0,
+          String(p.image_url || ""),
+          JSON.stringify(Array.isArray(p.gallery_urls) ? p.gallery_urls : []),
+          JSON.stringify(Array.isArray(p.variants) ? p.variants : []),
+          p.is_featured ? "true" : "false",
+          p.is_active === false ? "false" : "true",
+          String(p.created_at || new Date().toISOString())
+        ];
+      });
+      prodSheet.getRange(2, 1, prodRows.length, prodHeaders.length).setValues(prodRows);
+    }
+  }
+
+  if (Array.isArray(storeData.cities)) {
+    var cityHeaders = ["id", "name", "delivery_fee", "estimated_days", "free_shipping_min", "is_active"];
+    var citySheet = ensureStoreSheetGS(ss, STORE_CITIES_SHEET, cityHeaders, "#1e3a8a");
+    if (citySheet.getLastRow() > 1) citySheet.getRange(2, 1, citySheet.getLastRow() - 1, cityHeaders.length).clearContent();
+    if (storeData.cities.length > 0) {
+      var cityRows = storeData.cities.map(function(c, i) {
+        return [String(c.id || ("city_" + (i + 1))), String(c.name || ""), Number(c.delivery_fee) || 0, String(c.estimated_days || ""), Number(c.free_shipping_min) || 0, c.is_active === false ? "false" : "true"];
+      });
+      citySheet.getRange(2, 1, cityRows.length, cityHeaders.length).setValues(cityRows);
+    }
+  }
+
+  if (Array.isArray(storeData.coupons)) {
+    var coupHeaders = ["id", "code", "discount_type", "discount_value", "min_order", "max_uses", "used_count", "expires_at", "is_active"];
+    var coupSheet = ensureStoreSheetGS(ss, STORE_COUPONS_SHEET, coupHeaders, "#92400e");
+    if (coupSheet.getLastRow() > 1) coupSheet.getRange(2, 1, coupSheet.getLastRow() - 1, coupHeaders.length).clearContent();
+    if (storeData.coupons.length > 0) {
+      var coupRows = storeData.coupons.map(function(c, i) {
+        return [
+          String(c.id || ("coup_" + (i + 1))),
+          String(c.code || "").trim().toUpperCase(),
+          String(c.discount_type || "percent"),
+          Number(c.discount_value) || 0,
+          Number(c.min_order) || 0,
+          Number(c.max_uses) || 0,
+          Number(c.used_count) || 0,
+          String(c.expires_at || ""),
+          c.is_active === false ? "false" : "true"
+        ];
+      });
+      coupSheet.getRange(2, 1, coupRows.length, coupHeaders.length).setValues(coupRows);
+    }
+  }
+}
+
+function getStoreOrdersSheetGS(ss) {
+  return ensureStoreSheetGS(ss, STORE_ORDERS_SHEET, [
+    "id", "created_at", "customer_name", "customer_phone", "customer_city",
+    "customer_address", "telegram_username", "payment_method", "bank_reference",
+    "coupon_code", "discount_amount", "items_json", "subtotal",
+    "delivery_fee", "total", "status", "notes"
+  ], "#065f46");
+}
+
+function getStoreOrderItemsSheetGS(ss) {
+  return ensureStoreSheetGS(ss, STORE_ORDER_ITEMS_SHEET, [
+    "order_id", "created_at", "product_id", "sku", "product_name", "variant", "qty", "unit_price", "line_total"
+  ], "#0f766e");
+}
+
 
 
 // 1. GET: جلب الدروس، أو بيانات ورقة الرئيسية، أو المشتركين، أو سجل إجابات الطالب من answers 1
@@ -5381,6 +5727,19 @@ function doGet(e) {
         success: true,
         portalHandled: true,
         requests: readProgramRequestsGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (أ-5) نقاط نهاية المتجر الإلكتروني عبر GET
+    if (e && e.parameter && e.parameter.action === "get_store_data") {
+      var stIncAdmin = String(e.parameter.includeAdminData || "") === "true";
+      var tgInfoSt = readTelegramConfigGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        storeData: readStoreDataGS(ss, stIncAdmin),
+        telegramConfigured: Boolean(tgInfoSt.botToken && tgInfoSt.adminChatId),
+        botUsername: tgInfoSt.botUsername || ""
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -7450,7 +7809,8 @@ function doPost(e) {
     if (data.action === "update_program_request_status") {
       var uReqId = String(data.requestId || "").trim();
       var uRowIdx = Number(data.rowIndex) || 0;
-      var uRegId = normRegDigitsGS(data.registrationId || "");
+      var rawRegIn = String(data.registrationId || "").trim();
+      var uRegId = rawRegIn.toUpperCase() === "NEW" ? "" : normRegDigitsGS(rawRegIn);
       var uStatus = String(data.status || "approved").trim();
       var uStatusLabel = String(data.statusLabel || (uStatus === "approved" ? "تمت الموافقة والترقية" : "مرفوض / مؤجل")).trim();
       var uTargetProgId = String(data.targetProgramId || "").trim();
@@ -7458,62 +7818,83 @@ function doPost(e) {
       var uAdminNotes = data.adminNotes !== undefined ? String(data.adminNotes) : undefined;
 
       var prSheetU = getProgramRequestsSheetGS(ss);
+      var targetPrRow = 0;
       if (uRowIdx >= 2 && uRowIdx <= prSheetU.getLastRow()) {
-        prSheetU.getRange(uRowIdx, 9).setValue(uStatus);
-        prSheetU.getRange(uRowIdx, 10).setValue(uStatusLabel);
-        if (uTargetProgId) prSheetU.getRange(uRowIdx, 8).setValue(uTargetProgId);
-        if (uAdminNotes !== undefined) prSheetU.getRange(uRowIdx, 12).setValue(uAdminNotes);
+        targetPrRow = uRowIdx;
       } else if (uReqId && prSheetU.getLastRow() >= 2) {
         var prRowsU = prSheetU.getRange(2, 1, prSheetU.getLastRow() - 1, 1).getValues();
         for (var ui = 0; ui < prRowsU.length; ui++) {
           if (String(prRowsU[ui][0] || "").trim() === uReqId) {
-            var prRowN = ui + 2;
-            prSheetU.getRange(prRowN, 9).setValue(uStatus);
-            prSheetU.getRange(prRowN, 10).setValue(uStatusLabel);
-            if (uTargetProgId) prSheetU.getRange(prRowN, 8).setValue(uTargetProgId);
-            if (uAdminNotes !== undefined) prSheetU.getRange(prRowN, 12).setValue(uAdminNotes);
+            targetPrRow = ui + 2;
             break;
           }
         }
       }
 
+      if (targetPrRow >= 2) {
+        prSheetU.getRange(targetPrRow, 9).setValue(uStatus);
+        prSheetU.getRange(targetPrRow, 10).setValue(uStatusLabel);
+        if (uTargetProgId) prSheetU.getRange(targetPrRow, 8).setValue(uTargetProgId);
+        if (uAdminNotes !== undefined) prSheetU.getRange(targetPrRow, 12).setValue(uAdminNotes);
+      }
+
       var tgNotifiedU = false;
       var matchedNameU = String(data.studentName || "").trim();
-      if (uStatus === "approved" && uTargetProgId && uRegId) {
-        // تحديث ID registrants + طلبات_التسجيل
+      var finalAssignedRegId = uRegId;
+
+      if (uStatus === "approved" && uTargetProgId) {
         var rSheetU = getIDRegistrantsSheet(ss);
         var allRegsU = readAllRegistrantsGS(rSheetU);
-        for (var ru = 0; ru < allRegsU.length; ru++) {
-          if (allRegsU[ru].id === uRegId) {
-            rSheetU.getRange(allRegsU[ru].rowNumber, 3).setValue("مفعّل");
-            rSheetU.getRange(allRegsU[ru].rowNumber, 9).setValue(uTargetProgId);
-            if (!matchedNameU) matchedNameU = allRegsU[ru].name;
-            break;
-          }
-        }
-        var subSheetU = getRegistrationSubmissionsSheetGS(ss);
-        if (subSheetU.getLastRow() >= 2) {
-          var sRowsU = subSheetU.getRange(2, 1, subSheetU.getLastRow() - 1, 12).getValues();
-          for (var su = 0; su < sRowsU.length; su++) {
-            if (normRegDigitsGS(sRowsU[su][1]) === uRegId) {
-              var srNum = su + 2;
-              subSheetU.getRange(srNum, 4).setValue(uTargetProgId);
-              subSheetU.getRange(srNum, 5).setValue("stage2_assigned");
-              subSheetU.getRange(srNum, 6).setValue("تم التحويل إلى: " + uTargetProgName);
+        var foundExistingReg = false;
+        if (uRegId) {
+          for (var ru = 0; ru < allRegsU.length; ru++) {
+            if (allRegsU[ru].id === uRegId) {
+              rSheetU.getRange(allRegsU[ru].rowNumber, 3).setValue("مفعّل");
+              rSheetU.getRange(allRegsU[ru].rowNumber, 9).setValue(uTargetProgId);
+              if (!matchedNameU) matchedNameU = allRegsU[ru].name;
+              foundExistingReg = true;
+              break;
             }
           }
         }
-        var tgCfgU = readTelegramConfigGS(ss);
-        if (data.notifyStudentTelegram !== false && tgCfgU.botToken) {
-          var uSheetU = getTelegramUsersSheet(ss);
-          var uRowsU = uSheetU.getDataRange().getValues();
-          for (var tui = 1; tui < uRowsU.length; tui++) {
-            if (normRegDigitsGS(uRowsU[tui][0]) === uRegId && String(uRowsU[tui][2] || "").trim()) {
-              var stMsgU = "<b>تهانينا يا " + (matchedNameU || "مشتركنا الكريم") + "!</b>\\n"
-                + "تمت الموافقة على طلبك ونقلك إلى برنامج: <b>" + uTargetProgName + "</b>.\\n"
-                + "يمكنك الدخول الآن إلى صفحتك الخاصة لبدء البرنامج.";
-              if (sendTelegramBotMessageGS(ss, String(uRowsU[tui][2]).trim(), stMsgU, "").ok) {
-                tgNotifiedU = true;
+
+        // إذا كان المتقدم عبر المتجر طالباً جديداً (لا يملك ID مسبقاً) -> إنشاء رقم ID تلقائي وتفعيله على البرنامج
+        if (!foundExistingReg && matchedNameU) {
+          finalAssignedRegId = generateNextRegistrantIdGS(rSheetU);
+          rSheetU.appendRow([finalAssignedRegId, matchedNameU, "مفعّل", 1, "[]", "مسموح", "", "", uTargetProgId]);
+          var newRegRowNum = rSheetU.getLastRow();
+          var activeBaseU = String(getAppBaseUrlGS() || "").trim();
+          syncRegistrantLinkAndQrCellsGS(rSheetU, newRegRowNum, finalAssignedRegId, matchedNameU, activeBaseU);
+          if (targetPrRow >= 2) {
+            prSheetU.getRange(targetPrRow, 3).setValue(finalAssignedRegId);
+          }
+        }
+
+        if (finalAssignedRegId) {
+          var subSheetU = getRegistrationSubmissionsSheetGS(ss);
+          if (subSheetU.getLastRow() >= 2) {
+            var sRowsU = subSheetU.getRange(2, 1, subSheetU.getLastRow() - 1, 12).getValues();
+            for (var su = 0; su < sRowsU.length; su++) {
+              if (normRegDigitsGS(sRowsU[su][1]) === finalAssignedRegId) {
+                var srNum = su + 2;
+                subSheetU.getRange(srNum, 4).setValue(uTargetProgId);
+                subSheetU.getRange(srNum, 5).setValue("stage2_assigned");
+                subSheetU.getRange(srNum, 6).setValue("تم التحويل إلى: " + uTargetProgName);
+              }
+            }
+          }
+          var tgCfgU = readTelegramConfigGS(ss);
+          if (data.notifyStudentTelegram !== false && tgCfgU.botToken) {
+            var uSheetU = getTelegramUsersSheet(ss);
+            var uRowsU = uSheetU.getDataRange().getValues();
+            for (var tui = 1; tui < uRowsU.length; tui++) {
+              if (normRegDigitsGS(uRowsU[tui][0]) === finalAssignedRegId && String(uRowsU[tui][2] || "").trim()) {
+                var stMsgU = "<b>تهانينا يا " + (matchedNameU || "مشتركنا الكريم") + "!</b>\\n"
+                  + "تمت الموافقة على طلبك ونقلك إلى برنامج: <b>" + uTargetProgName + "</b>.\\n"
+                  + "يمكنك الدخول الآن إلى صفحتك الخاصة لبدء البرنامج.";
+                if (sendTelegramBotMessageGS(ss, String(uRowsU[tui][2]).trim(), stMsgU, "").ok) {
+                  tgNotifiedU = true;
+                }
               }
             }
           }
@@ -7523,9 +7904,10 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         portalHandled: true,
+        assignedRegistrationId: finalAssignedRegId,
         tgNotifiedStudent: tgNotifiedU,
         message: uStatus === "approved"
-          ? ("تمت الموافقة ونقل المشترك (" + (matchedNameU || uRegId) + ") إلى " + uTargetProgName)
+          ? ("تمت الموافقة ونقل المشترك (" + (matchedNameU || finalAssignedRegId) + ") برقم ID: " + finalAssignedRegId + " إلى " + uTargetProgName)
           : "تم تحديث حالة طلب البرنامج بنجاح."
       })).setMimeType(ContentService.MimeType.JSON);
     }
@@ -7549,6 +7931,319 @@ function doPost(e) {
         success: true,
         portalHandled: true,
         message: "تم حذف طلب البرنامج."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (-1-د) نقاط نهاية المتجر الإلكتروني (متجر_*) + تسويق البرامج الموحد
+    if (data.action === "get_store_data") {
+      var stIncludeAdmin = Boolean(data.includeAdminData);
+      var tgInfoStP = readTelegramConfigGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        storeData: readStoreDataGS(ss, stIncludeAdmin),
+        telegramConfigured: Boolean(tgInfoStP.botToken && tgInfoStP.adminChatId),
+        botUsername: tgInfoStP.botUsername || ""
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_store_data") {
+      writeStoreDataGS(ss, data.storeData || {});
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        storeData: readStoreDataGS(ss, true),
+        message: "تم حفظ ومزامنة كامل بيانات المتجر في أوراق متجر_* بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "create_store_order") {
+      var ordIn = data.order || {};
+      var curStore = readStoreDataGS(ss, false);
+      var prodSheetO = ss.getSheetByName(STORE_PRODUCTS_SHEET);
+      var prodListO = (curStore && Array.isArray(curStore.products)) ? curStore.products : [];
+      var itemsIn = Array.isArray(ordIn.items) ? ordIn.items : [];
+      if (itemsIn.length === 0) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          storeHandled: true,
+          error: "السلة فارغة."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      // خصم المخزون من ورقة متجر_المنتجات إذا كانت موجودة
+      if (prodSheetO && prodSheetO.getLastRow() >= 2 && prodListO.length > 0) {
+        var prodRowsO = prodSheetO.getRange(2, 1, prodSheetO.getLastRow() - 1, Math.max(14, prodSheetO.getLastColumn())).getValues();
+        for (var oi = 0; oi < itemsIn.length; oi++) {
+          var oItem = itemsIn[oi];
+          for (var pi = 0; pi < prodRowsO.length; pi++) {
+            if (String(prodRowsO[pi][0] || "").trim() === String(oItem.product_id || "").trim()) {
+              var curStock = Math.max(0, Number(prodRowsO[pi][7]) || 0);
+              var newStock = Math.max(0, curStock - (Number(oItem.qty) || 1));
+              prodSheetO.getRange(pi + 2, 8).setValue(newStock);
+              break;
+            }
+          }
+        }
+      }
+
+      // تحديث عداد استخدام الكوبون إذا طُبّق
+      var usedCouponCode = String(ordIn.coupon_code || "").trim().toUpperCase();
+      if (usedCouponCode) {
+        var coupSheetO = ss.getSheetByName(STORE_COUPONS_SHEET);
+        if (coupSheetO && coupSheetO.getLastRow() >= 2) {
+          var coupRowsO = coupSheetO.getRange(2, 1, coupSheetO.getLastRow() - 1, 9).getValues();
+          for (var ci = 0; ci < coupRowsO.length; ci++) {
+            if (String(coupRowsO[ci][1] || "").trim().toUpperCase() === usedCouponCode) {
+              coupSheetO.getRange(ci + 2, 7).setValue((Number(coupRowsO[ci][6]) || 0) + 1);
+              break;
+            }
+          }
+        }
+      }
+
+      var ordSheet = getStoreOrdersSheetGS(ss);
+      var ordItemsSheet = getStoreOrderItemsSheetGS(ss);
+      var finalOrderId = "ORD-" + (1000 + ordSheet.getLastRow() + 1);
+      var createdIso = String(ordIn.created_at || new Date().toISOString());
+      var finalOrder = {
+        id: finalOrderId,
+        created_at: createdIso,
+        customer_name: String(ordIn.customer_name || "").trim(),
+        customer_phone: String(ordIn.customer_phone || "").trim(),
+        customer_city: String(ordIn.customer_city || "").trim(),
+        customer_address: String(ordIn.customer_address || "").trim(),
+        telegram_username: String(ordIn.telegram_username || "").trim(),
+        payment_method: String(ordIn.payment_method || "cod") === "bank_transfer" ? "bank_transfer" : "cod",
+        bank_reference: String(ordIn.bank_reference || "").trim(),
+        coupon_code: usedCouponCode,
+        discount_amount: Number(ordIn.discount_amount) || 0,
+        items: itemsIn,
+        subtotal: Number(ordIn.subtotal) || 0,
+        delivery_fee: Number(ordIn.delivery_fee) || 0,
+        total: Number(ordIn.total) || 0,
+        status: "pending",
+        notes: String(ordIn.notes || "").trim()
+      };
+
+      ordSheet.appendRow([
+        finalOrder.id, finalOrder.created_at, finalOrder.customer_name, finalOrder.customer_phone,
+        finalOrder.customer_city, finalOrder.customer_address, finalOrder.telegram_username,
+        finalOrder.payment_method, finalOrder.bank_reference, finalOrder.coupon_code,
+        finalOrder.discount_amount, JSON.stringify(finalOrder.items), finalOrder.subtotal,
+        finalOrder.delivery_fee, finalOrder.total, finalOrder.status, finalOrder.notes
+      ]);
+
+      var itemRowsO = finalOrder.items.map(function(it) {
+        return [
+          finalOrder.id, finalOrder.created_at, it.product_id || "", it.sku || "",
+          it.name || "", it.variant || "", Number(it.qty) || 1, Number(it.unit_price) || 0, Number(it.line_total) || 0
+        ];
+      });
+      if (itemRowsO.length > 0) {
+        ordItemsSheet.getRange(ordItemsSheet.getLastRow() + 1, 1, itemRowsO.length, 9).setValues(itemRowsO);
+      }
+
+      var tgNotifiedOrder = false;
+      var tgCfgO = readTelegramConfigGS(ss);
+      if (data.notifyTelegram !== false && tgCfgO.botToken && tgCfgO.adminChatId) {
+        var curCode = String(data.currency || "ر.س");
+        var tgOrdMsg = "<b>طلب جديد في المتجر (" + finalOrder.id + ")</b>\\n"
+          + "العميل: <b>" + finalOrder.customer_name + "</b>\\n"
+          + "الجوال: <code>" + finalOrder.customer_phone + "</code>\\n"
+          + "المدينة: " + finalOrder.customer_city + "\\n"
+          + "الدفع: " + (finalOrder.payment_method === "bank_transfer" ? "تحويل بنكي" : "الدفع عند الاستلام") + "\\n";
+        if (finalOrder.bank_reference) tgOrdMsg += "مرجع الحوالة: " + finalOrder.bank_reference + "\\n";
+        tgOrdMsg += "<b>المنتجات:</b>\\n";
+        for (var k = 0; k < finalOrder.items.length; k++) {
+          var oi2 = finalOrder.items[k];
+          tgOrdMsg += "• " + oi2.name + (oi2.variant ? " (" + oi2.variant + ")" : "") + " × " + oi2.qty + " = " + oi2.line_total + " " + curCode + "\\n";
+        }
+        tgOrdMsg += "الإجمالي النهائي: <b>" + finalOrder.total + " " + curCode + "</b>";
+        if (sendTelegramBotMessageGS(ss, tgCfgO.adminChatId, tgOrdMsg, "").ok) {
+          tgNotifiedOrder = true;
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        order: finalOrder,
+        telegramNotified: tgNotifiedOrder
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "track_store_order") {
+      var trOrdId = String(data.orderId || "").trim().toUpperCase();
+      var trPhone = normRegDigitsGS(data.phone || "");
+      var allOrdsT = readStoreDataGS(ss, true).orders || [];
+      var foundOrdT = null;
+      for (var ti = 0; ti < allOrdsT.length; ti++) {
+        var curO = allOrdsT[ti];
+        if (String(curO.id || "").trim().toUpperCase() === trOrdId) {
+          var pClean = normRegDigitsGS(curO.customer_phone || "");
+          if (!trPhone || pClean.slice(-9) === trPhone.slice(-9)) {
+            foundOrdT = curO;
+            break;
+          }
+        }
+      }
+      if (!foundOrdT) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          storeHandled: true,
+          error: "لم يتم العثور على طلب مطابق لرقم الطلب والجوال."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        order: foundOrdT
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "update_store_order_status") {
+      var uOrdId = String(data.orderId || "").trim();
+      var uOrdStatus = String(data.status || "pending").trim();
+      var ordSheetU = getStoreOrdersSheetGS(ss);
+      if (ordSheetU.getLastRow() >= 2) {
+        var oRowsU = ordSheetU.getRange(2, 1, ordSheetU.getLastRow() - 1, 1).getValues();
+        for (var oiU = 0; oiU < oRowsU.length; oiU++) {
+          if (String(oRowsU[oiU][0] || "").trim() === uOrdId) {
+            ordSheetU.getRange(oiU + 2, 16).setValue(uOrdStatus);
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        message: "تم تحديث حالة الطلب بنجاح."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_store_order") {
+      var delOrdId = String(data.orderId || "").trim();
+      var ordSheetD = getStoreOrdersSheetGS(ss);
+      if (ordSheetD.getLastRow() >= 2) {
+        var oRowsD = ordSheetD.getRange(2, 1, ordSheetD.getLastRow() - 1, 1).getValues();
+        for (var oiD = oRowsD.length - 1; oiD >= 0; oiD--) {
+          if (String(oRowsD[oiD][0] || "").trim() === delOrdId) {
+            ordSheetD.deleteRow(oiD + 2);
+            break;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        message: "تم حذف الطلب من ورقة متجر_الطلبات."
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "submit_store_program_enrollment") {
+      var spName = String(data.studentName || "").trim();
+      var spPhone = normRegDigitsGS(data.phone || "");
+      var spIdInput = normRegDigitsGS(data.studentId || "");
+      var spCardId = String(data.programCardId || "").trim();
+      var spTitle = String(data.programTitle || "").trim();
+      var spTargetProgId = String(data.targetProgramId || "").trim();
+      var spPayMethod = String(data.paymentMethod || "free").trim();
+      var spBankRef = String(data.bankReference || "").trim();
+      var spPricePaid = Number(data.pricePaid) || 0;
+      var spCurrency = String(data.currency || "ر.س");
+      var spTgUser = String(data.telegramUsername || "").trim();
+      var spNote = String(data.notes || "").trim();
+
+      if (!spName || !spPhone) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          storeHandled: true,
+          error: "يرجى إدخال الاسم الكامل ورقم الجوال."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var rSheetSP = getIDRegistrantsSheet(ss);
+      var allRegsSP = readAllRegistrantsGS(rSheetSP);
+      var existingRegSP = null;
+      if (spIdInput) {
+        for (var rsi = 0; rsi < allRegsSP.length; rsi++) {
+          if (allRegsSP[rsi].id === spIdInput) {
+            existingRegSP = allRegsSP[rsi];
+            break;
+          }
+        }
+      }
+
+      var prSheetSP = getProgramRequestsSheetGS(ss);
+      var spReqId = "ENR-" + new Date().getTime().toString().slice(-6);
+      var nowSP = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Riyadh", "yyyy/MM/dd HH:mm");
+      var extraStoreMeta = {
+        phone: spPhone,
+        telegramUsername: spTgUser,
+        paymentMethod: spPayMethod,
+        bankReference: spBankRef,
+        pricePaid: spPricePaid,
+        source: "store"
+      };
+      var statusDescSP = spPricePaid > 0
+        ? ("تسجيل مدفوع من المتجر (" + spPricePaid + " " + spCurrency + ") · قيد المراجعة")
+        : "تسجيل من المتجر · قيد المراجعة";
+
+      prSheetSP.appendRow([
+        spReqId,
+        nowSP,
+        existingRegSP ? existingRegSP.id : "NEW",
+        spName,
+        existingRegSP ? (existingRegSP.programId || "") : "",
+        spCardId,
+        spTitle,
+        spTargetProgId,
+        "pending",
+        statusDescSP,
+        spNote,
+        "",
+        JSON.stringify(extraStoreMeta)
+      ]);
+
+      // تقليص المقاعد المتبقية بمقدار 1 في ورقة محتوى_البوابة_العامة إن أمكن
+      var pDataSP = readPortalDataGS(ss);
+      if (pDataSP && Array.isArray(pDataSP.items)) {
+        var seatsChanged = false;
+        for (var psi = 0; psi < pDataSP.items.length; psi++) {
+          if (pDataSP.items[psi].id === spCardId && pDataSP.items[psi].seatsLeft !== undefined && pDataSP.items[psi].seatsLeft > 0) {
+            pDataSP.items[psi].seatsLeft = Math.max(0, Number(pDataSP.items[psi].seatsLeft) - 1);
+            seatsChanged = true;
+            break;
+          }
+        }
+        if (seatsChanged) writePortalDataGS(ss, pDataSP);
+      }
+
+      var tgNotifiedSP = false;
+      var tgCfgSP = readTelegramConfigGS(ss);
+      if (tgCfgSP.botToken && tgCfgSP.adminChatId) {
+        var payLabelSP = spPayMethod === "free" ? "مجاني" : (spPayMethod === "bank_transfer" ? "تحويل بنكي" : "الدفع عند الاستلام");
+        var tgMsgSP = "<b>طلب التحاق ببرنامج من المتجر (" + spReqId + ")</b>\\n"
+          + "البرنامج: <b>" + spTitle + "</b>\\n"
+          + "المتدرب: <b>" + spName + "</b>" + (existingRegSP ? (" (ID: " + existingRegSP.id + ")") : " (متقدم جديد)") + "\\n"
+          + "الجوال: <code>" + spPhone + "</code>\\n"
+          + "الرسوم: " + (spPricePaid > 0 ? (spPricePaid + " " + spCurrency) : "مجاني") + " · " + payLabelSP + "\\n";
+        if (spBankRef) tgMsgSP += "مرجع الحوالة: " + spBankRef + "\\n";
+        if (spTgUser) tgMsgSP += "تيليغرام: " + spTgUser + "\\n";
+        if (spNote) tgMsgSP += "ملاحظة: " + spNote + "\\n";
+        if (sendTelegramBotMessageGS(ss, tgCfgSP.adminChatId, tgMsgSP, "").ok) {
+          tgNotifiedSP = true;
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        storeHandled: true,
+        requestId: spReqId,
+        registrationId: existingRegSP ? existingRegSP.id : "NEW",
+        student: existingRegSP || undefined,
+        telegramNotified: tgNotifiedSP
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

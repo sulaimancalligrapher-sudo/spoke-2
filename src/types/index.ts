@@ -536,6 +536,18 @@ export interface PortalContentItem {
   targetProgramId?: string;
   enabled: boolean;
   sortOrder: number;
+  // حقول التسويق داخل المتجر (تطبق على بطاقات البرامج section === 'programs' كمصدر حقيقة موحد)
+  showInStore?: boolean;
+  price?: number;
+  compareAtPrice?: number | null;
+  format?: StoreTrainingFormat;
+  duration?: string;
+  startDate?: string;
+  instructor?: string;
+  seatsTotal?: number;
+  seatsLeft?: number;
+  syllabus?: string[];
+  recommendedProductIds?: string[];
 }
 
 export interface PortalSettingsConfig {
@@ -652,8 +664,146 @@ export interface ProgramRequestRecord {
   statusLabel: string;
   studentNote?: string;
   adminNotes?: string;
+  // بيانات إضافية عند التسجيل من المتجر (مدفوع أو مجاني)
+  phone?: string;
+  telegramUsername?: string;
+  paymentMethod?: 'cod' | 'bank_transfer' | 'free';
+  bankReference?: string;
+  pricePaid?: number;
+  source?: 'portal' | 'store';
 }
 
+// =========================================================================
+// أنواع المتجر الإلكتروني (Storefront & Store Admin - متجر_*)
+// =========================================================================
 
+export type StoreOrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+export type StorePaymentMethod = 'cod' | 'bank_transfer';
+export type StoreCouponDiscountType = 'percent' | 'fixed';
+export type StoreTrainingFormat = 'online_live' | 'in_person' | 'recorded';
 
+export interface StoreProductVariantOption {
+  label: string;
+  price?: number | null;
+}
 
+export interface StoreSettings {
+  store_name: string;
+  store_tagline: string;
+  currency: string;
+  default_delivery_fee: number;
+  free_shipping_min: number;
+  whatsapp: string;
+  telegram_username: string;
+  bank_name: string;
+  bank_account_name: string;
+  bank_iban: string;
+  cod_enabled: boolean;
+  bank_transfer_enabled: boolean;
+  announcement_text: string;
+  notify_telegram_on_order: boolean;
+}
+
+export interface StoreCategory {
+  id: string;
+  name: string;
+  slug: string;
+  image_url: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface StoreProduct {
+  id: string;
+  category_id: string;
+  name: string;
+  sku: string;
+  description: string;
+  price: number;
+  compare_at_price: number | null;
+  stock: number;
+  image_url: string;
+  gallery_urls: string[];
+  variants: StoreProductVariantOption[];
+  is_featured: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface StoreBanner {
+  id: string;
+  title: string;
+  subtitle: string;
+  image_url: string;
+  link_url: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface StoreCityZone {
+  id: string;
+  name: string;
+  delivery_fee: number;
+  estimated_days: string;
+  free_shipping_min: number;
+  is_active: boolean;
+}
+
+export interface StoreCoupon {
+  id: string;
+  code: string;
+  discount_type: StoreCouponDiscountType;
+  discount_value: number;
+  min_order: number;
+  max_uses: number;
+  used_count: number;
+  expires_at: string;
+  is_active: boolean;
+}
+
+export interface StoreOrderItem {
+  product_id: string;
+  name: string;
+  sku: string;
+  variant: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+}
+
+export interface StoreOrder {
+  id: string;
+  created_at: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_city: string;
+  customer_address: string;
+  telegram_username: string;
+  payment_method: StorePaymentMethod;
+  bank_reference: string;
+  coupon_code: string;
+  discount_amount: number;
+  items: StoreOrderItem[];
+  subtotal: number;
+  delivery_fee: number;
+  total: number;
+  status: StoreOrderStatus;
+  notes: string;
+}
+
+export interface StoreCartEntry {
+  key: string;
+  product: StoreProduct;
+  variant: string;
+  qty: number;
+}
+
+export interface StorePublicData {
+  settings: StoreSettings;
+  categories: StoreCategory[];
+  products: StoreProduct[];
+  banners: StoreBanner[];
+  cities: StoreCityZone[];
+  coupons: StoreCoupon[];
+  orders: StoreOrder[];
+}
