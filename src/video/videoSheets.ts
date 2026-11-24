@@ -100,6 +100,351 @@ export interface VideoStudentSubmissionRow {
   correction?: VideoCorrectionEntry;
 }
 
+export type TelegramTemplateKey =
+  | 'student_welcome'
+  | 'student_id_not_found'
+  | 'student_disabled'
+  | 'student_stage_transfer'
+  | 'student_program_approved'
+  | 'student_video_correction'
+  | 'student_class_reminder'
+  | 'student_attendance_early'
+  | 'student_attendance_ontime'
+  | 'student_attendance_late'
+  | 'student_attendance_absent'
+  | 'admin_new_registration'
+  | 'admin_program_request'
+  | 'admin_store_order'
+  | 'admin_store_program_enroll'
+  | 'admin_homework_submitted'
+  | 'admin_attendance_checkin'
+  | 'admin_daily_absence_summary';
+
+export interface TelegramTemplateConfig {
+  enabled: boolean;
+  text: string;
+}
+
+export type TelegramTemplatesMap = Partial<Record<TelegramTemplateKey, TelegramTemplateConfig>>;
+
+export interface TelegramTemplateMeta {
+  key: TelegramTemplateKey;
+  audience: 'student' | 'admin';
+  labelAr: string;
+  descriptionAr: string;
+  defaultEnabled: boolean;
+  variables: { token: string; label: string }[];
+  defaultText: string;
+}
+
+export const TELEGRAM_TEMPLATE_META: TelegramTemplateMeta[] = [
+  // ======================== رسائل الطلاب ========================
+  {
+    key: 'student_welcome',
+    audience: 'student',
+    labelAr: 'ترحيب ربط البوت بالطالب',
+    descriptionAr: 'تُرسل للطالب فور إرسال رقم المشترك (ID) أو الضغط على رابط الربط في البوت.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{studentId}', label: 'رقم المشترك' },
+    ],
+    defaultText:
+      'مرحباً بك يا {studentName}! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.\nرقم المشترك: <code>{studentId}</code>',
+  },
+  {
+    key: 'student_id_not_found',
+    audience: 'student',
+    labelAr: 'رقم المشترك غير موجود',
+    descriptionAr: 'تُرسل إذا أرسل المستخدم رقماً غير مسجل في ورقة ID registrants.',
+    defaultEnabled: true,
+    variables: [{ token: '{studentId}', label: 'الرقم المُرسل' }],
+    defaultText: 'لم يتم العثور على رقم المشترك ({studentId}). أرسل رقم الـ ID الصحيح للربط.',
+  },
+  {
+    key: 'student_disabled',
+    audience: 'student',
+    labelAr: 'تنبيه الحساب المعطّل',
+    descriptionAr: 'تُرسل إذا حاول طالب موقوف حسابه ربط البوت.',
+    defaultEnabled: true,
+    variables: [{ token: '{studentName}', label: 'اسم الطالب' }],
+    defaultText: 'عذراً {studentName}، هذا الحساب معطّل حالياً. يرجى التواصل مع الإدارة.',
+  },
+  {
+    key: 'student_stage_transfer',
+    audience: 'student',
+    labelAr: 'ترقية ونقل الطالب إلى برنامج',
+    descriptionAr: 'تُرسل للطالب عند تحويله من المرحلة التمهيدية إلى برنامجه الأساسي.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{studentId}', label: 'رقم المشترك' },
+      { token: '{programName}', label: 'اسم البرنامج' },
+    ],
+    defaultText:
+      '<b>تهانينا يا {studentName}!</b>\nتم قبولك وتحويل حسابك إلى: <b>{programName}</b>.\nيمكنك الآن الدخول إلى صفحتك الخاصة لبدء التدريب.',
+  },
+  {
+    key: 'student_program_approved',
+    audience: 'student',
+    labelAr: 'قبول طلب الالتحاق ببرنامج',
+    descriptionAr: 'تُرسل للطالب عند موافقة الإدارة على طلبه في صفحة طلبات البرامج.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{studentId}', label: 'رقم المشترك' },
+      { token: '{programName}', label: 'اسم البرنامج' },
+    ],
+    defaultText:
+      '<b>تهانينا يا {studentName}!</b>\nتمت الموافقة على طلبك ونقلك إلى برنامج: <b>{programName}</b> (ID: <code>{studentId}</code>).\nيمكنك الدخول الآن إلى صفحتك الخاصة لبدء البرنامج.',
+  },
+  {
+    key: 'student_video_correction',
+    audience: 'student',
+    labelAr: 'تصحيح واجب الفيديو',
+    descriptionAr: 'تُرسل للطالب عند حفظ تصحيح المعلم ودرجته على واجب الفيديو.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{lessonTitle}', label: 'عنوان الدرس' },
+      { token: '{imageScore}', label: 'درجة الصورة' },
+      { token: '{imageNotes}', label: 'ملاحظة الصورة' },
+      { token: '{audioScore}', label: 'درجة الصوت' },
+      { token: '{audioNotes}', label: 'ملاحظة الصوت' },
+    ],
+    defaultText:
+      '<b>تم تصحيح واجبك في درس: {lessonTitle}</b>\nدرجة الصورة: {imageScore}\nملاحظة المعلم: {imageNotes}\nدرجة الصوت: {audioScore}\nالتوجيه الصوتي: {audioNotes}',
+  },
+  {
+    key: 'student_class_reminder',
+    audience: 'student',
+    labelAr: 'تذكير الطالب بموعد الحصة',
+    descriptionAr: 'تُرسل تلقائياً قبل بدء الحصة (أو عند بدايتها) وفق جدول كل برنامج ووقته.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{programName}', label: 'اسم البرنامج' },
+      { token: '{sessionTitle}', label: 'عنوان الحصة' },
+      { token: '{scheduledTime}', label: 'موعد الحصة' },
+      { token: '{date}', label: 'التاريخ' },
+    ],
+    defaultText:
+      '⏰ <b>تذكير بموعد الحصة</b>\nمرحباً يا {studentName}، حصة <b>{sessionTitle}</b> ({programName}) تبدأ الساعة <b>{scheduledTime}</b> بتاريخ {date}.\nنرجو الدخول وتأكيد الحضور عبر صفحتك الخاصة.',
+  },
+  {
+    key: 'student_attendance_early',
+    audience: 'student',
+    labelAr: 'تأكيد حضور مبكر للطالب',
+    descriptionAr: 'تُرسل للطالب إذا سجّل حضوره قبل وقت بداية الحصة المحدد.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{sessionTitle}', label: 'الحصة' },
+      { token: '{time}', label: 'وقت الدخول' },
+      { token: '{scheduledTime}', label: 'وقت الحصة' },
+      { token: '{minutesDelta}', label: 'الدقائق المبكرة' },
+    ],
+    defaultText:
+      '🌟 <b>أحسنت يا {studentName}! حضور مبكر</b>\nتم تسجيل حضورك في <b>{sessionTitle}</b> الساعة <code>{time}</code> (قبل الموعد بـ {minutesDelta} دقيقة).',
+  },
+  {
+    key: 'student_attendance_ontime',
+    audience: 'student',
+    labelAr: 'تأكيد حضور بالموعد للطالب',
+    descriptionAr: 'تُرسل للطالب إذا سجّل حضوره خلال فترة السماح المحددة لبداية الحصة.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{sessionTitle}', label: 'الحصة' },
+      { token: '{time}', label: 'وقت الدخول' },
+      { token: '{scheduledTime}', label: 'وقت الحصة' },
+    ],
+    defaultText:
+      '✅ <b>تم تسجيل حضورك في الموعد</b>\nالطالب: {studentName}\nالحصة: <b>{sessionTitle}</b>\nوقت التسجيل: <code>{time}</code>',
+  },
+  {
+    key: 'student_attendance_late',
+    audience: 'student',
+    labelAr: 'تنبيه تأخر حضور الطالب',
+    descriptionAr: 'تُرسل للطالب إذا سجّل حضوره بعد انتهاء فترة السماح المحددة.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{sessionTitle}', label: 'الحصة' },
+      { token: '{time}', label: 'وقت الدخول' },
+      { token: '{scheduledTime}', label: 'وقت الحصة' },
+      { token: '{minutesDelta}', label: 'دقائق التأخير' },
+    ],
+    defaultText:
+      '⚠️ <b>تنبيه: تم تسجيل حضورك متأخراً</b>\nالطالب: {studentName}\nالحصة: <b>{sessionTitle}</b> (موعدها {scheduledTime})\nوقت دخولك: <code>{time}</code> (تأخير {minutesDelta} دقيقة).',
+  },
+  {
+    key: 'student_attendance_absent',
+    audience: 'student',
+    labelAr: 'إشعار تسجيل غياب الطالب',
+    descriptionAr: 'تُرسل تلقائياً للطالب إذا انتهت الحصة دون تسجيل حضوره.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{programName}', label: 'اسم البرنامج' },
+      { token: '{sessionTitle}', label: 'الحصة' },
+      { token: '{scheduledTime}', label: 'وقت الحصة' },
+      { token: '{date}', label: 'التاريخ' },
+    ],
+    defaultText:
+      '❌ <b>إشعار غياب عن حصة اليوم</b>\nمرحباً يا {studentName}، لم يُسجَّل حضورك في حصة <b>{sessionTitle}</b> ({programName}) بتاريخ {date} الساعة {scheduledTime}.\nيمكنك الدخول للمنصة لتأكيد حضورك أو مراجعة الدرس.',
+  },
+
+  // ======================== رسائل الإدارة ========================
+  {
+    key: 'admin_new_registration',
+    audience: 'admin',
+    labelAr: 'تنبيه تسجيل مشترك جديد',
+    descriptionAr: 'يُرسل للإدارة عند تقديم استمارة تسجيل مشترك جديد من البوابة العامة.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'الاسم' },
+      { token: '{studentId}', label: 'رقم التسجيل' },
+      { token: '{programName}', label: 'القسم المبدئي' },
+      { token: '{phone}', label: 'الهاتف' },
+      { token: '{email}', label: 'البريد' },
+      { token: '{telegramUsername}', label: 'تيليغرام' },
+      { token: '{answersSummary}', label: 'ملخص الإجابات' },
+    ],
+    defaultText:
+      '<b>طلب تسجيل طالب جديد (المرحلة 1)</b>\nالاسم: <b>{studentName}</b>\nرقم التسجيل (ID): <code>{studentId}</code>\nالقسم المبدئي: {programName}\nالهاتف: {phone}\nالبريد: {email}\nتيليغرام: {telegramUsername}\n{answersSummary}',
+  },
+  {
+    key: 'admin_program_request',
+    audience: 'admin',
+    labelAr: 'تنبيه طلب الالتحاق ببرنامج',
+    descriptionAr: 'يُرسل للإدارة عندما يطلب مشترك حالي الانتقال إلى برنامج جديد.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم المشترك' },
+      { token: '{studentId}', label: 'رقم المشترك' },
+      { token: '{programName}', label: 'البرنامج المطلوب' },
+      { token: '{notes}', label: 'ملاحظة المشترك' },
+    ],
+    defaultText:
+      '<b>طلب التحاق ببرنامج تدريبي</b>\nالمشترك: <b>{studentName}</b>\nرقم المشترك (ID): <code>{studentId}</code>\nالبرنامج المطلوب: <b>{programName}</b>\nملاحظة: {notes}',
+  },
+  {
+    key: 'admin_store_order',
+    audience: 'admin',
+    labelAr: 'تنبيه طلب جديد من المتجر',
+    descriptionAr: 'يُرسل للإدارة عند إتمام عميل لطلب منتجات في المتجر.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{orderId}', label: 'رقم الطلب' },
+      { token: '{customerName}', label: 'اسم العميل' },
+      { token: '{phone}', label: 'الجوال' },
+      { token: '{city}', label: 'المدينة' },
+      { token: '{paymentMethod}', label: 'طريقة الدفع' },
+      { token: '{itemsSummary}', label: 'قائمة المنتجات' },
+      { token: '{total}', label: 'الإجمالي' },
+      { token: '{currency}', label: 'العملة' },
+    ],
+    defaultText:
+      '<b>طلب جديد في المتجر ({orderId})</b>\nالعميل: <b>{customerName}</b>\nالجوال: <code>{phone}</code>\nالمدينة: {city}\nالدفع: {paymentMethod}\n<b>المنتجات:</b>\n{itemsSummary}\nالإجمالي النهائي: <b>{total} {currency}</b>',
+  },
+  {
+    key: 'admin_store_program_enroll',
+    audience: 'admin',
+    labelAr: 'تنبيه تسجيل برنامج عبر المتجر',
+    descriptionAr: 'يُرسل للإدارة عند طلب الالتحاق ببرنامج مدفوع أو مجاني من واجهة المتجر.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{requestId}', label: 'رقم الطلب' },
+      { token: '{programName}', label: 'البرنامج' },
+      { token: '{studentName}', label: 'المتدرب' },
+      { token: '{studentId}', label: 'رقم ID إن وجد' },
+      { token: '{phone}', label: 'الجوال' },
+      { token: '{priceLabel}', label: 'الرسوم والدفع' },
+      { token: '{notes}', label: 'ملاحظة' },
+    ],
+    defaultText:
+      '<b>طلب التحاق ببرنامج من المتجر ({requestId})</b>\nالبرنامج: <b>{programName}</b>\nالمتدرب: <b>{studentName}</b> ({studentId})\nالجوال: <code>{phone}</code>\nالرسوم: {priceLabel}\nملاحظة: {notes}',
+  },
+  {
+    key: 'admin_homework_submitted',
+    audience: 'admin',
+    labelAr: 'تنبيه تسليم واجب من طالب',
+    descriptionAr: 'يُرسل للإدارة عند إكمال الطالب لدرس فيديو أو رفع واجب صورة/صوت.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{studentId}', label: 'رقم المشترك' },
+      { token: '{lessonTitle}', label: 'عنوان الدرس' },
+      { token: '{actionLabel}', label: 'نوع التسليم' },
+    ],
+    defaultText:
+      '📝 <b>تسليم واجب جديد</b>\nالطالب: <b>{studentName}</b> (ID: <code>{studentId}</code>)\nالدرس: {lessonTitle}\nالنوع: {actionLabel}',
+  },
+  {
+    key: 'admin_attendance_checkin',
+    audience: 'admin',
+    labelAr: 'تنبيه حضور/تأخر طالب للحصة',
+    descriptionAr: 'يُرسل للإدارة لحظة تأكيد الطالب لحضوره مع توضيح حالته (مبكر / بالموعد / متأخر).',
+    defaultEnabled: true,
+    variables: [
+      { token: '{studentName}', label: 'اسم الطالب' },
+      { token: '{studentId}', label: 'رقم المشترك' },
+      { token: '{statusLabel}', label: 'حالة الحضور' },
+      { token: '{date}', label: 'التاريخ' },
+      { token: '{time}', label: 'وقت الدخول' },
+      { token: '{scheduledTime}', label: 'موعد الحصة' },
+      { token: '{sessionTitle}', label: 'الحصة' },
+      { token: '{location}', label: 'الموقع' },
+    ],
+    defaultText:
+      '📌 <b>تسجيل حضور حصة ({statusLabel})</b>\nالطالب: <b>{studentName}</b> (ID: <code>{studentId}</code>)\nالتاريخ: {date} — وقت الدخول: {time} (الموعد: {scheduledTime})\nالحصة: {sessionTitle}\nالموقع: {location}',
+  },
+  {
+    key: 'admin_daily_absence_summary',
+    audience: 'admin',
+    labelAr: 'التقرير التلقائي للغياب للإدارة',
+    descriptionAr: 'يُرسل للإدارة تلقائياً بعد انتهاء وقت السماح للحصة بقائمة المتغيبين اليوم.',
+    defaultEnabled: true,
+    variables: [
+      { token: '{programName}', label: 'البرنامج' },
+      { token: '{sessionTitle}', label: 'الحصة' },
+      { token: '{date}', label: 'التاريخ' },
+      { token: '{scheduledTime}', label: 'موعد الحصة' },
+      { token: '{absentCount}', label: 'عدد الغائبين' },
+      { token: '{absentList}', label: 'أسماء الغائبين' },
+    ],
+    defaultText:
+      '📊 <b>ملخص الغياب عن الحصة</b>\nالبرنامج: <b>{programName}</b>\nالحصة: {sessionTitle}\nالتاريخ: {date} · الموعد: {scheduledTime}\nعدد الغائبين: <b>{absentCount}</b>\n{absentList}',
+  },
+];
+
+export function getDefaultTelegramTemplates(): Record<TelegramTemplateKey, TelegramTemplateConfig> {
+  const out = {} as Record<TelegramTemplateKey, TelegramTemplateConfig>;
+  TELEGRAM_TEMPLATE_META.forEach((m) => {
+    out[m.key] = { enabled: m.defaultEnabled, text: m.defaultText };
+  });
+  return out;
+}
+
+export function resolveTelegramTemplate(
+  config: TelegramConfig,
+  key: TelegramTemplateKey
+): TelegramTemplateConfig {
+  const meta = TELEGRAM_TEMPLATE_META.find((m) => m.key === key);
+  const custom = config.templates?.[key];
+  if (key === 'student_welcome' && (!custom || !custom.text?.trim()) && config.welcomeMessage?.trim()) {
+    return {
+      enabled: custom?.enabled !== false,
+      text: config.welcomeMessage,
+    };
+  }
+  return {
+    enabled: custom?.enabled !== undefined ? Boolean(custom.enabled) : meta?.defaultEnabled !== false,
+    text: custom?.text !== undefined && custom.text !== '' ? custom.text : meta?.defaultText || '',
+  };
+}
+
 export interface TelegramConfig {
   botToken: string;
   botUsername: string;
@@ -111,6 +456,7 @@ export interface TelegramConfig {
   notifyAdminOnHomework?: boolean;
   dailyReminderEnabled?: boolean;
   customFooter?: string;
+  templates?: TelegramTemplatesMap;
 }
 
 export interface TelegramStudentLink {
@@ -1244,38 +1590,62 @@ export async function saveTeacherVideoCorrection(
 // TELEGRAM BOT SETTINGS & NOTIFICATIONS (تيليغرام_الإعدادات / تيليغرام_الطلاب)
 // =========================================================================
 
+export function normalizeTelegramTemplates(raw?: any, legacyWelcome?: string): TelegramTemplatesMap {
+  const defaults = getDefaultTelegramTemplates();
+  const out: TelegramTemplatesMap = {};
+  (Object.keys(defaults) as TelegramTemplateKey[]).forEach((k) => {
+    const custom = raw && typeof raw === 'object' ? raw[k] : undefined;
+    const defItem = defaults[k];
+    if (custom && typeof custom === 'object') {
+      out[k] = {
+        enabled: custom.enabled !== undefined ? Boolean(custom.enabled) : defItem.enabled,
+        text: custom.text !== undefined ? String(custom.text) : defItem.text,
+      };
+    } else if (k === 'student_welcome' && legacyWelcome && legacyWelcome.trim()) {
+      out[k] = { enabled: true, text: legacyWelcome };
+    } else {
+      out[k] = { ...defItem };
+    }
+  });
+  return out;
+}
+
 export function getLocalTelegramConfig(): TelegramConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_TELEGRAM_CONFIG);
     if (raw) {
       const parsed = JSON.parse(raw);
+      const welcomeMsg = String(
+        parsed.welcomeMessage ||
+          'مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.'
+      );
       return {
         botToken: String(parsed.botToken || ''),
         botUsername: String(parsed.botUsername || ''),
         enabled: Boolean(parsed.enabled),
-        welcomeMessage: String(
-          parsed.welcomeMessage ||
-            'مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.'
-        ),
+        welcomeMessage: welcomeMsg,
         webhookUrl: parsed.webhookUrl ? String(parsed.webhookUrl) : undefined,
         adminChatId: String(parsed.adminChatId || ''),
         notifyOnVideoCorrection: parsed.notifyOnVideoCorrection !== false,
         notifyAdminOnHomework: Boolean(parsed.notifyAdminOnHomework),
         dailyReminderEnabled: Boolean(parsed.dailyReminderEnabled),
         customFooter: String(parsed.customFooter || ''),
+        templates: normalizeTelegramTemplates(parsed.templates, welcomeMsg),
       };
     }
   } catch {}
+  const defaultWelcome = 'مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.';
   return {
     botToken: '',
     botUsername: '',
     enabled: false,
-    welcomeMessage: 'مرحباً بك! تم ربط حسابك بنجاح لتلقي إشعارات الدروس وتصحيحات المعلم.',
+    welcomeMessage: defaultWelcome,
     adminChatId: '',
     notifyOnVideoCorrection: true,
     notifyAdminOnHomework: false,
     dailyReminderEnabled: false,
     customFooter: '',
+    templates: normalizeTelegramTemplates(undefined, defaultWelcome),
   };
 }
 
@@ -1295,17 +1665,25 @@ export async function fetchTelegramConfig(webhookUrl: string): Promise<TelegramC
     });
     if (res.success && res.data?.config) {
       const c = res.data.config;
+      const welcomeMsg = String(c.welcomeMessage || local.welcomeMessage || '');
+      let rawTemplates = c.templates;
+      if (typeof c.templatesJson === 'string' && c.templatesJson.trim()) {
+        try {
+          rawTemplates = JSON.parse(c.templatesJson);
+        } catch {}
+      }
       const cfg: TelegramConfig = {
         botToken: String(c.botToken || ''),
         botUsername: String(c.botUsername || ''),
         enabled: Boolean(c.enabled),
-        welcomeMessage: String(c.welcomeMessage || local.welcomeMessage || ''),
+        welcomeMessage: welcomeMsg,
         webhookUrl: c.webhookUrl ? String(c.webhookUrl) : undefined,
         adminChatId: String(c.adminChatId || ''),
         notifyOnVideoCorrection: c.notifyOnVideoCorrection !== false,
         notifyAdminOnHomework: Boolean(c.notifyAdminOnHomework),
         dailyReminderEnabled: Boolean(c.dailyReminderEnabled),
         customFooter: String(c.customFooter || ''),
+        templates: normalizeTelegramTemplates(rawTemplates || local.templates, welcomeMsg),
       };
       saveLocalTelegramConfig(cfg);
       return cfg;
@@ -1318,14 +1696,24 @@ export async function saveTelegramConfig(
   webhookUrl: string,
   config: TelegramConfig
 ): Promise<{ success: boolean; message: string }> {
-  saveLocalTelegramConfig(config);
+  const normalizedTemplates = normalizeTelegramTemplates(config.templates, config.welcomeMessage);
+  const syncedWelcome = normalizedTemplates.student_welcome?.text || config.welcomeMessage || '';
+  const payloadConfig: TelegramConfig = {
+    ...config,
+    welcomeMessage: syncedWelcome,
+    templates: normalizedTemplates,
+  };
+  saveLocalTelegramConfig(payloadConfig);
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
     return { success: false, message: 'تم الحفظ محلياً (أدخل رابط Webhook لمزامنة الشيت)' };
   }
   const res = await callGoogleSheetsPost(webhookUrl, {
     action: 'save_telegram_config',
     sheetName: VIDEO_SHEETS.TELEGRAM_CONFIG,
-    config,
+    config: {
+      ...payloadConfig,
+      templatesJson: JSON.stringify(normalizedTemplates),
+    },
   });
   return {
     success: Boolean(res.success),

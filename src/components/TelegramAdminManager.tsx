@@ -24,10 +24,17 @@ import {
   QrCode,
   Download,
   ExternalLink,
+  MessageSquareText,
+  RotateCcw,
 } from 'lucide-react';
 import {
   TelegramConfig,
   TelegramStudentLink,
+  TelegramTemplateKey,
+  TELEGRAM_TEMPLATE_META,
+  getDefaultTelegramTemplates,
+  normalizeTelegramTemplates,
+  resolveTelegramTemplate,
   fetchTelegramConfig,
   fetchTelegramUsers,
   getLocalTelegramConfig,
@@ -107,6 +114,104 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
   const [busyUserKey, setBusyUserKey] = useState<string | null>(null);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Full 18-template automation editor state
+  const [templateAudienceTab, setTemplateAudienceTab] = useState<'all' | 'student' | 'admin'>('all');
+  const [testingTemplateKey, setTestingTemplateKey] = useState<TelegramTemplateKey | null>(null);
+
+  const resolvedTemplates = useMemo(
+    () => normalizeTelegramTemplates(tgConfig.templates, tgConfig.welcomeMessage),
+    [tgConfig.templates, tgConfig.welcomeMessage]
+  );
+
+  const handleUpdateTemplate = (
+    key: TelegramTemplateKey,
+    patch: { enabled?: boolean; text?: string }
+  ) => {
+    setTgConfig((prev) => {
+      const currentMap = normalizeTelegramTemplates(prev.templates, prev.welcomeMessage);
+      const nextEntry = { ...currentMap[key], ...patch };
+      const nextMap = { ...currentMap, [key]: nextEntry };
+      return {
+        ...prev,
+        templates: nextMap,
+        ...(key === 'student_welcome' && patch.text !== undefined
+          ? { welcomeMessage: patch.text }
+          : {}),
+      };
+    });
+  };
+
+  const handleResetTemplate = (key: TelegramTemplateKey) => {
+    const defaults = getDefaultTelegramTemplates();
+    handleUpdateTemplate(key, defaults[key]);
+  };
+
+  const handleTestTemplateToAdmin = async (key: TelegramTemplateKey) => {
+    if (!tgConfig.botToken.trim() || !(tgConfig.adminChatId || '').trim()) {
+      setStatusBanner({
+        type: 'warning',
+        text: 'يرجى ضبط Bot Token و Chat ID للمشرف أولاً لتجربة إرسال القالب.',
+      });
+      return;
+    }
+    setTestingTemplateKey(key);
+    setStatusBanner(null);
+    try {
+      const resolvedTpl = resolveTelegramTemplate(tgConfig, key);
+      const sampleVars: Record<string, string | number> = {
+        studentName: 'سليمان التجريبي',
+        studentId: '4829174',
+        programName: 'مسار التجويد التطبيقي',
+        sessionTitle: 'الدرس الأول — أحكام النون الساكنة',
+        scheduledTime: '19:30',
+        time: '19:24',
+        minutesDelta: 6,
+        date: getTodayLocalISO(),
+        statusLabel: 'حاضر مبكراً (-6 د)',
+        lessonTitle: 'تطبيق عملي — سورة الفاتحة',
+        imageScore: '9.5 / 10',
+        imageNotes: 'كتابة متقنة، انتبه لامتداد الألف.',
+        audioScore: '10 / 10',
+        audioNotes: 'نطق واضح ومخارج سليمة.',
+        orderId: 'ORD-1042',
+        customerName: 'سليمان التجريبي',
+        phone: '+66812345678',
+        city: 'بانكوك',
+        paymentMethod: 'تحويل بنكي',
+        itemsSummary: '• كتاب التجويد المصور × 1 = 45 ر.س',
+        total: '45',
+        currency: 'ر.س',
+        requestId: 'ENR-902145',
+        priceLabel: 'مجاني',
+        notes: 'ملاحظة اختبارية',
+        email: 'student@example.com',
+        telegramUsername: '@student_demo',
+        answersSummary: '• المستوى: متوسط',
+        actionLabel: 'إتمام درس الفيديو',
+        location: 'بانكوك، تايلند',
+        absentCount: 2,
+        absentList: '• أحمد محمد (ID: 3918274)\n• عمر خالد (ID: 8271645)',
+      };
+      let previewBody = resolvedTpl.text || '';
+      Object.entries(sampleVars).forEach(([k, v]) => {
+        previewBody = previewBody.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+      });
+      const res = await sendTelegramNotification(webhookUrl, {
+        botToken: tgConfig.botToken.trim(),
+        chatId: (tgConfig.adminChatId || '').trim(),
+        message: `🧪 [معاينة القالب: ${key}]\n\n${previewBody || '(فارغ)'}`,
+      });
+      setStatusBanner({
+        type: res.success ? 'success' : 'error',
+        text: res.success
+          ? 'تم إرسال معاينة القالب إلى تيليغرام المشرف بنجاح!'
+          : res.message,
+      });
+    } finally {
+      setTestingTemplateKey(null);
+    }
+  };
 
   const syncUnifiedBotUsername = (rawUsername?: string) => {
     const clean = (rawUsername || '').trim().replace(/^@/, '');
@@ -737,7 +842,7 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
               <textarea
                 rows={2}
                 value={tgConfig.welcomeMessage || ''}
-                onChange={(e) => setTgConfig({ ...tgConfig, welcomeMessage: e.target.value })}
+                onChange={(e) => handleUpdateTemplate('student_welcome', { text: e.target.value })}
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs"
               />
             </div>
@@ -1294,6 +1399,176 @@ export const TelegramAdminManager: React.FC<TelegramAdminManagerProps> = ({
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Full 18 Automated Telegram Messages Editor (Student + Admin) */}
+      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <div className="flex items-start gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+              <MessageSquareText className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+                التحكم الكامل في رسائل تيليغرام التلقائية (الطلاب والإدارة)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                خصّص نص كل إشعار أو فعّله/عطّله لكل حدث تلقائي — انقر على أي متغير لإدراجه، ثم اضغط «حفظ جميع القوالب».
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+              {(
+                [
+                  { id: 'all', label: `الكل (${TELEGRAM_TEMPLATE_META.length})` },
+                  {
+                    id: 'student',
+                    label: `رسائل الطلاب (${TELEGRAM_TEMPLATE_META.filter((m) => m.audience === 'student').length})`,
+                  },
+                  {
+                    id: 'admin',
+                    label: `رسائل الإدارة (${TELEGRAM_TEMPLATE_META.filter((m) => m.audience === 'admin').length})`,
+                  },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setTemplateAudienceTab(tab.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors ${
+                    templateAudienceTab === tab.id
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSaveConfig as any}
+              disabled={saving}
+              className="px-4 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <span>حفظ جميع القوالب</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {TELEGRAM_TEMPLATE_META.filter(
+            (meta) => templateAudienceTab === 'all' || meta.audience === templateAudienceTab
+          ).map((meta) => {
+            const curTpl = resolvedTemplates[meta.key] || {
+              enabled: meta.defaultEnabled,
+              text: meta.defaultText,
+            };
+            const isTesting = testingTemplateKey === meta.key;
+            return (
+              <div
+                key={meta.key}
+                className={`p-4 rounded-2xl border space-y-3 transition-colors ${
+                  curTpl.enabled
+                    ? 'bg-slate-50/70 border-slate-200'
+                    : 'bg-slate-100/80 border-slate-200 opacity-75'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold border ${
+                          meta.audience === 'student'
+                            ? 'bg-sky-50 text-sky-800 border-sky-200'
+                            : 'bg-amber-50 text-amber-800 border-amber-200'
+                        }`}
+                      >
+                        {meta.audience === 'student' ? 'للطالب' : 'للإدارة'}
+                      </span>
+                      <span className="text-xs sm:text-sm font-extrabold text-slate-900">
+                        {meta.labelAr}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {meta.descriptionAr}
+                    </p>
+                  </div>
+
+                  <label className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-slate-700 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={curTpl.enabled}
+                      onChange={(e) =>
+                        handleUpdateTemplate(meta.key, { enabled: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded accent-indigo-600"
+                    />
+                    <span>{curTpl.enabled ? 'مفعّل' : 'معطّل'}</span>
+                  </label>
+                </div>
+
+                {/* Clickable Placeholder Variable Chips */}
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 ml-1">إدراج متغير:</span>
+                  {meta.variables.map((v) => (
+                    <button
+                      key={v.token}
+                      type="button"
+                      onClick={() =>
+                        handleUpdateTemplate(meta.key, {
+                          text: curTpl.text ? `${curTpl.text} ${v.token}` : v.token,
+                        })
+                      }
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200/80 text-[10px] font-bold cursor-pointer"
+                      title={v.token}
+                    >
+                      + {v.label}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  rows={3}
+                  value={curTpl.text}
+                  onChange={(e) =>
+                    handleUpdateTemplate(meta.key, { text: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs leading-relaxed font-sans"
+                />
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleResetTemplate(meta.key)}
+                    className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>استعادة الافتراضي</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isTesting}
+                    onClick={() => handleTestTemplateToAdmin(meta.key)}
+                    className="px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    {isTesting ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Send className="w-3 h-3" />
+                    )}
+                    <span>إرسال تجربة للمشرف</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -27,6 +27,10 @@ import {
   Share2,
   ClipboardCheck,
   Link2,
+  Mail,
+  Hash,
+  Loader2,
+  Send,
 } from 'lucide-react';
 import {
   PortalContentItem,
@@ -56,6 +60,7 @@ import {
   fetchRegistrationSubmissionsFromSheets,
   savePortalDataToSheets,
   saveRegistrationQuestionsToSheets,
+  testPortalWelcomeEmail,
   transferRegistrationStageInSheets,
   updateProgramRequestStatusInSheets,
 } from '../utils/portalSheets';
@@ -177,6 +182,41 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
 
   // Clipboard copy badges
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Email diagnostics state
+  const [testEmailTarget, setTestEmailTarget] = useState<string>(
+    () => portalData.settings.adminNotificationEmail || portalData.settings.contactEmail || ''
+  );
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [emailDiagResult, setEmailDiagResult] = useState<{
+    success: boolean;
+    message: string;
+    remainingQuota?: number;
+  } | null>(null);
+
+  const handleRunEmailTest = async () => {
+    const target = (testEmailTarget || portalData.settings.adminNotificationEmail || portalData.settings.contactEmail || '').trim();
+    if (!target) {
+      setEmailDiagResult({ success: false, message: 'يرجى إدخال بريد إلكتروني صحيح للاختبار أولاً.' });
+      return;
+    }
+    setTestingEmail(true);
+    setEmailDiagResult(null);
+    try {
+      const res = await testPortalWelcomeEmail(webhookUrl, {
+        toEmail: target,
+        academyName: portalData.settings.academyName || 'المنصة التعليمية',
+        adminNotificationEmail: portalData.settings.contactEmail || portalData.settings.adminNotificationEmail || '',
+      });
+      setEmailDiagResult({
+        success: res.success,
+        message: res.message,
+        remainingQuota: res.quota,
+      });
+    } finally {
+      setTestingEmail(false);
+    }
+  };
 
   const loadSubmissions = async () => {
     setLoadingSubmissions(true);
@@ -998,6 +1038,112 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                 />
                 <span>إشعار الطالب عبر تيليغرام عند تحويله إلى برنامج المرحلة الثانية</span>
               </label>
+            </div>
+
+            {/* Registration ID Mode + Email Diagnostics Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-3 border-t border-slate-100">
+              {/* Random 7-digit ID config */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2.5">
+                <div className="flex items-center gap-2 text-xs font-extrabold text-slate-900">
+                  <Hash className="w-4 h-4 text-emerald-700" />
+                  <span>نظام توليد رقم التسجيل (ID المشترك)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-600">نمط الأرقام:</label>
+                    <select
+                      value={portalData.settings.registrationIdMode || 'random'}
+                      onChange={(e) =>
+                        updateSettings({
+                          registrationIdMode: e.target.value as 'random' | 'sequential',
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                    >
+                      <option value="random">عشوائي غير متسلسل (موصى به)</option>
+                      <option value="sequential">تسلسلي تصاعدي (1001, 1002...)</option>
+                    </select>
+                  </div>
+                  {(portalData.settings.registrationIdMode || 'random') === 'random' && (
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600">عدد الخانات:</label>
+                      <select
+                        value={portalData.settings.registrationIdLength || 7}
+                        onChange={(e) =>
+                          updateSettings({
+                            registrationIdLength: Number(e.target.value) || 7,
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold"
+                      >
+                        <option value={7}>7 أرقام عشوائية (مثال: 4829174)</option>
+                        <option value={6}>6 أرقام عشوائية (مثال: 592814)</option>
+                        <option value={5}>5 أرقام عشوائية (مثال: 73915)</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  يتم التحقق تلقائياً من عدم تكرار الرقم العشوائي في ورقتي <code className="font-mono">ID registrants</code> و<code className="font-mono">طلبات_التسجيل</code>.
+                </p>
+              </div>
+
+              {/* Email Diagnostics & Permissions Helper */}
+              <div className="p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200/80 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-extrabold text-sky-950">
+                    <Mail className="w-4 h-4 text-sky-700" />
+                    <span>تشخيص واختبار إرسال البريد الإلكتروني</span>
+                  </div>
+                  {emailDiagResult?.remainingQuota !== undefined && (
+                    <span className="text-[10px] font-extrabold text-sky-800 bg-white px-2 py-0.5 rounded-lg border border-sky-200 tabular-nums">
+                      الرصيد اليومي: {emailDiagResult.remainingQuota}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="email"
+                    dir="ltr"
+                    value={testEmailTarget}
+                    onChange={(e) => setTestEmailTarget(e.target.value)}
+                    placeholder="أدخل بريداً لاختبار وصول الرسالة..."
+                    className="flex-1 px-3 py-2 rounded-xl border border-sky-200 bg-white text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRunEmailTest}
+                    disabled={testingEmail}
+                    className="px-3.5 py-2 rounded-xl bg-sky-700 hover:bg-sky-800 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+                  >
+                    {testingEmail ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                    <span>إرسال بريد اختباري</span>
+                  </button>
+                </div>
+
+                {emailDiagResult && (
+                  <div
+                    className={`p-2.5 rounded-xl border text-[11px] font-bold leading-relaxed ${
+                      emailDiagResult.success
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}
+                  >
+                    {emailDiagResult.message}
+                  </div>
+                )}
+
+                <p className="text-[11px] text-sky-900/80 leading-relaxed">
+                  لتفعيل البريد في حساب Google أول مرة: افتح <strong>Extensions → Apps Script</strong> وشغّل دالة{' '}
+                  <code className="font-mono bg-white px-1 rounded">authorizeAndTestEmailGS</code> ثم انشر{' '}
+                  <strong>Deploy → Manage Deployments → New Version</strong>.
+                </p>
+              </div>
             </div>
           </div>
 

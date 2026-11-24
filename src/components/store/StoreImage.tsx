@@ -28,6 +28,8 @@ export const StoreImage: React.FC<StoreImageProps> = ({
         <img
           src={resolved}
           alt={alt}
+          width={800}
+          height={600}
           referrerPolicy="no-referrer"
           loading="lazy"
           onError={() => setFailed(true)}

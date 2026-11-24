@@ -117,6 +117,8 @@ export interface CourseGroup {
 
 export type ScheduleDayType = 'lesson' | 'review' | 'exam';
 
+export type AttendanceStatus = 'early' | 'on_time' | 'late' | 'absent';
+
 export interface CourseScheduleDay {
   id: string;
   date: string; // YYYY-MM-DD
@@ -126,11 +128,21 @@ export interface CourseScheduleDay {
   customTitle?: string;
   notes?: string;
   programId?: string;
+  startTime?: string; // HH:mm optional per-day override
+  durationMinutes?: number; // optional per-day duration override
 }
 
 export interface CourseScheduleSettings {
   lockFutureDays: boolean;
   courseTitle: string;
+  defaultStartTime?: string; // HH:mm
+  durationMinutes?: number;
+  timezone?: string; // e.g. 'Asia/Bangkok'
+  graceMinutes?: number; // minutes after startTime still counted on_time
+  reminderMinutesBefore?: number; // minutes before startTime to notify
+  absenceGraceMinutes?: number; // minutes after session end to auto-mark absent
+  autoSendReminders?: boolean;
+  autoMarkAbsent?: boolean;
 }
 
 export interface CourseProgram {
@@ -172,6 +184,12 @@ export interface AttendanceRecord {
   deviceId?: string;
   createdAt?: string;
   syncedToSheets?: boolean;
+  status?: AttendanceStatus;
+  minutesDelta?: number; // negative = early, positive = late
+  scheduledTime?: string; // HH:mm
+  programId?: string;
+  programName?: string;
+  timezone?: string;
 }
 
 export const SCHEDULE_DAY_TYPE_META: Record<
@@ -288,6 +306,128 @@ export function buildScheduleLessonKey(
   return `${exerciseType}::${topicName.trim()}`;
 }
 
+export function getLocalDeviceTimezone(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (tz && tz.trim()) return tz.trim();
+  } catch {}
+  return 'Asia/Bangkok';
+}
+
+export function normalizeHHmm(raw?: string): string {
+  if (!raw) return '';
+  const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return '';
+  const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+export function parseHHmmToMinutes(raw?: string): number | null {
+  const clean = normalizeHHmm(raw);
+  if (!clean) return null;
+  const [h, m] = clean.split(':').map((n) => parseInt(n, 10));
+  return h * 60 + m;
+}
+
+export function evaluateAttendanceTiming(
+  checkInHHmm: string,
+  scheduledHHmm?: string,
+  graceMinutes = 10
+): { status: 'early' | 'on_time' | 'late'; minutesDelta: number } {
+  const checkMins = parseHHmmToMinutes(checkInHHmm);
+  const schedMins = parseHHmmToMinutes(scheduledHHmm);
+  if (checkMins === null || schedMins === null) {
+    return { status: 'on_time', minutesDelta: 0 };
+  }
+  const delta = checkMins - schedMins;
+  const safeGrace = Math.max(0, Number.isFinite(graceMinutes) ? graceMinutes : 10);
+  if (delta < 0) {
+    return { status: 'early', minutesDelta: delta };
+  }
+  if (delta <= safeGrace) {
+    return { status: 'on_time', minutesDelta: delta };
+  }
+  return { status: 'late', minutesDelta: delta };
+}
+
+export function getAttendanceStatusMeta(
+  status?: AttendanceStatus | string,
+  minutesDelta?: number
+): {
+  status: AttendanceStatus;
+  labelAr: string;
+  shortAr: string;
+  badgeCls: string;
+} {
+  const absDelta = Math.abs(Math.round(Number(minutesDelta) || 0));
+  switch (status) {
+    case 'early':
+      return {
+        status: 'early',
+        labelAr: absDelta > 0 ? `حاضر مبكراً (${absDelta} د)` : 'حاضر مبكراً',
+        shortAr: 'مبكر',
+        badgeCls: 'bg-sky-50 text-sky-800 border-sky-200',
+      };
+    case 'late':
+      return {
+        status: 'late',
+        labelAr: absDelta > 0 ? `متأخر (+${absDelta} د)` : 'متأخر',
+        shortAr: 'متأخر',
+        badgeCls: 'bg-amber-50 text-amber-900 border-amber-300',
+      };
+    case 'absent':
+      return {
+        status: 'absent',
+        labelAr: 'غائب',
+        shortAr: 'غائب',
+        badgeCls: 'bg-rose-50 text-rose-800 border-rose-200',
+      };
+    case 'on_time':
+    default:
+      return {
+        status: 'on_time',
+        labelAr: 'حاضر في الموعد',
+        shortAr: 'بالموعد',
+        badgeCls: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+      };
+  }
+}
+
+export function getEffectiveDayTiming(
+  day?: CourseScheduleDay | null,
+  settings?: Partial<CourseScheduleSettings> | null
+): {
+  startTime: string;
+  durationMinutes: number;
+  timezone: string;
+  graceMinutes: number;
+  reminderMinutesBefore: number;
+  absenceGraceMinutes: number;
+} {
+  const startTime = normalizeHHmm(day?.startTime) || normalizeHHmm(settings?.defaultStartTime) || '';
+  const durationMinutes =
+    day?.durationMinutes && day.durationMinutes > 0
+      ? Number(day.durationMinutes)
+      : settings?.durationMinutes && settings.durationMinutes > 0
+      ? Number(settings.durationMinutes)
+      : 60;
+  return {
+    startTime,
+    durationMinutes,
+    timezone: (settings?.timezone || '').trim() || getLocalDeviceTimezone(),
+    graceMinutes: settings?.graceMinutes !== undefined ? Math.max(0, Number(settings.graceMinutes) || 0) : 10,
+    reminderMinutesBefore:
+      settings?.reminderMinutesBefore !== undefined
+        ? Math.max(0, Number(settings.reminderMinutesBefore) || 0)
+        : 15,
+    absenceGraceMinutes:
+      settings?.absenceGraceMinutes !== undefined
+        ? Math.max(0, Number(settings.absenceGraceMinutes) || 0)
+        : 30,
+  };
+}
+
 export function createDefaultCourseProgram(
   settings?: Partial<CourseScheduleSettings>
 ): CourseProgram {
@@ -303,6 +443,16 @@ export function createDefaultCourseProgram(
         settings?.courseTitle !== undefined && String(settings.courseTitle).trim()
           ? String(settings.courseTitle).trim()
           : 'جدول الدورة اليومي',
+      defaultStartTime: normalizeHHmm(settings?.defaultStartTime) || '',
+      durationMinutes: settings?.durationMinutes ? Number(settings.durationMinutes) : 60,
+      timezone: (settings?.timezone || '').trim() || getLocalDeviceTimezone(),
+      graceMinutes: settings?.graceMinutes !== undefined ? Number(settings.graceMinutes) : 10,
+      reminderMinutesBefore:
+        settings?.reminderMinutesBefore !== undefined ? Number(settings.reminderMinutesBefore) : 15,
+      absenceGraceMinutes:
+        settings?.absenceGraceMinutes !== undefined ? Number(settings.absenceGraceMinutes) : 30,
+      autoSendReminders: Boolean(settings?.autoSendReminders),
+      autoMarkAbsent: Boolean(settings?.autoMarkAbsent),
     },
   };
 }
@@ -313,10 +463,7 @@ export function createEmptyCourseSchedule(): CourseScheduleData {
     programs: [defaultProg],
     groups: [],
     days: [],
-    settings: {
-      lockFutureDays: defaultProg.settings.lockFutureDays,
-      courseTitle: defaultProg.settings.courseTitle,
-    },
+    settings: { ...defaultProg.settings },
   };
 }
 
@@ -340,12 +487,40 @@ export function normalizeDateISO(raw: unknown): string {
   return '';
 }
 
-export function getTodayLocalISO(): string {
+export function getTodayLocalISO(timezone?: string): string {
   const now = new Date();
+  if (timezone && timezone.trim()) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone.trim(),
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(now);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(parts)) return parts;
+    } catch {}
+  }
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+export function getNowLocalHHmm(timezone?: string): string {
+  const now = new Date();
+  if (timezone && timezone.trim()) {
+    try {
+      const formatted = new Intl.DateTimeFormat('en-GB', {
+        timeZone: timezone.trim(),
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(now);
+      const m = formatted.match(/^(\d{2}):(\d{2})/);
+      if (m) return `${m[1]}:${m[2]}`;
+    } catch {}
+  }
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
 export function parseScheduleGroupIds(rawIds: unknown, legacySingleId?: unknown): string[] {
@@ -410,6 +585,21 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
       raw.settings?.courseTitle !== undefined
         ? String(raw.settings.courseTitle)
         : empty.settings.courseTitle,
+    defaultStartTime: normalizeHHmm(raw.settings?.defaultStartTime) || '',
+    durationMinutes: raw.settings?.durationMinutes ? Math.max(5, Number(raw.settings.durationMinutes) || 60) : 60,
+    timezone: (raw.settings?.timezone || '').trim() || getLocalDeviceTimezone(),
+    graceMinutes:
+      raw.settings?.graceMinutes !== undefined ? Math.max(0, Number(raw.settings.graceMinutes) || 0) : 10,
+    reminderMinutesBefore:
+      raw.settings?.reminderMinutesBefore !== undefined
+        ? Math.max(0, Number(raw.settings.reminderMinutesBefore) || 0)
+        : 15,
+    absenceGraceMinutes:
+      raw.settings?.absenceGraceMinutes !== undefined
+        ? Math.max(0, Number(raw.settings.absenceGraceMinutes) || 0)
+        : 30,
+    autoSendReminders: Boolean(raw.settings?.autoSendReminders),
+    autoMarkAbsent: Boolean(raw.settings?.autoMarkAbsent),
   };
 
   const rawProgramsList: any[] = Array.isArray(raw.programs)
@@ -444,6 +634,33 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
             p.settings?.courseTitle !== undefined
               ? String(p.settings.courseTitle)
               : String(p.name || rootSettings.courseTitle),
+          defaultStartTime:
+            normalizeHHmm(p.settings?.defaultStartTime) || rootSettings.defaultStartTime || '',
+          durationMinutes:
+            p.settings?.durationMinutes !== undefined
+              ? Math.max(5, Number(p.settings.durationMinutes) || 60)
+              : rootSettings.durationMinutes || 60,
+          timezone: (p.settings?.timezone || '').trim() || rootSettings.timezone || getLocalDeviceTimezone(),
+          graceMinutes:
+            p.settings?.graceMinutes !== undefined
+              ? Math.max(0, Number(p.settings.graceMinutes) || 0)
+              : rootSettings.graceMinutes ?? 10,
+          reminderMinutesBefore:
+            p.settings?.reminderMinutesBefore !== undefined
+              ? Math.max(0, Number(p.settings.reminderMinutesBefore) || 0)
+              : rootSettings.reminderMinutesBefore ?? 15,
+          absenceGraceMinutes:
+            p.settings?.absenceGraceMinutes !== undefined
+              ? Math.max(0, Number(p.settings.absenceGraceMinutes) || 0)
+              : rootSettings.absenceGraceMinutes ?? 30,
+          autoSendReminders:
+            p.settings?.autoSendReminders !== undefined
+              ? Boolean(p.settings.autoSendReminders)
+              : Boolean(rootSettings.autoSendReminders),
+          autoMarkAbsent:
+            p.settings?.autoMarkAbsent !== undefined
+              ? Boolean(p.settings.autoMarkAbsent)
+              : Boolean(rootSettings.autoMarkAbsent),
         },
         createdAt: p.createdAt ? String(p.createdAt) : undefined,
       } as CourseProgram;
@@ -527,6 +744,11 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
             customTitle: d?.customTitle ? String(d.customTitle) : '',
             notes: d?.notes ? String(d.notes) : '',
             programId,
+            startTime: normalizeHHmm(d?.startTime) || undefined,
+            durationMinutes:
+              d?.durationMinutes !== undefined && Number(d.durationMinutes) > 0
+                ? Number(d.durationMinutes)
+                : undefined,
           } as CourseScheduleDay;
         })
         .filter((d: CourseScheduleDay | null): d is CourseScheduleDay => Boolean(d))
@@ -537,10 +759,7 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
     programs,
     groups,
     days,
-    settings: {
-      lockFutureDays: defaultProgram.settings.lockFutureDays,
-      courseTitle: defaultProgram.settings.courseTitle,
-    },
+    settings: { ...defaultProgram.settings },
   };
 }
 
@@ -1290,6 +1509,10 @@ export interface TodayScheduleSummary {
   totalLessons: number;
   sessionTitle: string;
   dayType: ScheduleDayType;
+  startTime: string;
+  durationMinutes: number;
+  timezone: string;
+  graceMinutes: number;
 }
 
 export function getTodayScheduleSummary(
@@ -1301,8 +1524,10 @@ export function getTodayScheduleSummary(
     schedule,
     programId
   );
-  const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO();
+  const timing = getEffectiveDayTiming(null, activeProgram.settings);
+  const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO(timing.timezone);
   const day = scopedSchedule.days.find((d) => d.date === todayISO) || null;
+  const effectiveTiming = getEffectiveDayTiming(day, activeProgram.settings);
   const gIds = day
     ? day.groupIds?.length
       ? day.groupIds
@@ -1344,6 +1569,10 @@ export function getTodayScheduleSummary(
     totalLessons: allLessonRefs.length,
     sessionTitle,
     dayType,
+    startTime: effectiveTiming.startTime,
+    durationMinutes: effectiveTiming.durationMinutes,
+    timezone: effectiveTiming.timezone,
+    graceMinutes: effectiveTiming.graceMinutes,
   };
 }
 
@@ -1366,6 +1595,12 @@ export function getLocalAttendanceRecords(): AttendanceRecord[] {
         deviceId: r.deviceId ? String(r.deviceId) : undefined,
         createdAt: r.createdAt ? String(r.createdAt) : undefined,
         syncedToSheets: Boolean(r.syncedToSheets),
+        status: r.status ? (String(r.status) as AttendanceStatus) : 'on_time',
+        minutesDelta: r.minutesDelta !== undefined && r.minutesDelta !== '' ? Number(r.minutesDelta) : 0,
+        scheduledTime: r.scheduledTime ? String(r.scheduledTime) : undefined,
+        programId: r.programId ? String(r.programId) : undefined,
+        programName: r.programName ? String(r.programName) : undefined,
+        timezone: r.timezone ? String(r.timezone) : undefined,
       }));
   } catch {
     return [];
@@ -1436,6 +1671,10 @@ export async function fetchAttendanceRecordsFromSheets(
         deviceId: r.deviceId ? String(r.deviceId) : undefined,
         createdAt: r.createdAt ? String(r.createdAt) : undefined,
         syncedToSheets: true,
+        status: r.status ? (String(r.status) as AttendanceStatus) : 'on_time',
+        minutesDelta: r.minutesDelta !== undefined && r.minutesDelta !== '' ? Number(r.minutesDelta) : 0,
+        scheduledTime: r.scheduledTime ? String(r.scheduledTime) : undefined,
+        programId: r.programId ? String(r.programId) : undefined,
       }));
       const merged =
         !filter?.studentId && !filter?.date
@@ -1465,6 +1704,11 @@ export async function checkInAttendance(
     lat?: number;
     lng?: number;
     location?: string;
+    scheduledTime?: string;
+    graceMinutes?: number;
+    timezone?: string;
+    programId?: string;
+    programName?: string;
   }
 ): Promise<{
   success: boolean;
@@ -1474,10 +1718,12 @@ export async function checkInAttendance(
   record: AttendanceRecord;
   message: string;
 }> {
-  const now = new Date();
-  const dateISO = normalizeDateISO(payload.date) || getTodayLocalISO();
-  const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const tz = (payload.timezone || '').trim() || getLocalDeviceTimezone();
+  const dateISO = normalizeDateISO(payload.date) || getTodayLocalISO(tz);
+  const timeStr = getNowLocalHHmm(tz);
   const cleanId = normalizeAttDigits(payload.studentId);
+  const cleanSchedTime = normalizeHHmm(payload.scheduledTime);
+  const evalTiming = evaluateAttendanceTiming(timeStr, cleanSchedTime, payload.graceMinutes ?? 10);
 
   const fallbackRecord: AttendanceRecord = {
     date: dateISO,
@@ -1490,13 +1736,20 @@ export async function checkInAttendance(
     deviceId: payload.deviceId || undefined,
     createdAt: `${dateISO} ${timeStr}`,
     syncedToSheets: false,
+    status: evalTiming.status,
+    minutesDelta: evalTiming.minutesDelta,
+    scheduledTime: cleanSchedTime || undefined,
+    programId: payload.programId || undefined,
+    programName: payload.programName || undefined,
+    timezone: tz,
   };
 
   const localNow = getLocalAttendanceRecords();
   const existingLocal = localNow.find(
     (r) => r.date === dateISO && normalizeAttDigits(r.studentId) === cleanId
   );
-  if (existingLocal && !webhookUrl) {
+  // Note: If the previous automatic record was 'absent', allow the student to check in on the same day and upgrade to 'late' / computed status.
+  if (existingLocal && existingLocal.status !== 'absent' && !webhookUrl) {
     return {
       success: true,
       alreadyCheckedIn: true,
@@ -1509,12 +1762,13 @@ export async function checkInAttendance(
   if (!webhookUrl) {
     const nextLocal = mergeAttendanceRecords(localNow, [fallbackRecord]);
     saveLocalAttendanceRecords(nextLocal);
+    const meta = getAttendanceStatusMeta(fallbackRecord.status, fallbackRecord.minutesDelta);
     return {
       success: true,
       alreadyCheckedIn: false,
       cloudSaved: false,
       record: fallbackRecord,
-      message: 'تم تأكيد حضورك محلياً في المتصفح (لم يُضبط رابط Google Sheets بعد).',
+      message: `تم تأكيد حضورك (${meta.labelAr}) محلياً في المتصفح.`,
     };
   }
 
@@ -1534,6 +1788,13 @@ export async function checkInAttendance(
         lat: payload.lat,
         lng: payload.lng,
         location: payload.location || '',
+        scheduledTime: cleanSchedTime,
+        graceMinutes: payload.graceMinutes ?? 10,
+        timezone: tz,
+        programId: payload.programId || '',
+        programName: payload.programName || '',
+        status: evalTiming.status,
+        minutesDelta: evalTiming.minutesDelta,
       }),
     });
     const json = await res.json();
@@ -1557,6 +1818,11 @@ export async function checkInAttendance(
         deviceId: json.record?.deviceId ? String(json.record.deviceId) : payload.deviceId,
         createdAt: json.record?.createdAt ? String(json.record.createdAt) : fallbackRecord.createdAt,
         syncedToSheets: true,
+        status: (json.record?.status as AttendanceStatus) || evalTiming.status,
+        minutesDelta:
+          json.record?.minutesDelta !== undefined ? Number(json.record.minutesDelta) : evalTiming.minutesDelta,
+        scheduledTime: json.record?.scheduledTime ? String(json.record.scheduledTime) : cleanSchedTime || undefined,
+        programId: json.record?.programId ? String(json.record.programId) : payload.programId,
       };
       const nextLocal = mergeAttendanceRecords(localNow, [cloudRec]);
       saveLocalAttendanceRecords(nextLocal);
@@ -1574,10 +1840,10 @@ export async function checkInAttendance(
     saveLocalAttendanceRecords(nextLocal);
     return {
       success: true,
-      alreadyCheckedIn: Boolean(existingLocal),
+      alreadyCheckedIn: Boolean(existingLocal && existingLocal.status !== 'absent'),
       cloudSaved: false,
       needsScriptUpdate: true,
-      record: existingLocal || fallbackRecord,
+      record: existingLocal && existingLocal.status !== 'absent' ? existingLocal : fallbackRecord,
       message: 'تم تأكيد حضورك محلياً، يلزم تحديث ونشر كود Google Apps Script الجديد لحفظه في ورقة سجل_الحضور.',
     };
   } catch {
@@ -1585,11 +1851,59 @@ export async function checkInAttendance(
     saveLocalAttendanceRecords(nextLocal);
     return {
       success: true,
-      alreadyCheckedIn: Boolean(existingLocal),
+      alreadyCheckedIn: Boolean(existingLocal && existingLocal.status !== 'absent'),
       cloudSaved: false,
-      record: existingLocal || fallbackRecord,
+      record: existingLocal && existingLocal.status !== 'absent' ? existingLocal : fallbackRecord,
       message: 'تم تسجيل حضورك محلياً مؤقتاً (تعذر الاتصال بالسحابة الآن).',
     };
+  }
+}
+
+export async function runAttendanceSchedulerNow(
+  webhookUrl: string,
+  timezone?: string
+): Promise<{
+  success: boolean;
+  remindersSent?: number;
+  absentsMarked?: number;
+  summarySent?: boolean;
+  needsScriptUpdate?: boolean;
+  message: string;
+}> {
+  if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
+    return { success: false, message: 'يرجى ضبط رابط Google Sheets Webhook أولاً.' };
+  }
+  try {
+    const tz = (timezone || '').trim() || getLocalDeviceTimezone();
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'run_attendance_scheduler_now',
+        date: getTodayLocalISO(tz),
+        time: getNowLocalHHmm(tz),
+        timezone: tz,
+      }),
+    });
+    const json = await res.json();
+    if (json && json.schedulerHandled) {
+      return {
+        success: Boolean(json.success),
+        remindersSent: Number(json.remindersSent || 0),
+        absentsMarked: Number(json.absentsMarked || 0),
+        summarySent: Boolean(json.summarySent),
+        message:
+          json.message ||
+          `تم الفحص: إرسال ${json.remindersSent || 0} تذكير، ورصد ${json.absentsMarked || 0} غياب.`,
+      };
+    }
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'يلزم تحديث ونشر كود Google Apps Script الجديد لتشغيل فحص التذكيرات والغياب.',
+    };
+  } catch {
+    return { success: false, message: 'تعذر الاتصال بالسيرفر لتشغيل الفحص.' };
   }
 }
 

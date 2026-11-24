@@ -88,9 +88,11 @@ import {
   fetchPdfSettingsFromSheets,
   filterLessonsBySchedule,
   formatScheduleDateLabel,
+  getAttendanceStatusMeta,
   getLocalAttendanceRecords,
   getLocalCourseSchedule,
   getLocalPdfReportSettings,
+  getNowLocalHHmm,
   getScheduleForProgram,
   getTodayLocalISO,
   getTodayScheduleSummary,
@@ -1723,6 +1725,11 @@ export default function App() {
         deviceId,
         lat: geo.lat ?? undefined,
         lng: geo.lng ?? undefined,
+        scheduledTime: todayScheduleSummary.startTime,
+        graceMinutes: todayScheduleSummary.graceMinutes,
+        timezone: todayScheduleSummary.timezone,
+        programId: todayScheduleSummary.programId,
+        programName: todayScheduleSummary.programName,
       });
       setAttendanceRecords(getLocalAttendanceRecords());
       if (res.success) {
@@ -1754,7 +1761,9 @@ export default function App() {
   const studentAttendanceCount = useMemo(() => {
     if (!currentStudent?.id) return 0;
     const cleanId = normalizeDigits(currentStudent.id);
-    return attendanceRecords.filter((r) => normalizeDigits(r.studentId) === cleanId).length;
+    return attendanceRecords.filter(
+      (r) => normalizeDigits(r.studentId) === cleanId && r.status !== 'absent'
+    ).length;
   }, [attendanceRecords, currentStudent]);
 
   const handleLogout = () => {
@@ -3291,10 +3300,21 @@ export default function App() {
                         <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
                           {t('attendance_home_title', 'حصة اليوم وتأكيد الحضور')}
                         </h2>
-                        <div className="text-xs text-slate-500 font-bold flex items-center gap-2">
+                        <div className="text-xs text-slate-500 font-bold flex flex-wrap items-center gap-2">
                           <span>{dateMeta.weekday}</span>
                           <span>•</span>
                           <span className="font-mono">{dateMeta.formattedDate}</span>
+                          {todayScheduleSummary.startTime && (
+                            <>
+                              <span>•</span>
+                              <span className="inline-flex items-center gap-1 text-indigo-700 font-extrabold tabular-nums">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>
+                                  {todayScheduleSummary.startTime} ({todayScheduleSummary.durationMinutes} د)
+                                </span>
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3412,70 +3432,102 @@ export default function App() {
                           <span>{t('attendance_login_btn', 'تسجيل الدخول وتأكيد الحضور')}</span>
                         </button>
                       </div>
-                    ) : todayStudentAttendance ? (
-                      <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-start sm:items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                            <CheckCircle2 className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="text-sm font-extrabold text-emerald-950">
-                              {t('attendance_checked_in_title', 'تم تأكيد حضورك في حصة اليوم ✓')}
-                            </div>
-                            <div className="text-xs text-emerald-800 font-semibold flex flex-wrap items-center gap-2.5 mt-0.5">
-                              <span>{currentStudent.name}</span>
-                              {todayStudentAttendance.time && (
-                                <span className="inline-flex items-center gap-1 font-mono">
-                                  <Clock className="w-3.5 h-3.5" />
-                                  {todayStudentAttendance.time}
-                                </span>
-                              )}
-                              {todayStudentAttendance.location &&
-                                todayStudentAttendance.location !== 'غير متاح' && (
-                                  <span className="inline-flex items-center gap-1">
-                                    <MapPin className="w-3.5 h-3.5" />
-                                    {todayStudentAttendance.location}
+                    ) : todayStudentAttendance && todayStudentAttendance.status !== 'absent' ? (
+                      (() => {
+                        const attStatusMeta = getAttendanceStatusMeta(
+                          todayStudentAttendance.status,
+                          todayStudentAttendance.minutesDelta
+                        );
+                        return (
+                          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-start sm:items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                                <CheckCircle2 className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-sm font-extrabold text-emerald-950">
+                                    {t('attendance_checked_in_title', 'تم تأكيد حضورك في حصة اليوم ✓')}
                                   </span>
-                                )}
+                                  <span
+                                    className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold border ${attStatusMeta.badgeCls}`}
+                                  >
+                                    {attStatusMeta.labelAr}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-emerald-800 font-semibold flex flex-wrap items-center gap-2.5 mt-0.5">
+                                  <span>{currentStudent.name}</span>
+                                  {todayStudentAttendance.time && (
+                                    <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                                      <Clock className="w-3.5 h-3.5" />
+                                      {todayStudentAttendance.time}
+                                    </span>
+                                  )}
+                                  {todayStudentAttendance.scheduledTime && (
+                                    <span className="text-[11px] text-emerald-700 font-bold tabular-nums">
+                                      (موعد الحصة: {todayStudentAttendance.scheduledTime})
+                                    </span>
+                                  )}
+                                  {todayStudentAttendance.location &&
+                                    todayStudentAttendance.location !== 'غير متاح' && (
+                                      <span className="inline-flex items-center gap-1">
+                                        <MapPin className="w-3.5 h-3.5" />
+                                        {todayStudentAttendance.location}
+                                      </span>
+                                    )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-end sm:self-center">
+                              <span className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-xs font-extrabold tabular-nums">
+                                مجموع حضورك: {studentAttendanceCount} يوم
+                              </span>
                             </div>
                           </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 self-end sm:self-center">
-                          <span className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-xs font-extrabold">
-                            مجموع حضورك: {studentAttendanceCount} يوم
-                          </span>
-                        </div>
-                      </div>
+                        );
+                      })()
                     ) : (
-                      <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="space-y-0.5">
-                          <div className="text-sm font-extrabold text-slate-900">
-                            مرحباً {currentStudent.name}
+                      <div className="space-y-2.5">
+                        {todayStudentAttendance?.status === 'absent' && (
+                          <div className="px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              انتهى وقت السماح المعتاد وتم تسجيل غياب مبدئي لحصة اليوم — يمكنك تأكيد حضورك الآن وسيتم تحديث الحالة إلى «حضور متأخر».
+                            </span>
                           </div>
-                          <div className="text-xs text-slate-600 font-semibold">
-                            {studentAttendanceCount > 0
-                              ? `سجل حضورك حتى الآن: ${studentAttendanceCount} يوم — لم تؤكد حضور اليوم بعد`
-                              : 'اضغط على الزر لتسجيل حضورك لحصة اليوم في السجل'}
+                        )}
+                        <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-0.5">
+                            <div className="text-sm font-extrabold text-slate-900">
+                              مرحباً {currentStudent.name}
+                            </div>
+                            <div className="text-xs text-slate-600 font-semibold">
+                              {studentAttendanceCount > 0
+                                ? `سجل حضورك حتى الآن: ${studentAttendanceCount} يوم — الزر متاح طوال اليوم لتسجيل حضورك`
+                                : 'اضغط على الزر لتسجيل حضورك لحصة اليوم في السجل'}
+                            </div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={handleConfirmTodayAttendance}
+                            disabled={isCheckingInAttendance}
+                            className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-60 shrink-0 whitespace-nowrap"
+                          >
+                            {isCheckingInAttendance ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <UserCheck className="w-4 h-4" />
+                            )}
+                            <span>
+                              {isCheckingInAttendance
+                                ? t('attendance_saving', 'جاري تأكيد الحضور...')
+                                : todayStudentAttendance?.status === 'absent'
+                                ? 'تأكيد الحضور الآن (يُسجَّل متأخراً)'
+                                : t('attendance_checkin_btn', 'تأكيد حضور الحصة الآن')}
+                            </span>
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleConfirmTodayAttendance}
-                          disabled={isCheckingInAttendance}
-                          className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-60 shrink-0"
-                        >
-                          {isCheckingInAttendance ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <UserCheck className="w-4 h-4" />
-                          )}
-                          <span>
-                            {isCheckingInAttendance
-                              ? t('attendance_saving', 'جاري تأكيد الحضور...')
-                              : t('attendance_checkin_btn', 'تأكيد حضور الحصة الآن')}
-                          </span>
-                        </button>
                       </div>
                     )}
 

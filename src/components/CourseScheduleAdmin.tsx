@@ -25,6 +25,10 @@ import {
   Edit3,
   Star,
   Shuffle,
+  Bell,
+  Globe,
+  Play,
+  Loader2,
 } from 'lucide-react';
 import {
   WordItem,
@@ -36,6 +40,7 @@ import { DrawingTemplate } from '../arWriting/types/drawing';
 import { VideoLesson } from '../video/videoSheets';
 import {
   AttendanceRecord,
+  AttendanceStatus,
   CourseProgram,
   CourseScheduleData,
   CourseGroup,
@@ -55,10 +60,14 @@ import {
   fetchCourseScheduleFromSheets,
   formatScheduleDateLabel,
   generateCalendarDays,
+  getAttendanceStatusMeta,
   getLocalAttendanceRecords,
+  getLocalDeviceTimezone,
   getTodayLocalISO,
   normalizeCourseScheduleData,
   normalizeDateISO,
+  normalizeHHmm,
+  runAttendanceSchedulerNow,
   saveCourseScheduleToSheets,
 } from '../utils/courseSchedule';
 
@@ -182,8 +191,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
   const [attendanceScriptSupported, setAttendanceScriptSupported] = useState(true);
   const [attDateFilter, setAttDateFilter] = useState<string>('');
+  const [attStatusFilter, setAttStatusFilter] = useState<'all' | AttendanceStatus>('all');
   const [attSearch, setAttSearch] = useState<string>('');
   const [confirmDeleteAttKey, setConfirmDeleteAttKey] = useState<string | null>(null);
+  const [isRunningScheduler, setIsRunningScheduler] = useState(false);
 
   const loadAttendanceLog = async () => {
     setIsLoadingAttendance(true);
@@ -202,10 +213,30 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     }
   }, [subTab, webhookUrl]);
 
+  const handleRunSchedulerNow = async () => {
+    setIsRunningScheduler(true);
+    setStatusBanner(null);
+    try {
+      const tz = activeProgram.settings.timezone || getLocalDeviceTimezone();
+      const res = await runAttendanceSchedulerNow(webhookUrl, tz);
+      setStatusBanner({
+        type: res.success ? 'success' : 'warn',
+        message: res.message,
+      });
+      if (res.success) {
+        await loadAttendanceLog();
+      }
+    } finally {
+      setIsRunningScheduler(false);
+    }
+  };
+
   const filteredAttendance = useMemo(() => {
     const q = attSearch.trim().toLowerCase();
     return attendanceRecords.filter((rec) => {
       if (attDateFilter && rec.date !== attDateFilter) return false;
+      const recStatus: AttendanceStatus = rec.status || 'on_time';
+      if (attStatusFilter !== 'all' && recStatus !== attStatusFilter) return false;
       if (!q) return true;
       return (
         rec.studentId.toLowerCase().includes(q) ||
@@ -214,13 +245,18 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
         (rec.location || '').toLowerCase().includes(q)
       );
     });
-  }, [attendanceRecords, attDateFilter, attSearch]);
+  }, [attendanceRecords, attDateFilter, attStatusFilter, attSearch]);
 
   const attendanceStats = useMemo(() => {
-    const todayCount = attendanceRecords.filter((r) => r.date === todayISO).length;
+    const todayRows = attendanceRecords.filter((r) => r.date === todayISO);
+    const todayPresentCount = todayRows.filter((r) => r.status !== 'absent').length;
+    const todayLateCount = todayRows.filter((r) => r.status === 'late').length;
+    const todayAbsentCount = todayRows.filter((r) => r.status === 'absent').length;
     const uniqueStudents = new Set(attendanceRecords.map((r) => r.studentId)).size;
     return {
-      todayCount,
+      todayCount: todayPresentCount,
+      todayLateCount,
+      todayAbsentCount,
       totalCount: attendanceRecords.length,
       uniqueStudents,
     };
@@ -241,23 +277,38 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
   const handleExportAttendanceCsv = () => {
     if (filteredAttendance.length === 0) return;
-    const headers = ['التاريخ', 'الوقت', 'ID المشترك', 'اسم المشترك', 'الحصة / المجموعات', 'نوع اليوم', 'الموقع'];
+    const headers = [
+      'التاريخ',
+      'وقت الدخول',
+      'موعد الحصة',
+      'الحالة',
+      'ID المشترك',
+      'اسم المشترك',
+      'الحصة / المجموعات',
+      'نوع اليوم',
+      'الموقع',
+    ];
     const esc = (v: string) => `"${String(v || '').replace(/"/g, '""')}"`;
-    const rows = filteredAttendance.map((r) => [
-      esc(r.date),
-      esc(r.time),
-      esc(r.studentId),
-      esc(r.studentName),
-      esc(r.sessionTitle),
-      esc(
-        r.dayType === 'review'
-          ? 'مراجعة'
-          : r.dayType === 'exam'
-          ? 'امتحان'
-          : 'درس عادي'
-      ),
-      esc(r.location || 'غير متاح'),
-    ]);
+    const rows = filteredAttendance.map((r) => {
+      const sMeta = getAttendanceStatusMeta(r.status, r.minutesDelta);
+      return [
+        esc(r.date),
+        esc(r.time),
+        esc(r.scheduledTime || '—'),
+        esc(sMeta.labelAr),
+        esc(r.studentId),
+        esc(r.studentName),
+        esc(r.sessionTitle),
+        esc(
+          r.dayType === 'review'
+            ? 'مراجعة'
+            : r.dayType === 'exam'
+            ? 'امتحان'
+            : 'درس عادي'
+        ),
+        esc(r.location || 'غير متاح'),
+      ];
+    });
     const csv = '\uFEFF' + [headers.map(esc).join(','), ...rows.map((r) => r.join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1281,6 +1332,163 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           </div>
         </div>
 
+        {/* Program Timing, Timezone & Auto Absence / Reminder Settings */}
+        <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200/80 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-emerald-700" />
+              <span>توقيت الحصص والحضور الآلي والتنبيهات — «{activeProgram.name}»</span>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                handleUpdateActiveProgram({
+                  settingsPatch: { timezone: getLocalDeviceTimezone() },
+                })
+              }
+              className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>كشف منطقة الجهاز ({getLocalDeviceTimezone()})</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">وقت بداية الحصة:</label>
+              <input
+                type="time"
+                dir="ltr"
+                value={activeProgram.settings.defaultStartTime || ''}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: { defaultStartTime: normalizeHHmm(e.target.value) },
+                  })
+                }
+                className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">مدة الحصة (دقيقة):</label>
+              <input
+                type="number"
+                min={5}
+                max={480}
+                value={activeProgram.settings.durationMinutes ?? 60}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: {
+                      durationMinutes: Math.max(5, Number(e.target.value) || 60),
+                    },
+                  })
+                }
+                className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">سماح التأخير (دقيقة):</label>
+              <input
+                type="number"
+                min={0}
+                max={120}
+                value={activeProgram.settings.graceMinutes ?? 10}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: {
+                      graceMinutes: Math.max(0, Number(e.target.value) || 0),
+                    },
+                  })
+                }
+                className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">تذكير قبل البدء (د):</label>
+              <input
+                type="number"
+                min={0}
+                max={240}
+                value={activeProgram.settings.reminderMinutesBefore ?? 15}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: {
+                      reminderMinutesBefore: Math.max(0, Number(e.target.value) || 0),
+                    },
+                  })
+                }
+                className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">مهلة الغياب بعد الانتهاء:</label>
+              <input
+                type="number"
+                min={0}
+                max={360}
+                value={activeProgram.settings.absenceGraceMinutes ?? 30}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: {
+                      absenceGraceMinutes: Math.max(0, Number(e.target.value) || 0),
+                    },
+                  })
+                }
+                className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700">المنطقة الزمنية:</label>
+              <input
+                type="text"
+                dir="ltr"
+                value={activeProgram.settings.timezone || ''}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: { timezone: e.target.value },
+                  })
+                }
+                placeholder="Asia/Bangkok"
+                className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-5 pt-1 text-xs font-bold text-slate-800">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(activeProgram.settings.autoSendReminders)}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: { autoSendReminders: e.target.checked },
+                  })
+                }
+                className="w-4 h-4 rounded accent-emerald-600"
+              />
+              <span>إرسال تذكير تلقائي عبر تيليغرام قبل الحصة</span>
+            </label>
+
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={Boolean(activeProgram.settings.autoMarkAbsent)}
+                onChange={(e) =>
+                  handleUpdateActiveProgram({
+                    settingsPatch: { autoMarkAbsent: e.target.checked },
+                  })
+                }
+                className="w-4 h-4 rounded accent-emerald-600"
+              />
+              <span>تسجيل الغياب تلقائياً وإبلاغ الطالب والإدارة عند انتهاء الحصة</span>
+            </label>
+          </div>
+        </div>
+
         {statusBanner && (
           <div
             className={`p-3 rounded-2xl border text-xs font-bold flex items-center justify-between gap-2 ${
@@ -2162,8 +2370,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                         </div>
                       </div>
 
-                      {/* Optional Custom Title & Notes */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {/* Optional Custom Title, Per-Day Start Time, Duration & Notes */}
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                         <input
                           type="text"
                           value={day.customTitle || ''}
@@ -2173,8 +2381,41 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                             })
                           }
                           placeholder="عنوان مخصص لليوم (اختياري)..."
-                          className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs"
+                          className="sm:col-span-4 w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs"
                         />
+                        <div className="sm:col-span-2 flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1">
+                          <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                          <input
+                            type="time"
+                            dir="ltr"
+                            value={day.startTime || ''}
+                            onChange={(e) =>
+                              handleUpdateDay(day.id, {
+                                startTime: normalizeHHmm(e.target.value) || undefined,
+                              })
+                            }
+                            title="تخصيص وقت هذه الحصة (اتركه فارغاً لاستخدام وقت البرنامج الافتراضي)"
+                            className="w-full text-[11px] font-mono font-bold text-slate-800 bg-transparent focus:outline-none"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1">
+                          <input
+                            type="number"
+                            min={5}
+                            max={480}
+                            value={day.durationMinutes ?? ''}
+                            onChange={(e) => {
+                              const v = Number(e.target.value);
+                              handleUpdateDay(day.id, {
+                                durationMinutes: v > 0 ? v : undefined,
+                              });
+                            }}
+                            placeholder={`${activeProgram.settings.durationMinutes || 60} د`}
+                            title="مدة الحصة بالدقائق"
+                            className="w-full text-[11px] font-mono font-bold text-slate-800 bg-transparent focus:outline-none"
+                          />
+                          <span className="text-[10px] text-slate-400 font-bold shrink-0">د</span>
+                        </div>
                         <input
                           type="text"
                           value={day.notes || ''}
@@ -2182,7 +2423,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                             handleUpdateDay(day.id, { notes: e.target.value })
                           }
                           placeholder="ملاحظات أو توجيهات للطالب لهذا اليوم (اختياري)..."
-                          className="w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs"
+                          className="sm:col-span-4 w-full px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs"
                         />
                       </div>
                     </div>
@@ -2209,11 +2450,11 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           )}
 
           {/* KPI Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-2xs flex items-center justify-between">
               <div>
                 <div className="text-[11px] font-bold text-slate-500">حضور اليوم ({todayISO})</div>
-                <div className="text-2xl font-extrabold text-emerald-700 mt-0.5">
+                <div className="text-2xl font-extrabold text-emerald-700 mt-0.5 tabular-nums">
                   {attendanceStats.todayCount}
                 </div>
               </div>
@@ -2222,10 +2463,22 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               </div>
             </div>
 
+            <div className="bg-white rounded-2xl p-4 border border-amber-200 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-slate-500">تأخر / غياب اليوم</div>
+                <div className="text-2xl font-extrabold text-amber-700 mt-0.5 tabular-nums">
+                  {attendanceStats.todayLateCount} / {attendanceStats.todayAbsentCount}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                <Clock className="w-5 h-5" />
+              </div>
+            </div>
+
             <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-2xs flex items-center justify-between">
               <div>
                 <div className="text-[11px] font-bold text-slate-500">إجمالي سجلات الحضور</div>
-                <div className="text-2xl font-extrabold text-indigo-700 mt-0.5">
+                <div className="text-2xl font-extrabold text-indigo-700 mt-0.5 tabular-nums">
                   {attendanceStats.totalCount}
                 </div>
               </div>
@@ -2237,7 +2490,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             <div className="bg-white rounded-2xl p-4 border border-teal-200 shadow-2xs flex items-center justify-between">
               <div>
                 <div className="text-[11px] font-bold text-slate-500">طلاب مسجلون بالحضور</div>
-                <div className="text-2xl font-extrabold text-teal-700 mt-0.5">
+                <div className="text-2xl font-extrabold text-teal-700 mt-0.5 tabular-nums">
                   {attendanceStats.uniqueStudents}
                 </div>
               </div>
@@ -2245,6 +2498,34 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 <Sparkles className="w-5 h-5" />
               </div>
             </div>
+          </div>
+
+          {/* Scheduler 24/7 Trigger Info + Manual Trigger */}
+          <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5 text-xs">
+              <div className="font-extrabold text-indigo-950 flex items-center gap-1.5">
+                <Bell className="w-4 h-4 text-indigo-700" />
+                <span>المجدول الآلي لتذكيرات الحصص والغياب التلقائي</span>
+              </div>
+              <p className="text-[11px] text-indigo-900/80 leading-relaxed">
+                للتشغيل الآلي على مدار الساعة حتى عند إغلاق المتصفح: شغّل دالة{' '}
+                <code className="font-mono bg-white px-1 rounded">setupAttendanceTriggersGS</code> مرة واحدة من{' '}
+                <strong>Extensions → Apps Script</strong>.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRunSchedulerNow}
+              disabled={isRunningScheduler}
+              className="px-4 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60 whitespace-nowrap shrink-0"
+            >
+              {isRunningScheduler ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
+              <span>فحص التذكيرات والغياب الآن</span>
+            </button>
           </div>
 
           {/* Filter & Actions Bar */}
@@ -2286,7 +2567,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   type="button"
                   onClick={handleExportAttendanceCsv}
                   disabled={filteredAttendance.length === 0}
-                  className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-900 border border-teal-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 whitespace-nowrap shrink-0"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>تصدير CSV</span>
@@ -2295,12 +2576,38 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   type="button"
                   onClick={loadAttendanceLog}
                   disabled={isLoadingAttendance}
-                  className="px-3.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="px-3.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAttendance ? 'animate-spin' : ''}`} />
                   <span>تحديث السجل</span>
                 </button>
               </div>
+            </div>
+
+            {/* Status Filter Buttons */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(
+                [
+                  { id: 'all', label: 'كل الحالات' },
+                  { id: 'early', label: 'حاضر مبكراً' },
+                  { id: 'on_time', label: 'بالموعد' },
+                  { id: 'late', label: 'متأخر' },
+                  { id: 'absent', label: 'غائب' },
+                ] as const
+              ).map((st) => (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => setAttStatusFilter(st.id)}
+                  className={`px-3 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-colors ${
+                    attStatusFilter === st.id
+                      ? 'bg-indigo-700 text-white border-indigo-700'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {st.label}
+                </button>
+              ))}
             </div>
 
             <div className="relative">
@@ -2328,7 +2635,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   <thead>
                     <tr className="bg-slate-900 text-white font-extrabold">
                       <th className="py-3 px-3 whitespace-nowrap">التاريخ</th>
-                      <th className="py-3 px-3 whitespace-nowrap">الوقت</th>
+                      <th className="py-3 px-3 whitespace-nowrap">الوقت / الموعد</th>
+                      <th className="py-3 px-3 whitespace-nowrap">الحالة</th>
                       <th className="py-3 px-3 whitespace-nowrap">ID المشترك</th>
                       <th className="py-3 px-3 whitespace-nowrap">اسم الطالب</th>
                       <th className="py-3 px-3">الحصة / المجموعات</th>
@@ -2347,15 +2655,28 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                             ? rec.dayType
                             : 'lesson') as ScheduleDayType
                         ];
+                      const statusMeta = getAttendanceStatusMeta(rec.status, rec.minutesDelta);
                       return (
                         <tr key={rowKey} className="hover:bg-slate-50/90 transition-colors">
-                          <td className="py-2.5 px-3 font-mono font-bold text-slate-800 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-800 whitespace-nowrap tabular-nums">
                             {rec.date}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-slate-600 whitespace-nowrap">
-                            <span className="inline-flex items-center gap-1">
+                          <td className="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap tabular-nums">
+                            <div className="inline-flex items-center gap-1 font-bold">
                               <Clock className="w-3 h-3 text-slate-400" />
                               {rec.time || '—'}
+                            </div>
+                            {rec.scheduledTime && (
+                              <div className="text-[10px] text-slate-400">
+                                الموعد: {rec.scheduledTime}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${statusMeta.badgeCls}`}
+                            >
+                              {statusMeta.labelAr}
                             </span>
                           </td>
                           <td className="py-2.5 px-3 font-mono font-extrabold text-indigo-700 whitespace-nowrap">

@@ -397,10 +397,12 @@ export const HomeContentShowcase: React.FC<{
         return (
           <div key={block.id} className={`rounded-3xl border shadow-lg overflow-hidden ${accent.cardCls}`}>
             {bannerSrc && (
-              <div className="w-full max-h-72 overflow-hidden bg-slate-100 border-b border-slate-100">
+              <div className="w-full aspect-[16/9] max-h-72 overflow-hidden bg-slate-100 border-b border-slate-100">
                 <img
                   src={bannerSrc}
                   alt={block.title || 'صورة الإعلان'}
+                  width={1280}
+                  height={720}
                   className="w-full h-full object-cover"
                   loading="lazy"
                 />

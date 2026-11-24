@@ -589,6 +589,8 @@ export interface PortalSettingsConfig {
   sendStudentWelcomeEmail?: boolean;
   notifyAdminTelegramOnRegister: boolean;
   notifyStudentTelegramOnTransfer: boolean;
+  registrationIdMode?: 'random' | 'sequential';
+  registrationIdLength?: number;
   showStoreNavSlot: boolean;
   storeSlotTitle: string;
   storeSlotTitleEn?: string;

@@ -169,6 +169,8 @@ export const DEFAULT_PORTAL_SETTINGS: PortalSettingsConfig = {
   sendStudentWelcomeEmail: true,
   notifyAdminTelegramOnRegister: true,
   notifyStudentTelegramOnTransfer: true,
+  registrationIdMode: 'random',
+  registrationIdLength: 7,
   showStoreNavSlot: true,
   storeSlotTitle: 'المتجر',
   storeSlotTitleEn: 'Store',
@@ -531,6 +533,11 @@ export function normalizePortalPublicData(raw?: Partial<PortalPublicData> | null
     showHeroOverlay: s.showHeroOverlay !== undefined ? Boolean(s.showHeroOverlay) : true,
     sendStudentWelcomeEmail:
       s.sendStudentWelcomeEmail !== undefined ? Boolean(s.sendStudentWelcomeEmail) : true,
+    registrationIdMode: s.registrationIdMode === 'sequential' ? 'sequential' : 'random',
+    registrationIdLength:
+      s.registrationIdLength && [5, 6, 7, 8].includes(Number(s.registrationIdLength))
+        ? Number(s.registrationIdLength)
+        : 7,
     heroMediaUrl: s.heroMediaUrl !== undefined ? s.heroMediaUrl : DEFAULT_PORTAL_SETTINGS.heroMediaUrl,
     contactAddress: s.contactAddress !== undefined ? String(s.contactAddress) : DEFAULT_PORTAL_SETTINGS.contactAddress,
     contactPhone: s.contactPhone !== undefined ? String(s.contactPhone) : DEFAULT_PORTAL_SETTINGS.contactPhone,
@@ -960,6 +967,67 @@ export async function uploadPortalFileToDrive(
   return { success: false, error: res.error || 'تعذر رفع الملف إلى Google Drive.' };
 }
 
+export function generateLocalRandomRegistrationId(length = 7): string {
+  const safeLen = Math.min(8, Math.max(4, Math.floor(length) || 7));
+  const min = Math.pow(10, safeLen - 1);
+  const max = Math.pow(10, safeLen) - 1;
+  return String(Math.floor(min + Math.random() * (max - min + 1)));
+}
+
+export async function testPortalWelcomeEmail(
+  webhookUrl: string,
+  payload: {
+    toEmail: string;
+    academyName?: string;
+    adminNotificationEmail?: string;
+  }
+): Promise<{
+  success: boolean;
+  quota?: number;
+  error?: string;
+  message: string;
+  needsScriptUpdate?: boolean;
+}> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  const email = (payload.toEmail || '').trim();
+  if (!url.startsWith('http')) {
+    return { success: false, message: 'يرجى ربط Google Apps Script Webhook أولاً.' };
+  }
+  if (!email || !email.includes('@')) {
+    return { success: false, message: 'يرجى إدخال بريد إلكتروني صحيح للاختبار.' };
+  }
+  try {
+    const res = await callGoogleSheetsPost(url, {
+      action: 'test_welcome_email',
+      toEmail: email,
+      academyName: payload.academyName || 'الأكاديمية التعليمية',
+      adminNotificationEmail: payload.adminNotificationEmail || '',
+    });
+    if (res.data?.emailTestHandled) {
+      return {
+        success: Boolean(res.success),
+        quota: res.data?.remainingQuota !== undefined ? Number(res.data.remainingQuota) : undefined,
+        error: res.data?.error ? String(res.data.error) : undefined,
+        message:
+          res.data?.message ||
+          (res.success
+            ? 'تم إرسال بريد الاختبار بنجاح! تفقد البريد الوارد أو الرسائل غير المرغوب فيها (Spam).'
+            : String(res.data?.error || 'فشل إرسال البريد.')),
+      };
+    }
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'كود Google Apps Script المنشور لا يحتوي على اختبار البريد بعد — انسخ الكود المحدث وانشر إصداراً جديداً (New version).',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'تعذر الاتصال بالسيرفر لاختبار البريد.',
+    };
+  }
+}
+
 export async function submitPortalRegistrationToSheets(
   webhookUrl: string,
   payload: {
@@ -986,6 +1054,8 @@ export async function submitPortalRegistrationToSheets(
   const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
   const stage1ProgId = payload.settings.stage1DefaultProgramId || DEFAULT_PROGRAM_ID;
   const stage1ProgName = payload.stage1ProgramName || 'القسم الافتراضي (المرحلة التمهيدية)';
+  const idMode = payload.settings.registrationIdMode === 'sequential' ? 'sequential' : 'random';
+  const idLength = payload.settings.registrationIdLength || 7;
   const originBase =
     typeof window !== 'undefined' &&
     window.location.origin &&
@@ -1010,6 +1080,8 @@ export async function submitPortalRegistrationToSheets(
         notifyAdminTelegram: payload.settings.notifyAdminTelegramOnRegister !== false,
         adminNotificationEmail: payload.settings.adminNotificationEmail || '',
         sendStudentWelcomeEmail: payload.settings.sendStudentWelcomeEmail !== false,
+        registrationIdMode: idMode,
+        registrationIdLength: idLength,
         appBaseUrl: originBase,
       });
 
@@ -1074,7 +1146,7 @@ export async function submitPortalRegistrationToSheets(
       }
 
       if (res.success && res.data?.portalHandled !== true) {
-        const fallbackId = String(Math.floor(1000 + (Date.now() % 8900)));
+        const fallbackId = generateLocalRandomRegistrationId(idLength);
         await addIDRegistrantToSheet(url, {
           id: fallbackId,
           name: payload.studentName.trim(),
@@ -1131,7 +1203,7 @@ export async function submitPortalRegistrationToSheets(
     }
   }
 
-  const localId = String(Math.floor(1000 + (Date.now() % 8900)));
+  const localId = generateLocalRandomRegistrationId(idLength);
   const resolvedBot = (payload.settings.telegramBotUsername || getSavedPortalBotUsername()).trim();
   const student: StudentRegistrant = {
     id: localId,
