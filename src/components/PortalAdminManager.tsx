@@ -47,7 +47,7 @@ import {
 } from '../types';
 import { StoreAdminManager } from './store/StoreAdminManager';
 import { getLocalStoreData, saveLocalStoreData } from '../utils/storeSheets';
-import { CourseProgram } from '../utils/courseSchedule';
+import { CourseClassroom, CourseProgram } from '../utils/courseSchedule';
 import {
   PORTAL_UI_TEXT_METADATA,
   buildAccessShareUrl,
@@ -73,6 +73,7 @@ interface PortalAdminManagerProps {
   questions: RegistrationQuestion[];
   onUpdateQuestions: (next: RegistrationQuestion[]) => void;
   programs: CourseProgram[];
+  courseClassrooms?: CourseClassroom[];
   webhookUrl: string;
   onRefreshRegistrants?: () => void;
   onPreviewPublicPortal?: () => void;
@@ -124,6 +125,7 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
   questions,
   onUpdateQuestions,
   programs,
+  courseClassrooms = [],
   webhookUrl,
   onRefreshRegistrants,
   onPreviewPublicPortal,
@@ -163,6 +165,7 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [stageFilter, setStageFilter] = useState<'all' | 'stage1_default' | 'stage2_assigned' | 'paused'>('all');
   const [transferProgramMap, setTransferProgramMap] = useState<Record<string, string>>({});
+  const [transferClassroomMap, setTransferClassroomMap] = useState<Record<string, string>>({});
   const [transferNotesMap, setTransferNotesMap] = useState<Record<string, string>>({});
   const [transferringId, setTransferringId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -173,9 +176,13 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
   const [reqFilter, setReqFilter] = useState<'all' | ProgramRequestStatus>('all');
   const [reqSearch, setReqSearch] = useState('');
   const [reqTargetMap, setReqTargetMap] = useState<Record<string, string>>({});
+  const [reqClassroomMap, setReqClassroomMap] = useState<Record<string, string>>({});
   const [reqNotesMap, setReqNotesMap] = useState<Record<string, string>>({});
   const [processingReqId, setProcessingReqId] = useState<string | null>(null);
   const [confirmDeleteReqId, setConfirmDeleteReqId] = useState<string | null>(null);
+
+  const getClassroomsForProg = (progId?: string) =>
+    courseClassrooms.filter((c) => c.programId === progId);
 
   // Translation section filter state
   const [transItemSection, setTransItemSection] = useState<'about' | 'gallery' | 'videos'>('about');
@@ -541,6 +548,14 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
       sub.programId;
     const progObj = programs.find((p) => p.id === chosenProgId);
     const targetProgName = progObj?.name || chosenProgId;
+    const progClassrooms = getClassroomsForProg(chosenProgId);
+    const defaultCls = progClassrooms.find((c) => c.isDefault) || progClassrooms[0];
+    const chosenClsId =
+      transferClassroomMap[sub.registrationId] ||
+      (sub.programId === chosenProgId ? sub.classroomId : '') ||
+      defaultCls?.id ||
+      '';
+    const clsObj = progClassrooms.find((c) => c.id === chosenClsId);
     const isStage1 = chosenProgId === portalData.settings.stage1DefaultProgramId;
 
     setTransferringId(sub.registrationId);
@@ -551,6 +566,8 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
         studentName: sub.studentName,
         targetProgramId: chosenProgId,
         targetProgramName: targetProgName,
+        targetClassroomId: chosenClsId,
+        targetClassroomName: progClassrooms.length > 1 ? clsObj?.name : undefined,
         stage: isStage1 ? 'stage1_default' : 'stage2_assigned',
         accountStatus: 'مفعّل',
         adminNotes:
@@ -584,6 +601,7 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
         studentName: sub.studentName,
         targetProgramId: sub.programId,
         targetProgramName: progObj?.name || sub.programId,
+        targetClassroomId: sub.classroomId,
         stage: nextPaused
           ? 'paused'
           : sub.programId === portalData.settings.stage1DefaultProgramId
@@ -628,6 +646,14 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
       '';
     const progObj = programs.find((p) => p.id === chosenProgId);
     const chosenProgName = progObj?.name || req.targetProgramTitle;
+    const progClassrooms = getClassroomsForProg(chosenProgId);
+    const defaultCls = progClassrooms.find((c) => c.isDefault) || progClassrooms[0];
+    const chosenClsId =
+      reqClassroomMap[req.requestId] ||
+      req.targetClassroomId ||
+      defaultCls?.id ||
+      '';
+    const clsObj = progClassrooms.find((c) => c.id === chosenClsId);
 
     setProcessingReqId(req.requestId);
     setBanner(null);
@@ -640,6 +666,8 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
         status: nextStatus,
         targetProgramId: chosenProgId,
         targetProgramName: chosenProgName,
+        targetClassroomId: chosenClsId,
+        targetClassroomName: progClassrooms.length > 1 ? clsObj?.name : undefined,
         adminNotes:
           reqNotesMap[req.requestId] !== undefined ? reqNotesMap[req.requestId] : req.adminNotes,
         notifyStudentTelegram:
@@ -1327,12 +1355,17 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                         <div className="flex flex-wrap items-center gap-2 flex-1">
                           <select
                             value={selectedTarget}
-                            onChange={(e) =>
+                            onChange={(e) => {
                               setTransferProgramMap((p) => ({
                                 ...p,
                                 [sub.registrationId]: e.target.value,
-                              }))
-                            }
+                              }));
+                              setTransferClassroomMap((p) => {
+                                const copy = { ...p };
+                                delete copy[sub.registrationId];
+                                return copy;
+                              });
+                            }}
                             className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold min-w-[190px]"
                           >
                             {programs.map((prog) => (
@@ -1344,6 +1377,31 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                               </option>
                             ))}
                           </select>
+
+                          {getClassroomsForProg(selectedTarget).length > 1 && (
+                            <select
+                              value={
+                                transferClassroomMap[sub.registrationId] ||
+                                (sub.programId === selectedTarget ? sub.classroomId : '') ||
+                                getClassroomsForProg(selectedTarget).find((c) => c.isDefault)?.id ||
+                                getClassroomsForProg(selectedTarget)[0]?.id ||
+                                ''
+                              }
+                              onChange={(e) =>
+                                setTransferClassroomMap((p) => ({
+                                  ...p,
+                                  [sub.registrationId]: e.target.value,
+                                }))
+                              }
+                              className="px-3 py-2 rounded-xl border border-indigo-300 bg-indigo-50/70 text-xs font-bold text-indigo-950 min-w-[150px]"
+                            >
+                              {getClassroomsForProg(selectedTarget).map((cls) => (
+                                <option key={cls.id} value={cls.id}>
+                                  {cls.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
 
                           <input
                             type="text"
@@ -1582,9 +1640,14 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                       <div className="flex flex-wrap items-center gap-2 flex-1">
                         <select
                           value={selectedProgId}
-                          onChange={(e) =>
-                            setReqTargetMap((p) => ({ ...p, [req.requestId]: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            setReqTargetMap((p) => ({ ...p, [req.requestId]: e.target.value }));
+                            setReqClassroomMap((p) => {
+                              const copy = { ...p };
+                              delete copy[req.requestId];
+                              return copy;
+                            });
+                          }}
                           className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-bold min-w-[190px]"
                         >
                           {programs.map((prog) => (
@@ -1593,6 +1656,28 @@ export const PortalAdminManager: React.FC<PortalAdminManagerProps> = ({
                             </option>
                           ))}
                         </select>
+
+                        {getClassroomsForProg(selectedProgId).length > 1 && (
+                          <select
+                            value={
+                              reqClassroomMap[req.requestId] ||
+                              req.targetClassroomId ||
+                              getClassroomsForProg(selectedProgId).find((c) => c.isDefault)?.id ||
+                              getClassroomsForProg(selectedProgId)[0]?.id ||
+                              ''
+                            }
+                            onChange={(e) =>
+                              setReqClassroomMap((p) => ({ ...p, [req.requestId]: e.target.value }))
+                            }
+                            className="px-3 py-2 rounded-xl border border-indigo-300 bg-indigo-50/70 text-xs font-bold text-indigo-950 min-w-[150px]"
+                          >
+                            {getClassroomsForProg(selectedProgId).map((cls) => (
+                              <option key={cls.id} value={cls.id}>
+                                {cls.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
 
                         <input
                           type="text"

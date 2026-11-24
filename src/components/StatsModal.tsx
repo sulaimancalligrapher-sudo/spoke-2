@@ -36,6 +36,7 @@ import {
   Plus,
   Trash2,
   Eye,
+  EyeOff,
   Lock,
   Image as ImageIcon,
   Calendar,
@@ -1447,6 +1448,77 @@ export const PdfSettingsAdminPanel: React.FC<PdfSettingsAdminPanelProps> = ({
                   className="w-4 h-4 accent-amber-500"
                 />
               </label>
+            </div>
+
+            <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50/90 space-y-2.5">
+              <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                <Eye className="w-4 h-4 text-indigo-600" />
+                <span>إظهار / إخفاء الأزرار في نافذة انتهاء البرنامج</span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                عند انتهاء البرنامج وظهور شاشة «تم إنهاء البرنامج وإخفاء الجدول»، تحكم بظهور زر التقرير (PDF) وزر الشهادة (PDF) فيها:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateDraft((p) => ({
+                      ...p,
+                      showReportButtonWhenEnded: p.showReportButtonWhenEnded === false,
+                    }))
+                  }
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-2 text-xs font-extrabold transition-all cursor-pointer ${
+                    draft.showReportButtonWhenEnded !== false
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                      : 'bg-white border-slate-300 text-slate-500'
+                  }`}
+                >
+                  <span>زر التقرير الشامل (PDF)</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[11px]">
+                    {draft.showReportButtonWhenEnded !== false ? (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>ظاهر</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                        <span>مخفي</span>
+                      </>
+                    )}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateDraft((p) => ({
+                      ...p,
+                      showCertificateButtonWhenEnded: p.showCertificateButtonWhenEnded === false,
+                    }))
+                  }
+                  className={`p-3 rounded-xl border flex items-center justify-between gap-2 text-xs font-extrabold transition-all cursor-pointer ${
+                    draft.showCertificateButtonWhenEnded !== false
+                      ? 'bg-amber-50 border-amber-300 text-amber-950'
+                      : 'bg-white border-slate-300 text-slate-500'
+                  }`}
+                >
+                  <span>زر شهادة الإتمام (PDF)</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-slate-200 text-[11px]">
+                    {draft.showCertificateButtonWhenEnded !== false ? (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-amber-600" />
+                        <span>ظاهر</span>
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-slate-400" />
+                        <span>مخفي</span>
+                      </>
+                    )}
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">

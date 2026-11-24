@@ -32,6 +32,7 @@ import {
   Video,
   Building2,
   Archive,
+  Users,
 } from 'lucide-react';
 import {
   WordItem,
@@ -45,6 +46,7 @@ import {
   AttendanceRecord,
   AttendanceSessionMode,
   AttendanceStatus,
+  CourseClassroom,
   CourseProgram,
   CourseScheduleData,
   CourseGroup,
@@ -58,6 +60,7 @@ import {
   SCHEDULE_DAY_TYPE_META,
   SCHEDULE_EXERCISE_META,
   buildScheduleLessonKey,
+  createDefaultCourseClassroomForProgram,
   deleteAttendanceRecordFromSheets,
   extractAllExerciseTopics,
   fetchAttendanceRecordsFromSheets,
@@ -65,6 +68,7 @@ import {
   formatScheduleDateLabel,
   generateCalendarDays,
   getAttendanceStatusMeta,
+  getDefaultClassroomIdForProgram,
   getLocalAttendanceRecords,
   getLocalDeviceTimezone,
   getTodayLocalISO,
@@ -86,7 +90,7 @@ interface CourseScheduleAdminProps {
   writingTemplates: DrawingTemplate[];
   catchSubjects: CatchLessonSubject[];
   videoLessons: VideoLesson[];
-  onOpenStudentPreview: (programId?: string) => void;
+  onOpenStudentPreview: (programId?: string, classroomId?: string) => void;
 }
 
 const WEEKDAY_BUTTONS: { day: number; label: string }[] = [
@@ -147,6 +151,47 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     [programs, activeProgramId, defaultProgram]
   );
 
+  const allClassrooms = normalizedSchedule.classrooms || [];
+  const activeProgramClassrooms = useMemo(
+    () =>
+      allClassrooms.filter(
+        (c) => (c.programId || defaultProgramId) === activeProgram.id
+      ),
+    [allClassrooms, defaultProgramId, activeProgram.id]
+  );
+  const defaultClassroomForActiveProgram = useMemo(
+    () =>
+      activeProgramClassrooms.find((c) => c.isDefault) ||
+      activeProgramClassrooms[0] ||
+      createDefaultCourseClassroomForProgram(activeProgram),
+    [activeProgramClassrooms, activeProgram]
+  );
+
+  const [activeClassroomId, setActiveClassroomId] = useState<string>(() =>
+    getDefaultClassroomIdForProgram(activeProgram.id)
+  );
+
+  useEffect(() => {
+    if (
+      activeProgramClassrooms.length > 0 &&
+      !activeProgramClassrooms.some((c) => c.id === activeClassroomId)
+    ) {
+      setActiveClassroomId(defaultClassroomForActiveProgram.id);
+    }
+  }, [
+    activeProgram.id,
+    activeProgramClassrooms,
+    activeClassroomId,
+    defaultClassroomForActiveProgram.id,
+  ]);
+
+  const activeClassroom: CourseClassroom = useMemo(
+    () =>
+      activeProgramClassrooms.find((c) => c.id === activeClassroomId) ||
+      defaultClassroomForActiveProgram,
+    [activeProgramClassrooms, activeClassroomId, defaultClassroomForActiveProgram]
+  );
+
   // Program creation / editing UI state
   const [showNewProgramForm, setShowNewProgramForm] = useState(false);
   const [newProgName, setNewProgName] = useState('');
@@ -156,13 +201,21 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   const [confirmDeleteProgramId, setConfirmDeleteProgramId] = useState<string | null>(null);
   const [editingProgramMeta, setEditingProgramMeta] = useState(false);
 
+  // Classroom creation / editing UI state
+  const [showNewClassroomForm, setShowNewClassroomForm] = useState(false);
+  const [newClassroomName, setNewClassroomName] = useState('');
+  const [newClassroomDesc, setNewClassroomDesc] = useState('');
+  const [cloneFromClassroomId, setCloneFromClassroomId] = useState<string>('');
+  const [editingClassroomMeta, setEditingClassroomMeta] = useState(false);
+  const [confirmDeleteClassroomId, setConfirmDeleteClassroomId] = useState<string | null>(null);
+
   const [subTab, setSubTab] = useState<'groups' | 'days' | 'attendance'>('groups');
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDesc, setNewGroupDesc] = useState('');
   const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
 
-  // Calendar generator defaults & undo state (actual generator inputs persist per program in activeProgram.settings)
+  // Calendar generator defaults & undo state (actual generator inputs persist per classroom in activeClassroom.settings)
   const todayISO = getTodayLocalISO();
   const defaultTwoWeeksEndISO = useMemo(() => {
     const d = new Date();
@@ -172,17 +225,48 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     ).padStart(2, '0')}`;
   }, []);
 
-  const genStartDate = activeProgram.settings.programStartDate || todayISO;
-  const genEndDate = activeProgram.settings.programEndDate || defaultTwoWeeksEndISO;
-  const archiveDate = activeProgram.settings.archiveDate || '';
-  const genWeekdays = activeProgram.settings.genWeekdays ?? [0, 1, 2, 3, 4];
-  const genDayType: ScheduleDayType = activeProgram.settings.genDayType || 'lesson';
-  const genGroupsPerDay = activeProgram.settings.genGroupsPerDay ?? '';
-  const genMode: 'replace' | 'append' = activeProgram.settings.genMode || 'replace';
+  const activeClassroomRawDays = useMemo(
+    () =>
+      normalizedSchedule.days
+        .filter(
+          (d) =>
+            (d.programId || defaultProgramId) === activeProgram.id &&
+            (d.classroomId
+              ? d.classroomId === activeClassroom.id
+              : Boolean(activeClassroom.isDefault))
+        )
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    [
+      normalizedSchedule.days,
+      defaultProgramId,
+      activeProgram.id,
+      activeClassroom.id,
+      activeClassroom.isDefault,
+    ]
+  );
+
+  const inferredStartDate = activeClassroomRawDays[0]?.date;
+  const inferredEndDate =
+    activeClassroomRawDays.length > 0
+      ? activeClassroomRawDays[activeClassroomRawDays.length - 1].date
+      : undefined;
+
+  const genStartDate =
+    activeClassroom.settings.programStartDate || inferredStartDate || todayISO;
+  const genEndDate =
+    activeClassroom.settings.programEndDate ||
+    inferredEndDate ||
+    defaultTwoWeeksEndISO;
+  const archiveDate = activeClassroom.settings.archiveDate || '';
+  const genWeekdays = activeClassroom.settings.genWeekdays ?? [0, 1, 2, 3, 4];
+  const genDayType: ScheduleDayType = activeClassroom.settings.genDayType || 'lesson';
+  const genGroupsPerDay = activeClassroom.settings.genGroupsPerDay ?? '';
+  const genMode: 'replace' | 'append' = activeClassroom.settings.genMode || 'replace';
   const genAttendanceMode: AttendanceSessionMode =
-    activeProgram.settings.defaultAttendanceMode || 'live';
-  const genLiveUrl = activeProgram.settings.defaultLiveUrl || '';
-  const genClassroomLocation = activeProgram.settings.defaultClassroomLocation || '';
+    activeClassroom.settings.defaultAttendanceMode || 'live';
+  const genLiveUrl = activeClassroom.settings.defaultLiveUrl || '';
+  const genClassroomLocation =
+    activeClassroom.settings.defaultClassroomLocation || '';
 
   const [singleDayDate, setSingleDayDate] = useState<string>(todayISO);
   const [daysUndoSnapshot, setDaysUndoSnapshot] = useState<CourseScheduleDay[] | null>(null);
@@ -204,6 +288,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   const [attendanceScriptSupported, setAttendanceScriptSupported] = useState(true);
   const [attDateFilter, setAttDateFilter] = useState<string>('');
   const [attStatusFilter, setAttStatusFilter] = useState<'all' | AttendanceStatus>('all');
+  const [attClassroomFilter, setAttClassroomFilter] = useState<string>('ALL');
   const [attSearch, setAttSearch] = useState<string>('');
   const [confirmDeleteAttKey, setConfirmDeleteAttKey] = useState<string | null>(null);
   const [isRunningScheduler, setIsRunningScheduler] = useState(false);
@@ -229,7 +314,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     setIsRunningScheduler(true);
     setStatusBanner(null);
     try {
-      const tz = activeProgram.settings.timezone || getLocalDeviceTimezone();
+      const tz = activeClassroom.settings.timezone || activeProgram.settings.timezone || getLocalDeviceTimezone();
       const res = await runAttendanceSchedulerNow(webhookUrl, tz);
       setStatusBanner({
         type: res.success ? 'success' : 'warn',
@@ -249,6 +334,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       if (attDateFilter && rec.date !== attDateFilter) return false;
       const recStatus: AttendanceStatus = rec.status || 'on_time';
       if (attStatusFilter !== 'all' && recStatus !== attStatusFilter) return false;
+      if (attClassroomFilter !== 'ALL' && (rec.classroomId || '') !== attClassroomFilter) return false;
       if (!q) return true;
       return (
         rec.studentId.toLowerCase().includes(q) ||
@@ -257,7 +343,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
         (rec.location || '').toLowerCase().includes(q)
       );
     });
-  }, [attendanceRecords, attDateFilter, attStatusFilter, attSearch]);
+  }, [attendanceRecords, attDateFilter, attStatusFilter, attClassroomFilter, attSearch]);
 
   const attendanceStats = useMemo(() => {
     const todayRows = attendanceRecords.filter((r) => r.date === todayISO);
@@ -364,13 +450,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     [normalizedSchedule.groups, defaultProgramId, activeProgram.id]
   );
 
-  const activeProgramDays = useMemo(
-    () =>
-      normalizedSchedule.days
-        .filter((d) => (d.programId || defaultProgramId) === activeProgram.id)
-        .sort((a, b) => a.date.localeCompare(b.date)),
-    [normalizedSchedule.days, defaultProgramId, activeProgram.id]
-  );
+  const activeProgramDays = activeClassroomRawDays;
 
   // Sync selectedGroupId when switching programs
   useEffect(() => {
@@ -470,6 +550,169 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     });
   };
 
+  const handleUpdateActiveClassroomSettings = (
+    settingsPatch: Partial<CourseClassroom['settings']>
+  ) => {
+    const mergedClsSettings = {
+      ...activeClassroom.settings,
+      ...settingsPatch,
+    };
+    const nextClassrooms = allClassrooms.map((c) =>
+      c.id === activeClassroom.id ? { ...c, settings: mergedClsSettings } : c
+    );
+    const nextPrograms = activeClassroom.isDefault
+      ? programs.map((p) =>
+          p.id === activeProgram.id ? { ...p, settings: mergedClsSettings } : p
+        )
+      : programs;
+    const updatedDefaultProg =
+      nextPrograms.find((p) => p.isDefault) || nextPrograms[0];
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      programs: nextPrograms,
+      classrooms: nextClassrooms,
+      settings: updatedDefaultProg?.settings || normalizedSchedule.settings,
+    });
+  };
+
+  // Classroom Management Handlers
+  const handleCreateClassroom = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName =
+      newClassroomName.trim() || `الفصل ${activeProgramClassrooms.length + 1}`;
+    const newClsId = `cls_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+    const sourceCls = cloneFromClassroomId
+      ? activeProgramClassrooms.find((c) => c.id === cloneFromClassroomId)
+      : undefined;
+
+    const newCls: CourseClassroom = {
+      id: newClsId,
+      programId: activeProgram.id,
+      name: cleanName,
+      description: newClassroomDesc.trim(),
+      isDefault: false,
+      settings: sourceCls
+        ? { ...sourceCls.settings }
+        : {
+            lockFutureDays: activeProgram.settings.lockFutureDays,
+            courseTitle: `${activeProgram.name} — ${cleanName}`,
+            timezone: activeClassroom.settings.timezone,
+            defaultStartTime: activeClassroom.settings.defaultStartTime,
+            durationMinutes: activeClassroom.settings.durationMinutes,
+            graceMinutes: activeClassroom.settings.graceMinutes,
+            reminderMinutesBefore: activeClassroom.settings.reminderMinutesBefore,
+            absenceGraceMinutes: activeClassroom.settings.absenceGraceMinutes,
+            genWeekdays: activeClassroom.settings.genWeekdays || [0, 1, 2, 3, 4],
+            genDayType: activeClassroom.settings.genDayType || 'lesson',
+            genGroupsPerDay: activeClassroom.settings.genGroupsPerDay || '',
+            genMode: activeClassroom.settings.genMode || 'replace',
+          },
+      createdAt: todayISO,
+    };
+
+    let clonedDays: CourseScheduleDay[] = [];
+    if (sourceCls) {
+      const srcDays = normalizedSchedule.days.filter(
+        (d) =>
+          (d.programId || defaultProgramId) === activeProgram.id &&
+          (d.classroomId ? d.classroomId === sourceCls.id : Boolean(sourceCls.isDefault))
+      );
+      clonedDays = srcDays.map((d, idx) => ({
+        ...d,
+        id: `day_${d.date}_${newClsId}_${idx}`,
+        programId: activeProgram.id,
+        classroomId: newClsId,
+      }));
+    }
+
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      classrooms: [...allClassrooms, newCls],
+      days: [...normalizedSchedule.days, ...clonedDays].sort((a, b) =>
+        a.date.localeCompare(b.date)
+      ),
+    });
+    setActiveClassroomId(newClsId);
+    setNewClassroomName('');
+    setNewClassroomDesc('');
+    setCloneFromClassroomId('');
+    setShowNewClassroomForm(false);
+    setStatusBanner({
+      type: 'success',
+      message:
+        clonedDays.length > 0
+          ? `تم إنشاء فصل «${cleanName}» مع نسخ ${clonedDays.length} يوماً وإعداداته.`
+          : `تم إنشاء فصل «${cleanName}» بنجاح داخل برنامج «${activeProgram.name}».`,
+    });
+  };
+
+  const handleUpdateActiveClassroomMeta = (patch: Partial<CourseClassroom>) => {
+    const nextClassrooms = allClassrooms.map((c) =>
+      c.id === activeClassroom.id ? { ...c, ...patch } : c
+    );
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      classrooms: nextClassrooms,
+    });
+  };
+
+  const handleSetDefaultClassroom = (clsId: string) => {
+    const nextClassrooms = allClassrooms.map((c) => {
+      if ((c.programId || defaultProgramId) !== activeProgram.id) return c;
+      return { ...c, isDefault: c.id === clsId };
+    });
+    const newDefCls = nextClassrooms.find((c) => c.id === clsId);
+    const nextPrograms = newDefCls
+      ? programs.map((p) =>
+          p.id === activeProgram.id ? { ...p, settings: newDefCls.settings } : p
+        )
+      : programs;
+    const defProg = nextPrograms.find((p) => p.isDefault) || nextPrograms[0];
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      programs: nextPrograms,
+      classrooms: nextClassrooms,
+      settings: defProg?.settings || normalizedSchedule.settings,
+    });
+    setStatusBanner({
+      type: 'success',
+      message: `تم تعيين «${newDefCls?.name || ''}» كفصل افتراضي لبرنامج «${activeProgram.name}».`,
+    });
+  };
+
+  const handleDeleteClassroom = (clsId: string) => {
+    if (activeProgramClassrooms.length <= 1) return;
+    const target = activeProgramClassrooms.find((c) => c.id === clsId);
+    const nextClassroomsRaw = allClassrooms.filter((c) => c.id !== clsId);
+    const remainingInProg = nextClassroomsRaw.filter(
+      (c) => (c.programId || defaultProgramId) === activeProgram.id
+    );
+    const fallbackDefId =
+      remainingInProg.find((c) => c.isDefault)?.id || remainingInProg[0]?.id;
+    const nextClassrooms = nextClassroomsRaw.map((c) => {
+      if ((c.programId || defaultProgramId) !== activeProgram.id) return c;
+      return { ...c, isDefault: c.id === fallbackDefId };
+    });
+    const nextDays = normalizedSchedule.days.filter(
+      (d) =>
+        !(
+          (d.programId || defaultProgramId) === activeProgram.id &&
+          (d.classroomId ? d.classroomId === clsId : Boolean(target?.isDefault))
+        )
+    );
+    commitScheduleUpdate({
+      ...normalizedSchedule,
+      classrooms: nextClassrooms,
+      days: nextDays,
+    });
+    setConfirmDeleteClassroomId(null);
+    if (fallbackDefId) setActiveClassroomId(fallbackDefId);
+    setStatusBanner({
+      type: 'warn',
+      message: `تم حذف فصل «${target?.name || ''}» وجدوله. اضغط «حفظ ومزامنة إلى الشيت» لتثبيت التغيير.`,
+    });
+  };
+
   const handleCreateProgram = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newProgName.trim() || `برنامج تدريبي ${programs.length + 1}`;
@@ -486,6 +729,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       },
       createdAt: todayISO,
     };
+    const newDefaultCls = createDefaultCourseClassroomForProgram(newProg);
 
     let clonedGroups: CourseGroup[] = [];
     if (cloneFromProgramId) {
@@ -504,9 +748,11 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     commitScheduleUpdate({
       ...normalizedSchedule,
       programs: [...programs, newProg],
+      classrooms: [...allClassrooms, newDefaultCls],
       groups: [...normalizedSchedule.groups, ...clonedGroups],
     });
     setActiveProgramId(newId);
+    setActiveClassroomId(newDefaultCls.id);
     setSelectedGroupId(clonedGroups[0]?.id || '');
     setNewProgName('');
     setNewProgDesc('');
@@ -527,6 +773,9 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     if (!nextPrograms.some((p) => p.isDefault) && nextPrograms[0]) {
       nextPrograms = nextPrograms.map((p, idx) => ({ ...p, isDefault: idx === 0 }));
     }
+    const nextClassrooms = allClassrooms.filter(
+      (c) => (c.programId || defaultProgramId) !== progId
+    );
     const nextGroups = normalizedSchedule.groups.filter(
       (g) => (g.programId || defaultProgramId) !== progId
     );
@@ -538,6 +787,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     commitScheduleUpdate({
       ...normalizedSchedule,
       programs: nextPrograms,
+      classrooms: nextClassrooms,
       groups: nextGroups,
       days: nextDays,
       settings: nextDefault.settings,
@@ -546,7 +796,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     setActiveProgramId(nextDefault.id);
     setStatusBanner({
       type: 'warn',
-      message: `تم حذف برنامج «${target?.name || ''}» ومجموعاته وأيامه. اضغط «حفظ ومزامنة إلى الشيت» لتثبيت التغيير.`,
+      message: `تم حذف برنامج «${target?.name || ''}» ومجموعاته وفصوله وأيامه. اضغط «حفظ ومزامنة إلى الشيت» لتثبيت التغيير.`,
     });
   };
 
@@ -637,12 +887,12 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     });
   };
 
-  // Calendar Generator (persists per activeProgram.settings)
+  // Calendar Generator (persists per activeClassroom.settings)
   const handleToggleWeekday = (dayIdx: number) => {
     const next = genWeekdays.includes(dayIdx)
       ? genWeekdays.filter((d) => d !== dayIdx)
       : [...genWeekdays, dayIdx];
-    handleUpdateActiveProgram({ settingsPatch: { genWeekdays: next } });
+    handleUpdateActiveClassroomSettings({ genWeekdays: next });
   };
 
   const handleGenerateDays = () => {
@@ -665,28 +915,40 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       genGroupsPerDay.trim() === ''
         ? 0
         : Math.max(0, Math.min(99, Math.floor(Number(genGroupsPerDay) || 0)));
-    const otherProgramsDays = normalizedSchedule.days.filter(
-      (d) => (d.programId || defaultProgramId) !== activeProgram.id
+    const otherDays = normalizedSchedule.days.filter(
+      (d) =>
+        !(
+          (d.programId || defaultProgramId) === activeProgram.id &&
+          (d.classroomId
+            ? d.classroomId === activeClassroom.id
+            : Boolean(activeClassroom.isDefault))
+        )
     );
 
     // Save undo snapshot of all days before mutating
     setDaysUndoSnapshot(normalizedSchedule.days);
 
-    const updatedPrograms = programs.map((p) =>
-      p.id === activeProgram.id
-        ? {
-            ...p,
-            settings: {
-              ...p.settings,
-              programStartDate: genStartDate,
-              programEndDate: genEndDate,
-            },
-          }
-        : p
+    const updatedClsSettings = {
+      ...activeClassroom.settings,
+      programStartDate: genStartDate,
+      programEndDate: genEndDate,
+      genWeekdays,
+      genDayType,
+      genGroupsPerDay,
+      genMode,
+    };
+    const updatedClassrooms = allClassrooms.map((c) =>
+      c.id === activeClassroom.id ? { ...c, settings: updatedClsSettings } : c
     );
+    const updatedPrograms = activeClassroom.isDefault
+      ? programs.map((p) =>
+          p.id === activeProgram.id ? { ...p, settings: updatedClsSettings } : p
+        )
+      : programs;
 
     const genOptions = {
       programId: activeProgram.id,
+      classroomId: activeClassroom.id,
       attendanceMode: genDayType === 'attendance' ? genAttendanceMode : undefined,
       liveUrl: genDayType === 'attendance' ? genLiveUrl : undefined,
       classroomLocation: genDayType === 'attendance' ? genClassroomLocation : undefined,
@@ -702,17 +964,22 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
         perDay,
         genOptions
       );
-      const nextDays = [...otherProgramsDays, ...generated].sort((a, b) =>
+      const nextDays = [...otherDays, ...generated].sort((a, b) =>
         a.date.localeCompare(b.date)
       );
-      commitScheduleUpdate({ ...normalizedSchedule, programs: updatedPrograms, days: nextDays });
+      commitScheduleUpdate({
+        ...normalizedSchedule,
+        programs: updatedPrograms,
+        classrooms: updatedClassrooms,
+        days: nextDays,
+      });
       const withGroupsCount = generated.filter((d) => d.groupIds.length > 0).length;
       setStatusBanner({
         type: 'success',
         message:
           perDay === 0
-            ? `تم استبدال وتوليد ${generated.length} يوماً لبرنامج «${activeProgram.name}» بدون توزيع تلقائي للمجموعات (يمكنك إضافتها يدوياً).`
-            : `تم استبدال وتوليد ${generated.length} يوماً لبرنامج «${activeProgram.name}» وفق الأيام المختارة (توزيع ${withGroupsCount} يوماً بالمجموعات).`,
+            ? `تم استبدال وتوليد ${generated.length} يوماً لفصل «${activeClassroom.name}» بدون توزيع تلقائي للمجموعات (يمكنك إضافتها يدوياً).`
+            : `تم استبدال وتوليد ${generated.length} يوماً لفصل «${activeClassroom.name}» وفق الأيام المختارة (توزيع ${withGroupsCount} يوماً بالمجموعات).`,
       });
     } else {
       // Append mode: only new dates, distributing unassigned groups so nothing duplicates!
@@ -737,18 +1004,23 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       const existingDates = new Set(activeProgramDays.map((d) => d.date));
       const additions = generated.filter((d) => !existingDates.has(d.date));
       const nextDays = [
-        ...otherProgramsDays,
+        ...otherDays,
         ...activeProgramDays,
         ...additions,
       ].sort((a, b) => a.date.localeCompare(b.date));
-      commitScheduleUpdate({ ...normalizedSchedule, programs: updatedPrograms, days: nextDays });
+      commitScheduleUpdate({
+        ...normalizedSchedule,
+        programs: updatedPrograms,
+        classrooms: updatedClassrooms,
+        days: nextDays,
+      });
       const withGroupsCount = additions.filter((d) => d.groupIds.length > 0).length;
       setStatusBanner({
         type: 'success',
         message:
           perDay === 0
-            ? `تمت إضافة ${additions.length} يوماً جديداً لبرنامج «${activeProgram.name}» (بدون توزيع تلقائي).`
-            : `تمت إضافة ${additions.length} يوماً جديداً لبرنامج «${activeProgram.name}» (استكمال توزيع ${withGroupsCount} يوماً من المجموعات المتبقية).`,
+            ? `تمت إضافة ${additions.length} يوماً جديداً لفصل «${activeClassroom.name}» (بدون توزيع تلقائي).`
+            : `تمت إضافة ${additions.length} يوماً جديداً لفصل «${activeClassroom.name}» (استكمال توزيع ${withGroupsCount} يوماً من المجموعات المتبقية).`,
       });
     }
   };
@@ -810,7 +1082,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
     if (activeProgramDays.some((d) => d.date === singleDayDate)) {
       setStatusBanner({
         type: 'warn',
-        message: `التاريخ ${singleDayDate} موجود مسبقاً في برنامج «${activeProgram.name}».`,
+        message: `التاريخ ${singleDayDate} موجود مسبقاً في فصل «${activeClassroom.name}».`,
       });
       return;
     }
@@ -823,6 +1095,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
       customTitle: '',
       notes: '',
       programId: activeProgram.id,
+      classroomId: activeClassroom.id,
     };
     const merged = [...normalizedSchedule.days, nextDay].sort((a, b) =>
       a.date.localeCompare(b.date)
@@ -900,17 +1173,23 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
   const handleDeleteAllDays = () => {
     if (activeProgramDays.length === 0) return;
     setDaysUndoSnapshot(normalizedSchedule.days);
-    const remainingOtherProgramDays = normalizedSchedule.days.filter(
-      (d) => (d.programId || defaultProgramId) !== activeProgram.id
+    const remainingOtherDays = normalizedSchedule.days.filter(
+      (d) =>
+        !(
+          (d.programId || defaultProgramId) === activeProgram.id &&
+          (d.classroomId
+            ? d.classroomId === activeClassroom.id
+            : Boolean(activeClassroom.isDefault))
+        )
     );
     commitScheduleUpdate({
       ...normalizedSchedule,
-      days: remainingOtherProgramDays,
+      days: remainingOtherDays,
     });
     setConfirmDeleteAllDays(false);
     setStatusBanner({
       type: 'warn',
-      message: `تم حذف جميع أيام برنامج «${activeProgram.name}» (${activeProgramDays.length} يوم). يمكنك التراجع الآن أو الضغط على «حفظ ومزامنة إلى الشيت».`,
+      message: `تم حذف جميع أيام فصل «${activeClassroom.name}» (${activeProgramDays.length} يوم). يمكنك التراجع الآن أو الضغط على «حفظ ومزامنة إلى الشيت».`,
     });
   };
 
@@ -1003,11 +1282,14 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => onOpenStudentPreview(activeProgram.id)}
+              onClick={() => onOpenStudentPreview(activeProgram.id, activeClassroom.id)}
               className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
             >
               <Eye className="w-4 h-4 text-indigo-600" />
-              <span>معاينة جدول: {activeProgram.name}</span>
+              <span>
+                معاينة: {activeProgram.name}
+                {activeProgramClassrooms.length > 1 ? ` — ${activeClassroom.name}` : ''}
+              </span>
             </button>
 
             <button
@@ -1301,19 +1583,239 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           )}
         </div>
 
-        {/* Active Program Settings Row */}
+        {/* Classrooms / Cohorts Switcher & Management Bar */}
+        <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Users className="w-4 h-4 text-indigo-700 shrink-0" />
+              <span className="text-xs font-extrabold text-indigo-950">
+                الفصول / الدفعات في «{activeProgram.name}» ({activeProgramClassrooms.length}):
+              </span>
+              <span className="text-[11px] text-indigo-800/80 font-semibold">
+                المجموعات والدروس مشتركة للبرنامج، بينما كل فصل يملك تقويمه وتواريخه وأوقات حصصه المستقلة.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowNewClassroomForm((prev) => !prev)}
+              className="px-3 py-1.5 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>إضافة فصل جديد</span>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {activeProgramClassrooms.map((cls) => {
+              const isAct = cls.id === activeClassroom.id;
+              const clsDaysCount = normalizedSchedule.days.filter(
+                (d) =>
+                  (d.programId || defaultProgramId) === activeProgram.id &&
+                  (d.classroomId ? d.classroomId === cls.id : Boolean(cls.isDefault))
+              ).length;
+              return (
+                <button
+                  key={cls.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveClassroomId(cls.id);
+                    setConfirmDeleteClassroomId(null);
+                    setConfirmDeleteAllDays(false);
+                    setDaysUndoSnapshot(null);
+                  }}
+                  className={`px-3.5 py-2 rounded-2xl border text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${
+                    isAct
+                      ? 'bg-indigo-700 text-white border-indigo-700 shadow-sm'
+                      : 'bg-white text-slate-700 border-indigo-200 hover:border-indigo-400'
+                  }`}
+                >
+                  <span>{cls.name}</span>
+                  {cls.isDefault && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                        isAct
+                          ? 'bg-white/20 text-white'
+                          : 'bg-indigo-100 text-indigo-800'
+                      }`}
+                    >
+                      أساسي
+                    </span>
+                  )}
+                  <span
+                    className={`text-[10px] font-mono ${
+                      isAct ? 'text-indigo-100' : 'text-slate-400'
+                    }`}
+                  >
+                    ({clsDaysCount}ي)
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {showNewClassroomForm && (
+            <form
+              onSubmit={handleCreateClassroom}
+              className="p-3.5 rounded-2xl bg-white border border-indigo-200 shadow-2xs space-y-2.5"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-indigo-950">
+                  إنشاء فصل / دفعة جديدة داخل «{activeProgram.name}» (مثال: دفعة رمضان / الفصل المسائي)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowNewClassroomForm(false)}
+                  className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={newClassroomName}
+                  onChange={(e) => setNewClassroomName(e.target.value)}
+                  placeholder="اسم الفصل (مثال: الدفعة الثانية — مارس)"
+                  className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                />
+                <input
+                  type="text"
+                  value={newClassroomDesc}
+                  onChange={(e) => setNewClassroomDesc(e.target.value)}
+                  placeholder="وصف مختصر (اختياري)"
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-xs"
+                />
+                <select
+                  value={cloneFromClassroomId}
+                  onChange={(e) => setCloneFromClassroomId(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-bold"
+                >
+                  <option value="">بدء التقويم فارغاً (بدون نسخ أيام)</option>
+                  {activeProgramClassrooms.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      نسخ تقويم وإعدادات: {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إنشاء الفصل</span>
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Classroom Metadata & Controls */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-indigo-200/70">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingClassroomMeta((v) => !v)}
+                className="px-2.5 py-1 rounded-xl bg-white hover:bg-indigo-50 text-indigo-900 border border-indigo-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3" />
+                <span>{editingClassroomMeta ? 'إخفاء تعديل الفصل' : 'تعديل اسم ووصف الفصل'}</span>
+              </button>
+
+              {!activeClassroom.isDefault && (
+                <button
+                  type="button"
+                  onClick={() => handleSetDefaultClassroom(activeClassroom.id)}
+                  className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Star className="w-3 h-3" />
+                  <span>تعيين كفصل أساسي</span>
+                </button>
+              )}
+            </div>
+
+            {activeProgramClassrooms.length > 1 && (
+              <div>
+                {confirmDeleteClassroomId === activeClassroom.id ? (
+                  <div className="flex items-center gap-1.5 bg-rose-100 px-2.5 py-1 rounded-xl border border-rose-300">
+                    <span className="text-[11px] font-extrabold text-rose-900">
+                      حذف «{activeClassroom.name}» وأيامه؟
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteClassroom(activeClassroom.id)}
+                      className="px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[10px] font-extrabold cursor-pointer"
+                    >
+                      تأكيد
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteClassroomId(null)}
+                      className="px-2 py-0.5 rounded-lg bg-white text-slate-700 text-[10px] font-bold cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteClassroomId(activeClassroom.id)}
+                    className="px-2.5 py-1 rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>حذف هذا الفصل</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {editingClassroomMeta && (
+            <div className="p-3 rounded-2xl bg-white border border-indigo-200 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 block">
+                  اسم الفصل
+                </label>
+                <input
+                  type="text"
+                  value={activeClassroom.name}
+                  onChange={(e) =>
+                    handleUpdateActiveClassroomMeta({ name: e.target.value })
+                  }
+                  placeholder="اسم الفصل"
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-extrabold"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 block">
+                  وصف الفصل (اختياري)
+                </label>
+                <input
+                  type="text"
+                  value={activeClassroom.description || ''}
+                  onChange={(e) =>
+                    handleUpdateActiveClassroomMeta({ description: e.target.value })
+                  }
+                  placeholder="ملاحظة إدارية للفصل (اختياري)"
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Active Classroom Settings Row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
           <div className="space-y-1">
             <label className="text-[11px] font-bold text-slate-600">
-              عنوان الجدول لبرنامج «{activeProgram.name}» (يظهر للطالب):
+              عنوان الجدول لفصل «{activeClassroom.name}» (يظهر للطالب):
             </label>
             <input
               type="text"
-              value={activeProgram.settings.courseTitle}
+              value={activeClassroom.settings.courseTitle}
               onChange={(e) =>
-                handleUpdateActiveProgram({
-                  settingsPatch: { courseTitle: e.target.value },
-                })
+                handleUpdateActiveClassroomSettings({ courseTitle: e.target.value })
               }
               placeholder="جدول الدورة اليومي"
               className="w-full px-3.5 py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs sm:text-sm font-bold text-slate-900"
@@ -1322,27 +1824,25 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
           <div className="flex items-center justify-between p-3 rounded-2xl border border-amber-200 bg-amber-50/70">
             <div className="flex items-center gap-2.5">
-              {activeProgram.settings.lockFutureDays ? (
+              {activeClassroom.settings.lockFutureDays ? (
                 <Lock className="w-4 h-4 text-amber-700 shrink-0" />
               ) : (
                 <Unlock className="w-4 h-4 text-emerald-700 shrink-0" />
               )}
               <div>
                 <div className="text-xs font-extrabold text-slate-900">
-                  قفل دخول التمارين المستقبلية في هذا البرنامج
+                  قفل دخول التمارين المستقبلية في هذا الفصل
                 </div>
                 <div className="text-[11px] text-slate-600">
-                  عند التفعيل: لا تظهر في «قائمة الدروس» لطلاب هذا البرنامج إلا الدروس التي حلّ تاريخها، وتُخفى المستقبلية وغير المدرجة.
+                  عند التفعيل: لا تظهر في «قائمة الدروس» لطلاب هذا الفصل إلا الدروس التي حلّ تاريخها، وتُخفى المستقبلية وغير المدرجة.
                 </div>
               </div>
             </div>
             <input
               type="checkbox"
-              checked={activeProgram.settings.lockFutureDays}
+              checked={activeClassroom.settings.lockFutureDays}
               onChange={(e) =>
-                handleUpdateActiveProgram({
-                  settingsPatch: { lockFutureDays: e.target.checked },
-                })
+                handleUpdateActiveClassroomSettings({ lockFutureDays: e.target.checked })
               }
               className="w-5 h-5 text-amber-600 rounded cursor-pointer shrink-0"
             />
@@ -1381,19 +1881,17 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
           </div>
         </div>
 
-        {/* Program Timing, Timezone & Auto Absence / Reminder Settings */}
+        {/* Classroom Timing, Timezone & Auto Absence / Reminder Settings */}
         <div className="p-3.5 rounded-2xl bg-emerald-50/50 border border-emerald-200/80 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
               <Clock className="w-4 h-4 text-emerald-700" />
-              <span>توقيت الحصص والحضور الآلي والتنبيهات — «{activeProgram.name}»</span>
+              <span>توقيت الحصص والحضور الآلي والتنبيهات — فصل «{activeClassroom.name}»</span>
             </div>
             <button
               type="button"
               onClick={() =>
-                handleUpdateActiveProgram({
-                  settingsPatch: { timezone: getLocalDeviceTimezone() },
-                })
+                handleUpdateActiveClassroomSettings({ timezone: getLocalDeviceTimezone() })
               }
               className="px-2.5 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
             >
@@ -1408,10 +1906,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               <input
                 type="time"
                 dir="ltr"
-                value={activeProgram.settings.defaultStartTime || ''}
+                value={activeClassroom.settings.defaultStartTime || ''}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: { defaultStartTime: normalizeHHmm(e.target.value) },
+                  handleUpdateActiveClassroomSettings({
+                    defaultStartTime: normalizeHHmm(e.target.value),
                   })
                 }
                 className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
@@ -1424,12 +1922,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 type="number"
                 min={5}
                 max={480}
-                value={activeProgram.settings.durationMinutes ?? 60}
+                value={activeClassroom.settings.durationMinutes ?? 60}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: {
-                      durationMinutes: Math.max(5, Number(e.target.value) || 60),
-                    },
+                  handleUpdateActiveClassroomSettings({
+                    durationMinutes: Math.max(5, Number(e.target.value) || 60),
                   })
                 }
                 className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
@@ -1442,12 +1938,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 type="number"
                 min={0}
                 max={120}
-                value={activeProgram.settings.graceMinutes ?? 10}
+                value={activeClassroom.settings.graceMinutes ?? 10}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: {
-                      graceMinutes: Math.max(0, Number(e.target.value) || 0),
-                    },
+                  handleUpdateActiveClassroomSettings({
+                    graceMinutes: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
                 className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
@@ -1460,12 +1954,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 type="number"
                 min={0}
                 max={240}
-                value={activeProgram.settings.reminderMinutesBefore ?? 15}
+                value={activeClassroom.settings.reminderMinutesBefore ?? 15}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: {
-                      reminderMinutesBefore: Math.max(0, Number(e.target.value) || 0),
-                    },
+                  handleUpdateActiveClassroomSettings({
+                    reminderMinutesBefore: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
                 className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
@@ -1478,12 +1970,10 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 type="number"
                 min={0}
                 max={360}
-                value={activeProgram.settings.absenceGraceMinutes ?? 30}
+                value={activeClassroom.settings.absenceGraceMinutes ?? 30}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: {
-                      absenceGraceMinutes: Math.max(0, Number(e.target.value) || 0),
-                    },
+                  handleUpdateActiveClassroomSettings({
+                    absenceGraceMinutes: Math.max(0, Number(e.target.value) || 0),
                   })
                 }
                 className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono font-bold"
@@ -1495,11 +1985,9 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               <input
                 type="text"
                 dir="ltr"
-                value={activeProgram.settings.timezone || ''}
+                value={activeClassroom.settings.timezone || ''}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: { timezone: e.target.value },
-                  })
+                  handleUpdateActiveClassroomSettings({ timezone: e.target.value })
                 }
                 placeholder="Asia/Bangkok"
                 className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-mono"
@@ -1511,11 +1999,9 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             <label className="inline-flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={Boolean(activeProgram.settings.autoSendReminders)}
+                checked={Boolean(activeClassroom.settings.autoSendReminders)}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: { autoSendReminders: e.target.checked },
-                  })
+                  handleUpdateActiveClassroomSettings({ autoSendReminders: e.target.checked })
                 }
                 className="w-4 h-4 rounded accent-emerald-600"
               />
@@ -1525,11 +2011,9 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             <label className="inline-flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
-                checked={Boolean(activeProgram.settings.autoMarkAbsent)}
+                checked={Boolean(activeClassroom.settings.autoMarkAbsent)}
                 onChange={(e) =>
-                  handleUpdateActiveProgram({
-                    settingsPatch: { autoMarkAbsent: e.target.checked },
-                  })
+                  handleUpdateActiveClassroomSettings({ autoMarkAbsent: e.target.checked })
                 }
                 className="w-4 h-4 rounded accent-emerald-600"
               />
@@ -2008,9 +2492,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   type="date"
                   value={genStartDate}
                   onChange={(e) =>
-                    handleUpdateActiveProgram({
-                      settingsPatch: { programStartDate: e.target.value },
-                    })
+                    handleUpdateActiveClassroomSettings({ programStartDate: e.target.value })
                   }
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono font-bold"
                 />
@@ -2023,9 +2505,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   type="date"
                   value={genEndDate}
                   onChange={(e) =>
-                    handleUpdateActiveProgram({
-                      settingsPatch: { programEndDate: e.target.value },
-                    })
+                    handleUpdateActiveClassroomSettings({ programEndDate: e.target.value })
                   }
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono font-bold"
                 />
@@ -2033,27 +2513,23 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-rose-700 flex items-center gap-1">
                   <Archive className="w-3.5 h-3.5 shrink-0" />
-                  <span>3. تاريخ إخفاء الجدول والدروس (إنهاء البرنامج)</span>
+                  <span>3. تاريخ إخفاء الجدول والدروس (إنهاء الفصل)</span>
                 </label>
                 <div className="flex items-center gap-1">
                   <input
                     type="date"
                     value={archiveDate}
                     onChange={(e) =>
-                      handleUpdateActiveProgram({
-                        settingsPatch: { archiveDate: e.target.value },
-                      })
+                      handleUpdateActiveClassroomSettings({ archiveDate: e.target.value })
                     }
-                    title="عند وصول هذا التاريخ يتم إخفاء الجدول وإغلاق جميع الدروس والمراجعة تلقائياً لطلاب هذا البرنامج"
+                    title="عند وصول هذا التاريخ يتم إخفاء الجدول وإغلاق جميع الدروس والمراجعة تلقائياً لطلاب هذا الفصل"
                     className="w-full px-3 py-2 rounded-xl border border-rose-300 bg-rose-50/40 text-xs font-mono font-bold text-rose-950"
                   />
                   {archiveDate && (
                     <button
                       type="button"
                       onClick={() =>
-                        handleUpdateActiveProgram({
-                          settingsPatch: { archiveDate: '' },
-                        })
+                        handleUpdateActiveClassroomSettings({ archiveDate: '' })
                       }
                       className="p-2 rounded-xl border border-rose-200 bg-white text-rose-600 hover:bg-rose-50 cursor-pointer shrink-0"
                       title="إلغاء تاريخ الإخفاء"
@@ -2070,8 +2546,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 <select
                   value={genDayType}
                   onChange={(e) =>
-                    handleUpdateActiveProgram({
-                      settingsPatch: { genDayType: e.target.value as ScheduleDayType },
+                    handleUpdateActiveClassroomSettings({
+                      genDayType: e.target.value as ScheduleDayType,
                     })
                   }
                   className={`w-full px-3 py-2 rounded-xl border text-xs font-extrabold ${
@@ -2098,9 +2574,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                       .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
                       .replace(/\D/g, '')
                       .slice(0, 2);
-                    handleUpdateActiveProgram({
-                      settingsPatch: { genGroupsPerDay: ascii },
-                    });
+                    handleUpdateActiveClassroomSettings({ genGroupsPerDay: ascii });
                   }}
                   placeholder="0"
                   title="عدد المجموعات في اليوم الواحد (فارغ أو 0 = إضافة المجموعات يدوياً)"
@@ -2113,7 +2587,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-[11px] font-bold text-rose-900 flex items-center gap-2">
                 <Archive className="w-3.5 h-3.5 text-rose-600 shrink-0" />
                 <span>
-                  بدءاً من تاريخ <span className="font-mono">{archiveDate}</span> سيتم إخفاء الجدول اليومي وإغلاق جميع الدروس والمراجعة لطلاب برنامج «{activeProgram.name}» تلقائياً.
+                  بدءاً من تاريخ <span className="font-mono">{archiveDate}</span> سيتم إخفاء الجدول اليومي وإغلاق جميع الدروس والمراجعة لطلاب فصل «{activeClassroom.name}» تلقائياً.
                 </span>
               </div>
             )}
@@ -2128,9 +2602,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                     <button
                       type="button"
                       onClick={() =>
-                        handleUpdateActiveProgram({
-                          settingsPatch: { defaultAttendanceMode: 'live' },
-                        })
+                        handleUpdateActiveClassroomSettings({ defaultAttendanceMode: 'live' })
                       }
                       className={`flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-extrabold border flex items-center justify-center gap-1 cursor-pointer ${
                         genAttendanceMode === 'live'
@@ -2144,9 +2616,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                     <button
                       type="button"
                       onClick={() =>
-                        handleUpdateActiveProgram({
-                          settingsPatch: { defaultAttendanceMode: 'in_person' },
-                        })
+                        handleUpdateActiveClassroomSettings({ defaultAttendanceMode: 'in_person' })
                       }
                       className={`flex-1 py-1.5 px-2.5 rounded-xl text-[11px] font-extrabold border flex items-center justify-center gap-1 cursor-pointer ${
                         genAttendanceMode === 'in_person'
@@ -2170,9 +2640,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                       dir="ltr"
                       value={genLiveUrl}
                       onChange={(e) =>
-                        handleUpdateActiveProgram({
-                          settingsPatch: { defaultLiveUrl: e.target.value },
-                        })
+                        handleUpdateActiveClassroomSettings({ defaultLiveUrl: e.target.value })
                       }
                       placeholder="https://meet.google.com/... أو https://zoom.us/..."
                       className="w-full px-3 py-1.5 rounded-xl border border-purple-200 bg-white text-xs font-mono"
@@ -2187,8 +2655,8 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                       type="text"
                       value={genClassroomLocation}
                       onChange={(e) =>
-                        handleUpdateActiveProgram({
-                          settingsPatch: { defaultClassroomLocation: e.target.value },
+                        handleUpdateActiveClassroomSettings({
+                          defaultClassroomLocation: e.target.value,
                         })
                       }
                       placeholder="مثال: قاعة رقم 2 — الدور الأرضي / مبنى المركز"
@@ -2232,7 +2700,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 <button
                   type="button"
                   onClick={() =>
-                    handleUpdateActiveProgram({ settingsPatch: { genMode: 'replace' } })
+                    handleUpdateActiveClassroomSettings({ genMode: 'replace' })
                   }
                   className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
                     genMode === 'replace'
@@ -2241,7 +2709,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                   }`}
                 >
                   <div className="text-xs font-extrabold">
-                    استبدال وإعادة توليد جدول «{activeProgram.name}»
+                    استبدال وإعادة توليد جدول «{activeClassroom.name}»
                   </div>
                   <div
                     className={`text-[10px] mt-0.5 ${
@@ -2254,7 +2722,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                 <button
                   type="button"
                   onClick={() =>
-                    handleUpdateActiveProgram({ settingsPatch: { genMode: 'append' } })
+                    handleUpdateActiveClassroomSettings({ genMode: 'append' })
                   }
                   className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
                     genMode === 'append'
@@ -2339,7 +2807,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-3 flex-wrap">
                 <h3 className="text-sm font-extrabold text-slate-900">
-                  أيام برنامج «{activeProgram.name}» ({activeProgramDays.length})
+                  أيام فصل «{activeClassroom.name}» — {activeProgram.name} ({activeProgramDays.length})
                 </h3>
                 {/* Distinct Color Legend */}
                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-extrabold">
@@ -2396,7 +2864,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
 
             {activeProgramDays.length === 0 ? (
               <div className="text-center py-10 text-xs text-slate-400 font-bold bg-slate-50 rounded-2xl border border-slate-200">
-                لا توجد أيام في جدول «{activeProgram.name}» حالياً. استخدم المولّد بالأعلى أو أضف يوماً مفرداً.
+                لا توجد أيام في جدول فصل «{activeClassroom.name}» حالياً. استخدم المولّد بالأعلى أو أضف يوماً مفرداً.
               </div>
             ) : (
               <div className="space-y-3">
@@ -2612,7 +3080,7 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                                 durationMinutes: v > 0 ? v : undefined,
                               });
                             }}
-                            placeholder={`${activeProgram.settings.durationMinutes || 60} د`}
+                            placeholder={`${activeClassroom.settings.durationMinutes || 60} د`}
                             title="مدة الحصة بالدقائق"
                             className="w-full text-[11px] font-mono font-bold text-slate-800 bg-transparent focus:outline-none"
                           />
@@ -2845,30 +3313,47 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
               </div>
             </div>
 
-            {/* Status Filter Buttons */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {(
-                [
-                  { id: 'all', label: 'كل الحالات' },
-                  { id: 'early', label: 'حاضر مبكراً' },
-                  { id: 'on_time', label: 'بالموعد' },
-                  { id: 'late', label: 'متأخر' },
-                  { id: 'absent', label: 'غائب' },
-                ] as const
-              ).map((st) => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => setAttStatusFilter(st.id)}
-                  className={`px-3 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-colors ${
-                    attStatusFilter === st.id
-                      ? 'bg-indigo-700 text-white border-indigo-700'
-                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
+            {/* Status & Classroom Filter Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { id: 'all', label: 'كل الحالات' },
+                    { id: 'early', label: 'حاضر مبكراً' },
+                    { id: 'on_time', label: 'بالموعد' },
+                    { id: 'late', label: 'متأخر' },
+                    { id: 'absent', label: 'غائب' },
+                  ] as const
+                ).map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setAttStatusFilter(st.id)}
+                    className={`px-3 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-colors ${
+                      attStatusFilter === st.id
+                        ? 'bg-indigo-700 text-white border-indigo-700'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+
+              {allClassrooms.length > 1 && (
+                <select
+                  value={attClassroomFilter}
+                  onChange={(e) => setAttClassroomFilter(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/50 text-xs font-extrabold text-indigo-950"
                 >
-                  {st.label}
-                </button>
-              ))}
+                  <option value="ALL">كل الفصول ({attendanceRecords.length})</option>
+                  {allClassrooms.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             <div className="relative">
@@ -2949,7 +3434,12 @@ export const CourseScheduleAdmin: React.FC<CourseScheduleAdminProps> = ({
                             {rec.studentName}
                           </td>
                           <td className="py-2.5 px-3 font-bold text-slate-700">
-                            {rec.sessionTitle || 'حصة اليوم'}
+                            <div>{rec.sessionTitle || 'حصة اليوم'}</div>
+                            {rec.classroomId && (
+                              <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200 text-[10px] font-extrabold">
+                                {allClassrooms.find((c) => c.id === rec.classroomId)?.name || rec.classroomId}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 whitespace-nowrap">
                             <span

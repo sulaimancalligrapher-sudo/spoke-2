@@ -42,6 +42,12 @@ export interface ScheduleLessonRef {
 }
 
 export const DEFAULT_PROGRAM_ID = 'prog_default';
+export const DEFAULT_CLASSROOM_ID = 'cls_default';
+
+export function getDefaultClassroomIdForProgram(programId?: string): string {
+  const clean = String(programId || '').trim() || DEFAULT_PROGRAM_ID;
+  return clean === DEFAULT_PROGRAM_ID ? DEFAULT_CLASSROOM_ID : `cls_${clean}_default`;
+}
 
 export type ProgramColorKey = 'emerald' | 'indigo' | 'amber' | 'rose' | 'sky' | 'purple';
 
@@ -130,6 +136,7 @@ export interface CourseScheduleDay {
   customTitle?: string;
   notes?: string;
   programId?: string;
+  classroomId?: string;
   startTime?: string; // HH:mm optional per-day override
   durationMinutes?: number; // optional per-day duration override
   attendanceMode?: AttendanceSessionMode;
@@ -160,6 +167,16 @@ export interface CourseScheduleSettings {
   defaultClassroomLocation?: string;
 }
 
+export interface CourseClassroom {
+  id: string;
+  programId: string;
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+  settings: CourseScheduleSettings;
+  createdAt?: string;
+}
+
 export interface CourseProgram {
   id: string;
   name: string;
@@ -174,6 +191,7 @@ export interface CourseProgram {
 
 export interface CourseScheduleData {
   programs?: CourseProgram[];
+  classrooms?: CourseClassroom[];
   groups: CourseGroup[];
   days: CourseScheduleDay[];
   settings: CourseScheduleSettings;
@@ -204,6 +222,8 @@ export interface AttendanceRecord {
   scheduledTime?: string; // HH:mm
   programId?: string;
   programName?: string;
+  classroomId?: string;
+  classroomName?: string;
   timezone?: string;
 }
 
@@ -499,10 +519,25 @@ export function createDefaultCourseProgram(
   };
 }
 
+export function createDefaultCourseClassroomForProgram(
+  program: Pick<CourseProgram, 'id' | 'name' | 'settings'>
+): CourseClassroom {
+  return {
+    id: getDefaultClassroomIdForProgram(program.id),
+    programId: program.id,
+    name: 'الفصل الأساسي (الافتراضي)',
+    description: '',
+    isDefault: true,
+    settings: { ...program.settings },
+  };
+}
+
 export function createEmptyCourseSchedule(): CourseScheduleData {
   const defaultProg = createDefaultCourseProgram();
+  const defaultCls = createDefaultCourseClassroomForProgram(defaultProg);
   return {
     programs: [defaultProg],
+    classrooms: [defaultCls],
     groups: [],
     days: [],
     settings: { ...defaultProg.settings },
@@ -630,6 +665,95 @@ function normalizeWeekdaysList(raw: unknown, fallback: number[] = [0, 1, 2, 3, 4
     .map((n) => Number(n))
     .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
   return Array.from(new Set(nums));
+}
+
+function normalizeSettingsBlock(
+  rawSet: any,
+  fallback: CourseScheduleSettings,
+  fallbackCourseTitle?: string
+): CourseScheduleSettings {
+  const s = rawSet && typeof rawSet === 'object' ? rawSet : {};
+  return {
+    lockFutureDays:
+      s.lockFutureDays !== undefined ? Boolean(s.lockFutureDays) : fallback.lockFutureDays,
+    courseTitle:
+      s.courseTitle !== undefined
+        ? String(s.courseTitle)
+        : fallbackCourseTitle || fallback.courseTitle,
+    defaultStartTime:
+      s.defaultStartTime !== undefined
+        ? normalizeHHmm(s.defaultStartTime) || ''
+        : fallback.defaultStartTime || '',
+    durationMinutes:
+      s.durationMinutes !== undefined
+        ? Math.max(5, Number(s.durationMinutes) || 60)
+        : fallback.durationMinutes || 60,
+    timezone: (s.timezone || '').trim() || fallback.timezone || getLocalDeviceTimezone(),
+    graceMinutes:
+      s.graceMinutes !== undefined
+        ? Math.max(0, Number(s.graceMinutes) || 0)
+        : fallback.graceMinutes ?? 10,
+    reminderMinutesBefore:
+      s.reminderMinutesBefore !== undefined
+        ? Math.max(0, Number(s.reminderMinutesBefore) || 0)
+        : fallback.reminderMinutesBefore ?? 15,
+    absenceGraceMinutes:
+      s.absenceGraceMinutes !== undefined
+        ? Math.max(0, Number(s.absenceGraceMinutes) || 0)
+        : fallback.absenceGraceMinutes ?? 30,
+    autoSendReminders:
+      s.autoSendReminders !== undefined
+        ? Boolean(s.autoSendReminders)
+        : Boolean(fallback.autoSendReminders),
+    autoMarkAbsent:
+      s.autoMarkAbsent !== undefined
+        ? Boolean(s.autoMarkAbsent)
+        : Boolean(fallback.autoMarkAbsent),
+    programStartDate:
+      s.programStartDate !== undefined
+        ? normalizeDateISO(s.programStartDate) || ''
+        : fallback.programStartDate || '',
+    programEndDate:
+      s.programEndDate !== undefined
+        ? normalizeDateISO(s.programEndDate) || ''
+        : fallback.programEndDate || '',
+    archiveDate:
+      s.archiveDate !== undefined
+        ? normalizeDateISO(s.archiveDate) || ''
+        : fallback.archiveDate || '',
+    genWeekdays: normalizeWeekdaysList(
+      s.genWeekdays,
+      fallback.genWeekdays || [0, 1, 2, 3, 4]
+    ),
+    genDayType:
+      s.genDayType !== undefined
+        ? parseScheduleDayType(s.genDayType)
+        : fallback.genDayType || 'lesson',
+    genGroupsPerDay:
+      s.genGroupsPerDay !== undefined
+        ? String(s.genGroupsPerDay)
+        : fallback.genGroupsPerDay || '',
+    genMode:
+      s.genMode !== undefined
+        ? s.genMode === 'append'
+          ? 'append'
+          : 'replace'
+        : fallback.genMode || 'replace',
+    defaultAttendanceMode:
+      s.defaultAttendanceMode !== undefined
+        ? s.defaultAttendanceMode === 'in_person'
+          ? 'in_person'
+          : 'live'
+        : fallback.defaultAttendanceMode || 'live',
+    defaultLiveUrl:
+      s.defaultLiveUrl !== undefined
+        ? String(s.defaultLiveUrl)
+        : fallback.defaultLiveUrl || '',
+    defaultClassroomLocation:
+      s.defaultClassroomLocation !== undefined
+        ? String(s.defaultClassroomLocation)
+        : fallback.defaultClassroomLocation || '',
+  };
 }
 
 export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
@@ -808,8 +932,79 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
   }
 
   const programIdSet = new Set(programs.map((p) => p.id));
+  const programMap = new Map<string, CourseProgram>(programs.map((p) => [p.id, p]));
   const defaultProgram = programs.find((p) => p.isDefault) || programs[0];
   const defaultProgId = defaultProgram.id;
+
+  const rawClassroomsList: any[] = Array.isArray(raw.classrooms)
+    ? raw.classrooms
+    : Array.isArray(raw.settings?.classrooms)
+    ? raw.settings.classrooms
+    : [];
+
+  const seenClassroomIds = new Set<string>();
+  let classrooms: CourseClassroom[] = rawClassroomsList
+    .filter((c: any) => c && (c.id || c.name !== undefined))
+    .map((c: any, idx: number) => {
+      const rawPid = String(c.programId || '').trim();
+      const programId = rawPid && programIdSet.has(rawPid) ? rawPid : defaultProgId;
+      const cid =
+        String(c.id || `cls_${programId}_${idx + 1}`).trim() ||
+        `cls_${programId}_${idx + 1}`;
+      if (seenClassroomIds.has(cid)) return null;
+      seenClassroomIds.add(cid);
+      const parentProg = programMap.get(programId) || defaultProgram;
+      const cName =
+        c.name !== undefined && c.name !== null
+          ? String(c.name)
+          : `الفصل ${idx + 1}`;
+      return {
+        id: cid,
+        programId,
+        name: cName,
+        description: c.description !== undefined && c.description !== null ? String(c.description) : '',
+        isDefault: Boolean(c.isDefault),
+        settings: normalizeSettingsBlock(c.settings, parentProg.settings, parentProg.settings.courseTitle || parentProg.name),
+        createdAt: c.createdAt ? String(c.createdAt) : undefined,
+      } as CourseClassroom;
+    })
+    .filter((c: CourseClassroom | null): c is CourseClassroom => Boolean(c));
+
+  // Ensure every program has at least one default classroom
+  for (const prog of programs) {
+    const progCls = classrooms.filter((c) => c.programId === prog.id);
+    if (progCls.length === 0) {
+      const defCls = createDefaultCourseClassroomForProgram(prog);
+      if (!seenClassroomIds.has(defCls.id)) {
+        seenClassroomIds.add(defCls.id);
+        classrooms.push(defCls);
+      }
+    } else if (!progCls.some((c) => c.isDefault)) {
+      const firstId = progCls[0].id;
+      classrooms = classrooms.map((c) =>
+        c.id === firstId ? { ...c, isDefault: true } : c
+      );
+    } else {
+      let picked = false;
+      classrooms = classrooms.map((c) => {
+        if (c.programId !== prog.id) return c;
+        if (c.isDefault && !picked) {
+          picked = true;
+          return { ...c, isDefault: true };
+        }
+        return { ...c, isDefault: false };
+      });
+    }
+  }
+
+  const classroomById = new Map<string, CourseClassroom>(classrooms.map((c) => [c.id, c]));
+  const defaultClassroomByProgram = new Map<string, string>();
+  for (const prog of programs) {
+    const defC =
+      classrooms.find((c) => c.programId === prog.id && c.isDefault) ||
+      classrooms.find((c) => c.programId === prog.id);
+    if (defC) defaultClassroomByProgram.set(prog.id, defC.id);
+  }
 
   const groups: CourseGroup[] = Array.isArray(raw.groups)
     ? raw.groups
@@ -851,6 +1046,12 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
           const groupIds = parseScheduleGroupIds(d?.groupIds, d?.groupId);
           const rawProgId = String(d?.programId || '').trim();
           const programId = rawProgId && programIdSet.has(rawProgId) ? rawProgId : defaultProgId;
+          const rawClsId = String(d?.classroomId || '').trim();
+          const matchedCls = rawClsId ? classroomById.get(rawClsId) : undefined;
+          const classroomId =
+            matchedCls && matchedCls.programId === programId
+              ? matchedCls.id
+              : defaultClassroomByProgram.get(programId) || getDefaultClassroomIdForProgram(programId);
           const attModeRaw = String(d?.attendanceMode || '').trim();
           const attendanceMode: AttendanceSessionMode | undefined =
             dayType === 'attendance'
@@ -869,6 +1070,7 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
             customTitle: d?.customTitle !== undefined && d?.customTitle !== null ? String(d.customTitle) : '',
             notes: d?.notes !== undefined && d?.notes !== null ? String(d.notes) : '',
             programId,
+            classroomId,
             startTime: normalizeHHmm(d?.startTime) || undefined,
             durationMinutes:
               d?.durationMinutes !== undefined && Number(d.durationMinutes) > 0
@@ -888,6 +1090,7 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
 
   return {
     programs,
+    classrooms,
     groups,
     days,
     settings: { ...defaultProgram.settings },
@@ -903,7 +1106,7 @@ export function resolveCourseProgram(
   defaultProgramId: string;
 } {
   const normalized =
-    Array.isArray(schedule?.programs) && schedule.programs.length > 0
+    Array.isArray(schedule?.programs) && schedule.programs.length > 0 && Array.isArray(schedule?.classrooms)
       ? schedule
       : normalizeCourseScheduleData(schedule);
   const programs = normalized.programs!;
@@ -918,37 +1121,89 @@ export function resolveCourseProgram(
   };
 }
 
+export function resolveCourseClassroom(
+  schedule: CourseScheduleData,
+  requestedProgramId?: string,
+  requestedClassroomId?: string
+): {
+  classrooms: CourseClassroom[];
+  activeClassroom: CourseClassroom;
+  defaultClassroomId: string;
+} {
+  const normalized =
+    Array.isArray(schedule?.programs) && schedule.programs.length > 0 && Array.isArray(schedule?.classrooms)
+      ? schedule
+      : normalizeCourseScheduleData(schedule);
+  const { activeProgram } = resolveCourseProgram(normalized, requestedProgramId);
+  const programClassrooms = (normalized.classrooms || []).filter(
+    (c) => c.programId === activeProgram.id
+  );
+  const safeList =
+    programClassrooms.length > 0
+      ? programClassrooms
+      : [createDefaultCourseClassroomForProgram(activeProgram)];
+  const defaultClassroom = safeList.find((c) => c.isDefault) || safeList[0];
+  const reqCls = String(requestedClassroomId || '').trim();
+  const activeClassroom =
+    (reqCls && safeList.find((c) => c.id === reqCls)) || defaultClassroom;
+  return {
+    classrooms: safeList,
+    activeClassroom,
+    defaultClassroomId: defaultClassroom.id,
+  };
+}
+
 export function getScheduleForProgram(
   schedule: CourseScheduleData,
-  requestedProgramId?: string
+  requestedProgramId?: string,
+  requestedClassroomId?: string
 ): {
   programs: CourseProgram[];
   activeProgram: CourseProgram;
   defaultProgramId: string;
+  classrooms: CourseClassroom[];
+  activeClassroom: CourseClassroom;
+  defaultClassroomId: string;
   scopedSchedule: CourseScheduleData;
 } {
+  const normalized =
+    Array.isArray(schedule?.programs) && schedule.programs.length > 0 && Array.isArray(schedule?.classrooms)
+      ? schedule
+      : normalizeCourseScheduleData(schedule);
   const { programs, activeProgram, defaultProgramId } = resolveCourseProgram(
-    schedule,
+    normalized,
     requestedProgramId
   );
-  const groups = (schedule?.groups || []).filter(
+  const { classrooms, activeClassroom, defaultClassroomId } = resolveCourseClassroom(
+    normalized,
+    activeProgram.id,
+    requestedClassroomId
+  );
+  const groups = (normalized.groups || []).filter(
     (g) => (String(g.programId || '').trim() || defaultProgramId) === activeProgram.id
   );
-  const days = (schedule?.days || [])
-    .filter(
-      (d) => (String(d.programId || '').trim() || defaultProgramId) === activeProgram.id
-    )
+  const days = (normalized.days || [])
+    .filter((d) => {
+      const dPid = String(d.programId || '').trim() || defaultProgramId;
+      if (dPid !== activeProgram.id) return false;
+      const dCid = String(d.classroomId || '').trim() || defaultClassroomId;
+      return dCid === activeClassroom.id;
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return {
     programs,
     activeProgram,
     defaultProgramId,
+    classrooms,
+    activeClassroom,
+    defaultClassroomId,
     scopedSchedule: {
       programs,
+      classrooms,
       groups,
       days,
-      settings: activeProgram.settings,
+      settings: activeClassroom.settings || activeProgram.settings,
     },
   };
 }
@@ -983,10 +1238,14 @@ export async function fetchCourseScheduleFromSheets(
     if (
       json &&
       json.success &&
-      (Array.isArray(json.groups) || Array.isArray(json.days) || Array.isArray(json.programs))
+      (Array.isArray(json.groups) ||
+        Array.isArray(json.days) ||
+        Array.isArray(json.programs) ||
+        Array.isArray(json.classrooms))
     ) {
       const normalized = normalizeCourseScheduleData({
         programs: json.programs || json.settings?.programs || [],
+        classrooms: json.classrooms || json.settings?.classrooms || [],
         groups: json.groups || [],
         days: json.days || [],
         settings: json.settings || {},
@@ -1034,6 +1293,7 @@ export async function saveCourseScheduleToSheets(
       groupIds: d.groupIds || [],
       groupId: d.groupIds?.[0] || d.groupId || '',
       programId: d.programId || defaultProgId,
+      classroomId: d.classroomId || getDefaultClassroomIdForProgram(d.programId || defaultProgId),
     }));
     const res = await fetch(webhookUrl, {
       method: 'POST',
@@ -1041,11 +1301,13 @@ export async function saveCourseScheduleToSheets(
       body: JSON.stringify({
         action: 'save_course_schedule',
         programs: normalized.programs,
+        classrooms: normalized.classrooms,
         groups: groupsPayload,
         days: daysPayload,
         settings: {
           ...normalized.settings,
           programs: normalized.programs,
+          classrooms: normalized.classrooms,
         },
       }),
     });
@@ -1094,6 +1356,7 @@ export function generateCalendarDays(
   groupsPerDay: number = 0,
   options?: {
     programId?: string;
+    classroomId?: string;
     startGroupIndex?: number;
     attendanceMode?: AttendanceSessionMode;
     liveUrl?: string;
@@ -1114,6 +1377,7 @@ export function generateCalendarDays(
   const perDay = Math.max(0, Math.floor(groupsPerDay));
   let groupCursor = Math.max(0, Math.floor(options?.startGroupIndex ?? 0));
   const programId = (options?.programId || '').trim() || DEFAULT_PROGRAM_ID;
+  const classroomId = (options?.classroomId || '').trim() || getDefaultClassroomIdForProgram(programId);
   let guard = 0;
 
   while (cursor <= end && guard < 400) {
@@ -1139,6 +1403,7 @@ export function generateCalendarDays(
         customTitle: '',
         notes: '',
         programId,
+        classroomId,
         ...(defaultDayType === 'attendance'
           ? {
               attendanceMode: options?.attendanceMode || 'live',
@@ -1466,9 +1731,10 @@ export function getUnlockedScheduleIndex(
   schedule: CourseScheduleData,
   isAdminAuthenticated: boolean,
   targetDateISO?: string,
-  programId?: string
+  programId?: string,
+  classroomId?: string
 ): UnlockedScheduleIndex {
-  const { scopedSchedule } = getScheduleForProgram(schedule, programId);
+  const { scopedSchedule } = getScheduleForProgram(schedule, programId, classroomId);
   const programEnded = isProgramEndedForStudent(
     scopedSchedule?.settings,
     isAdminAuthenticated,
@@ -1578,12 +1844,14 @@ export function filterLessonsBySchedule(params: {
   videoLessons: VideoLesson[];
   targetDateISO?: string;
   programId?: string;
+  classroomId?: string;
 }): ScheduleFilteredContent {
   const unlockedIndex = getUnlockedScheduleIndex(
     params.schedule,
     params.isAdminAuthenticated,
     params.targetDateISO,
-    params.programId
+    params.programId,
+    params.classroomId
   );
 
   if (!unlockedIndex.enforceStrictHide) {
@@ -1667,6 +1935,8 @@ export interface TodayScheduleSummary {
   todayISO: string;
   programId: string;
   programName: string;
+  classroomId: string;
+  classroomName: string;
   day: CourseScheduleDay | null;
   groups: CourseGroup[];
   allLessonRefs: ScheduleLessonRef[];
@@ -1688,23 +1958,26 @@ export function getTodayScheduleSummary(
   schedule: CourseScheduleData,
   targetDateISO?: string,
   programId?: string,
-  isAdminAuthenticated = false
+  isAdminAuthenticated = false,
+  classroomId?: string
 ): TodayScheduleSummary {
-  const { activeProgram, scopedSchedule } = getScheduleForProgram(
+  const { activeProgram, activeClassroom, scopedSchedule } = getScheduleForProgram(
     schedule,
-    programId
+    programId,
+    classroomId
   );
-  const timing = getEffectiveDayTiming(null, activeProgram.settings);
+  const effSettings = scopedSchedule.settings || activeClassroom.settings || activeProgram.settings;
+  const timing = getEffectiveDayTiming(null, effSettings);
   const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO(timing.timezone);
   const isProgramEnded = isProgramEndedForStudent(
-    activeProgram.settings,
+    effSettings,
     isAdminAuthenticated,
     todayISO
   );
   const day = isProgramEnded
     ? null
     : scopedSchedule.days.find((d) => d.date === todayISO) || null;
-  const effectiveTiming = getEffectiveDayTiming(day, activeProgram.settings);
+  const effectiveTiming = getEffectiveDayTiming(day, effSettings);
   const gIds = day
     ? day.groupIds?.length
       ? day.groupIds
@@ -1740,6 +2013,8 @@ export function getTodayScheduleSummary(
     todayISO,
     programId: activeProgram.id,
     programName: activeProgram.name,
+    classroomId: activeClassroom.id,
+    classroomName: activeClassroom.name,
     day,
     groups,
     allLessonRefs,
@@ -1752,12 +2027,12 @@ export function getTodayScheduleSummary(
     graceMinutes: effectiveTiming.graceMinutes,
     attendanceMode:
       day?.attendanceMode ||
-      (dayType === 'attendance' ? activeProgram.settings.defaultAttendanceMode || 'live' : undefined),
-    liveUrl: (day?.liveUrl ?? activeProgram.settings.defaultLiveUrl ?? '').trim() || undefined,
+      (dayType === 'attendance' ? effSettings.defaultAttendanceMode || 'live' : undefined),
+    liveUrl: (day?.liveUrl ?? effSettings.defaultLiveUrl ?? '').trim() || undefined,
     classroomLocation:
-      (day?.classroomLocation ?? activeProgram.settings.defaultClassroomLocation ?? '').trim() ||
+      (day?.classroomLocation ?? effSettings.defaultClassroomLocation ?? '').trim() ||
       undefined,
-    archiveDate: normalizeDateISO(activeProgram.settings.archiveDate || '') || undefined,
+    archiveDate: normalizeDateISO(effSettings.archiveDate || '') || undefined,
     isProgramEnded,
   };
 }
@@ -1786,6 +2061,8 @@ export function getLocalAttendanceRecords(): AttendanceRecord[] {
         scheduledTime: r.scheduledTime ? String(r.scheduledTime) : undefined,
         programId: r.programId ? String(r.programId) : undefined,
         programName: r.programName ? String(r.programName) : undefined,
+        classroomId: r.classroomId ? String(r.classroomId) : undefined,
+        classroomName: r.classroomName ? String(r.classroomName) : undefined,
         timezone: r.timezone ? String(r.timezone) : undefined,
       }));
   } catch {
@@ -1861,6 +2138,7 @@ export async function fetchAttendanceRecordsFromSheets(
         minutesDelta: r.minutesDelta !== undefined && r.minutesDelta !== '' ? Number(r.minutesDelta) : 0,
         scheduledTime: r.scheduledTime ? String(r.scheduledTime) : undefined,
         programId: r.programId ? String(r.programId) : undefined,
+        classroomId: r.classroomId ? String(r.classroomId) : undefined,
       }));
       const merged =
         !filter?.studentId && !filter?.date
@@ -1895,6 +2173,8 @@ export async function checkInAttendance(
     timezone?: string;
     programId?: string;
     programName?: string;
+    classroomId?: string;
+    classroomName?: string;
   }
 ): Promise<{
   success: boolean;
@@ -1927,6 +2207,8 @@ export async function checkInAttendance(
     scheduledTime: cleanSchedTime || undefined,
     programId: payload.programId || undefined,
     programName: payload.programName || undefined,
+    classroomId: payload.classroomId || undefined,
+    classroomName: payload.classroomName || undefined,
     timezone: tz,
   };
 
@@ -1979,6 +2261,8 @@ export async function checkInAttendance(
         timezone: tz,
         programId: payload.programId || '',
         programName: payload.programName || '',
+        classroomId: payload.classroomId || '',
+        classroomName: payload.classroomName || '',
         status: evalTiming.status,
         minutesDelta: evalTiming.minutesDelta,
       }),
@@ -2009,6 +2293,7 @@ export async function checkInAttendance(
           json.record?.minutesDelta !== undefined ? Number(json.record.minutesDelta) : evalTiming.minutesDelta,
         scheduledTime: json.record?.scheduledTime ? String(json.record.scheduledTime) : cleanSchedTime || undefined,
         programId: json.record?.programId ? String(json.record.programId) : payload.programId,
+        classroomId: json.record?.classroomId ? String(json.record.classroomId) : payload.classroomId,
       };
       const nextLocal = mergeAttendanceRecords(localNow, [cloudRec]);
       saveLocalAttendanceRecords(nextLocal);
@@ -2156,6 +2441,8 @@ export const STORAGE_KEY_PDF_SETTINGS = 'faseeh_pdf_report_settings_v1';
 export const DEFAULT_PDF_REPORT_SETTINGS: PdfReportSettings = {
   allowStudentFullReport: true,
   allowStudentCertificate: true,
+  showReportButtonWhenEnded: true,
+  showCertificateButtonWhenEnded: true,
   releaseMode: 'always_on',
   releaseDate: '',
   programReleaseOverrides: {},
@@ -2293,6 +2580,14 @@ export function normalizePdfReportSettings(raw: any): PdfReportSettings {
       raw.allowStudentCertificate !== undefined
         ? Boolean(raw.allowStudentCertificate)
         : def.allowStudentCertificate,
+    showReportButtonWhenEnded:
+      raw.showReportButtonWhenEnded !== undefined
+        ? Boolean(raw.showReportButtonWhenEnded)
+        : true,
+    showCertificateButtonWhenEnded:
+      raw.showCertificateButtonWhenEnded !== undefined
+        ? Boolean(raw.showCertificateButtonWhenEnded)
+        : true,
     releaseMode,
     releaseDate: normalizeDateISO(raw.releaseDate || '') || '',
     programReleaseOverrides,
@@ -2686,7 +2981,7 @@ export interface StudentFullReportSummary {
 }
 
 export function buildStudentFullReportSummary(params: {
-  student: { id: string; name: string; programId?: string };
+  student: { id: string; name: string; programId?: string; classroomId?: string };
   schedule: CourseScheduleData;
   attendanceRecords: AttendanceRecord[];
   curriculum: WordItem[];
@@ -2706,7 +3001,8 @@ export function buildStudentFullReportSummary(params: {
   const cleanName = (params.student.name || 'طالب').trim();
   const { activeProgram, scopedSchedule } = getScheduleForProgram(
     params.schedule,
-    params.student.programId
+    params.student.programId,
+    params.student.classroomId
   );
 
   // 1. Attendance for this student

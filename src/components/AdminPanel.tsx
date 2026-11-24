@@ -75,6 +75,7 @@ import {
   Bot,
   LayoutGrid,
   FileText,
+  Mail,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
@@ -90,6 +91,7 @@ import { VideoLesson } from '../video/videoSheets';
 import { CourseScheduleAdmin } from './CourseScheduleAdmin';
 import { SubscribersAdminManager } from './SubscribersAdminManager';
 import { TelegramAdminManager } from './TelegramAdminManager';
+import { EmailAdminManager } from './EmailAdminManager';
 import { HomeContentAdminManager } from './HomeContentManager';
 import { PdfSettingsAdminPanel } from './StatsModal';
 import { PortalAdminManager } from './PortalAdminManager';
@@ -187,7 +189,7 @@ interface AdminPanelProps {
   onUpdateVideoLessons?: (lessons: VideoLesson[]) => void;
   courseSchedule?: CourseScheduleData;
   onUpdateCourseSchedule?: (next: CourseScheduleData) => void;
-  onOpenSchedulePreview?: (programId?: string) => void;
+  onOpenSchedulePreview?: (programId?: string, classroomId?: string) => void;
   homeContentBlocks?: HomeContentBlock[];
   onUpdateHomeContentBlocks?: (blocks: HomeContentBlock[]) => void;
   homeNavbarControls?: HomeNavbarControls;
@@ -204,7 +206,7 @@ interface AdminPanelProps {
   storeData?: StorePublicData;
   onUpdateStoreData?: (next: StorePublicData) => void;
   onOpenStorePreview?: () => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -298,7 +300,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenStorePreview,
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1295,6 +1297,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Bot className={`w-4 h-4 ${activeTab === 'telegram' ? 'text-white' : 'text-sky-600'}`} />
             <span>بوت تيليغرام والإشعارات</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('email')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'email'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <Mail className={`w-4 h-4 ${activeTab === 'email' ? 'text-white' : 'text-rose-600'}`} />
+            <span>البريد الإلكتروني</span>
           </button>
 
           <button
@@ -3047,8 +3061,8 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             writingTemplates={writingTemplates || []}
             catchSubjects={catchSubjects || []}
             videoLessons={videoLessons || []}
-            onOpenStudentPreview={(progId) =>
-              onOpenSchedulePreview ? onOpenSchedulePreview(progId) : onBackToApp()
+            onOpenStudentPreview={(progId, clsId) =>
+              onOpenSchedulePreview ? onOpenSchedulePreview(progId, clsId) : onBackToApp()
             }
           />
         )}
@@ -3062,6 +3076,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               normalizeCourseScheduleData(
                 courseSchedule || createEmptyCourseSchedule()
               ).programs
+            }
+            courseClassrooms={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).classrooms
             }
           />
         )}
@@ -3085,6 +3104,26 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 });
               }
             }}
+          />
+        )}
+
+        {/* TAB 12.5: EMAIL & DIAGNOSTICS MANAGER (البريد الإلكتروني وفحص الأعطال) */}
+        {activeTab === 'email' && (
+          <EmailAdminManager
+            webhookUrl={sheetsConfig.webhookUrl}
+            portalData={portalData || getLocalPortalData()}
+            onUpdatePortalData={(next) => onUpdatePortalData?.(next)}
+            coursePrograms={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).programs
+            }
+            courseClassrooms={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).classrooms
+            }
+            onNavigateToSheets={() => setActiveTab('sheets')}
           />
         )}
 
@@ -3133,6 +3172,11 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               normalizeCourseScheduleData(
                 courseSchedule || createEmptyCourseSchedule()
               ).programs || []
+            }
+            courseClassrooms={
+              normalizeCourseScheduleData(
+                courseSchedule || createEmptyCourseSchedule()
+              ).classrooms || []
             }
             webhookUrl={sheetsConfig.webhookUrl}
             onRefreshRegistrants={() => {

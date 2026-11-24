@@ -262,7 +262,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -384,6 +384,7 @@ export default function App() {
   const [schedulePreviewProgramId, setSchedulePreviewProgramId] = useState<string | undefined>(
     undefined
   );
+  const [schedulePreviewClassroomId, setSchedulePreviewClassroomId] = useState<string>('');
 
   // Isolated Public Portal & 2-Stage Registration State (محتوى_البوابة_العامة / أسئلة_التسجيل)
   const [portalData, setPortalData] = useState<PortalPublicData>(() => getLocalPortalData());
@@ -419,9 +420,13 @@ export default function App() {
     ? schedulePreviewProgramId
     : currentStudent?.programId;
 
+  const activeStudentClassroomId = isAdminAuthenticated
+    ? (schedulePreviewClassroomId || undefined)
+    : currentStudent?.classroomId;
+
   const activeScopedSchedule = useMemo(
-    () => getScheduleForProgram(courseSchedule, activeStudentProgramId),
-    [courseSchedule, activeStudentProgramId]
+    () => getScheduleForProgram(courseSchedule, activeStudentProgramId, activeStudentClassroomId),
+    [courseSchedule, activeStudentProgramId, activeStudentClassroomId]
   );
 
   // Daily Class Attendance Check-in State (سجل_الحضور)
@@ -440,9 +445,10 @@ export default function App() {
         courseSchedule,
         undefined,
         activeStudentProgramId,
-        isAdminAuthenticated
+        isAdminAuthenticated,
+        activeStudentClassroomId
       ),
-    [courseSchedule, activeStudentProgramId, isAdminAuthenticated]
+    [courseSchedule, activeStudentProgramId, isAdminAuthenticated, activeStudentClassroomId]
   );
 
   const hasTodayScheduleLesson = useMemo(() => {
@@ -1092,7 +1098,8 @@ export default function App() {
           const sanitizedWebhook =
             !parsedSheets.webhookUrl ||
             parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq') ||
-            parsedSheets.webhookUrl.includes('AKfycbxlYR9nhzBvTc63xCSsU')
+            parsedSheets.webhookUrl.includes('AKfycbxlYR9nhzBvTc63xCSsU') ||
+            parsedSheets.webhookUrl.includes('AKfycbxpOZFT1T4lWwuDmK8WYrJ0At10Fj8v4UeWUQCQun9sb90J7PoH2_C8sQNGaN4hbOqslQ')
               ? DEFAULT_WEBHOOK_URL
               : parsedSheets.webhookUrl;
 
@@ -1471,6 +1478,7 @@ export default function App() {
                 if (
                   match &&
                   (match.programId !== parsed.programId ||
+                    match.classroomId !== parsed.classroomId ||
                     match.name !== parsed.name ||
                     match.status !== parsed.status)
                 ) {
@@ -1479,6 +1487,7 @@ export default function App() {
                     name: match.name || parsed.name,
                     status: match.status || parsed.status,
                     programId: match.programId,
+                    classroomId: match.classroomId,
                   };
                   setCurrentStudent(updated);
                   try {
@@ -1767,6 +1776,8 @@ export default function App() {
         timezone: todayScheduleSummary.timezone,
         programId: todayScheduleSummary.programId,
         programName: todayScheduleSummary.programName,
+        classroomId: activeScopedSchedule.activeClassroom?.id,
+        classroomName: activeScopedSchedule.activeClassroom?.name,
       });
       setAttendanceRecords(getLocalAttendanceRecords());
       if (res.success) {
@@ -1830,6 +1841,7 @@ export default function App() {
           name: match.name || currentStudent.name,
           status: match.status || currentStudent.status,
           programId: match.programId,
+          classroomId: match.classroomId,
           telegramLinked: match.telegramLinked ?? currentStudent.telegramLinked,
         };
         setCurrentStudent(updated);
@@ -2068,6 +2080,7 @@ export default function App() {
         catchSubjects,
         videoLessons,
         programId: activeStudentProgramId,
+        classroomId: activeStudentClassroomId,
       }),
     [
       courseSchedule,
@@ -2080,6 +2093,7 @@ export default function App() {
       catchSubjects,
       videoLessons,
       activeStudentProgramId,
+      activeStudentClassroomId,
     ]
   );
 
@@ -2566,7 +2580,7 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
     if (isAdminAuthenticated) {
@@ -2732,8 +2746,9 @@ export default function App() {
             setCourseSchedule(next);
             saveLocalCourseSchedule(next);
           }}
-          onOpenSchedulePreview={(progId) => {
+          onOpenSchedulePreview={(progId, clsId) => {
             setSchedulePreviewProgramId(progId);
+            setSchedulePreviewClassroomId(clsId || '');
             handleBackToStudent();
             setIsScheduleModalOpen(true);
           }}
@@ -3163,43 +3178,82 @@ export default function App() {
              1. INTRODUCTORY LANDING PAGE (الصفحة الرئيسية التعريفية)
              ======================================================== */
           <div className="flex flex-col items-center justify-center animate-in fade-in duration-300 py-2 sm:py-6 gap-5">
-            {/* Admin Program Preview Bar on Home Page */}
-            {isAdminAuthenticated && (activeScopedSchedule.programs?.length || 0) > 1 && (
-              <div className="max-w-4xl w-full mx-auto bg-white rounded-2xl border border-indigo-200 shadow-xs px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs font-extrabold text-indigo-950">
-                  معاينة الصفحة الرئيسية حسب البرنامج:
-                </span>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {activeScopedSchedule.programs.map((prog) => {
-                    const isSelected = prog.id === activeScopedSchedule.activeProgram.id;
-                    const pMeta = PROGRAM_COLOR_META[prog.color || 'emerald'];
-                    return (
-                      <button
-                        key={prog.id}
-                        type="button"
-                        onClick={() => setSchedulePreviewProgramId(prog.id)}
-                        className={`px-3 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-all flex items-center gap-1.5 ${
-                          isSelected
-                            ? pMeta.activeBtn
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <span
-                          className={`w-2 h-2 rounded-full ${
-                            isSelected ? 'bg-white' : pMeta.dotBg
-                          }`}
-                        />
-                        <span>{prog.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* Admin Program & Classroom Preview Bar on Home Page */}
+            {isAdminAuthenticated &&
+              ((activeScopedSchedule.programs?.length || 0) > 1 ||
+                (activeScopedSchedule.classrooms?.length || 0) > 1) && (
+              <div className="max-w-4xl w-full mx-auto bg-white rounded-2xl border border-indigo-200 shadow-xs px-4 py-2.5 flex flex-col gap-2">
+                {(activeScopedSchedule.programs?.length || 0) > 1 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-indigo-950">
+                      معاينة الصفحة الرئيسية حسب البرنامج:
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {activeScopedSchedule.programs.map((prog) => {
+                        const isSelected = prog.id === activeScopedSchedule.activeProgram.id;
+                        const pMeta = PROGRAM_COLOR_META[prog.color || 'emerald'];
+                        return (
+                          <button
+                            key={prog.id}
+                            type="button"
+                            onClick={() => {
+                              setSchedulePreviewProgramId(prog.id);
+                              setSchedulePreviewClassroomId('');
+                            }}
+                            className={`px-3 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-all flex items-center gap-1.5 ${
+                              isSelected
+                                ? pMeta.activeBtn
+                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            <span
+                              className={`w-2 h-2 rounded-full ${
+                                isSelected ? 'bg-white' : pMeta.dotBg
+                              }`}
+                            />
+                            <span>{prog.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {(activeScopedSchedule.classrooms?.length || 0) > 1 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-slate-100">
+                    <span className="text-[11px] font-extrabold text-teal-900">
+                      معاينة الفصل:
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {activeScopedSchedule.classrooms.map((cls) => {
+                        const isClsSelected = cls.id === activeScopedSchedule.activeClassroom?.id;
+                        return (
+                          <button
+                            key={cls.id}
+                            type="button"
+                            onClick={() => setSchedulePreviewClassroomId(cls.id)}
+                            className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer transition-all flex items-center gap-1.5 ${
+                              isClsSelected
+                                ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                                : 'bg-teal-50/60 text-teal-800 border-teal-200 hover:bg-teal-100'
+                            }`}
+                          >
+                            <Building2 className="w-3 h-3" />
+                            <span>{cls.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Unified Compact Student Home Card */}
             {(() => {
               const prog = activeScopedSchedule.activeProgram;
+              const activeCls = activeScopedSchedule.activeClassroom;
+              const hasMultipleClassrooms = (activeScopedSchedule.classrooms?.length || 0) > 1;
               const pMeta = PROGRAM_COLOR_META[prog.color || 'emerald'];
               const isStage1 = Boolean(
                 currentStudent &&
@@ -3241,7 +3295,7 @@ export default function App() {
 
               return (
                 <div className="max-w-4xl w-full mx-auto bg-white rounded-3xl border border-slate-200 shadow-lg p-5 sm:p-6 space-y-4">
-                  {/* 1. Greeting with subscriber name + Program pill + Date/Time */}
+                  {/* 1. Greeting with subscriber name + Program/Classroom pills + Date/Time */}
                   <div className="flex flex-wrap items-start justify-between gap-3 pb-3.5 border-b border-slate-100">
                     <div className="space-y-1.5 min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -3254,6 +3308,12 @@ export default function App() {
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dotBg}`} />
                             <span>{prog.name}</span>
+                          </span>
+                        )}
+                        {hasMultipleClassrooms && activeCls?.name && (
+                          <span className="px-2.5 py-0.5 rounded-lg bg-teal-50 text-teal-900 border border-teal-200 text-[11px] font-extrabold inline-flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-teal-700" />
+                            <span>{activeCls.name}</span>
                           </span>
                         )}
                         {isStage1 && (
@@ -4644,6 +4704,7 @@ export default function App() {
         currentStudent={currentStudent}
         isAdminAuthenticated={isAdminAuthenticated}
         initialProgramId={schedulePreviewProgramId}
+        initialClassroomId={schedulePreviewClassroomId || undefined}
         currentLang={currentLang}
         translations={translations}
         t={t}

@@ -132,6 +132,7 @@ export interface StudentRegistrant {
   directLoginUrl?: string; // رابط الدخول المباشر
   qrImageUrl?: string; // رابط/صيغة صورة QR
   programId?: string; // معرف البرنامج التدريبي المخصص للطالب
+  classroomId?: string; // معرف الفصل / الدفعة المخصصة للطالب داخل البرنامج
   telegramDirectUrl?: string; // رابط الدخول السريع لتيليغرام
   telegramQrImageUrl?: string; // رابط صورة QR للدخول السريع لتيليغرام
   telegramLinked?: boolean; // هل قام الطالب بربط حسابه ببوت تيليغرام
@@ -435,6 +436,8 @@ export interface PdfCertificateConfig {
 export interface PdfReportSettings {
   allowStudentFullReport: boolean;
   allowStudentCertificate: boolean;
+  showReportButtonWhenEnded?: boolean;
+  showCertificateButtonWhenEnded?: boolean;
   releaseMode: PdfReleaseControlMode;
   releaseDate: string;
   programReleaseOverrides: Record<string, PdfProgramReleaseOverride>;
@@ -646,6 +649,8 @@ export interface RegistrationSubmissionRecord {
   studentName: string;
   programId: string;
   programName?: string;
+  classroomId?: string;
+  classroomName?: string;
   stage: RegistrationStage;
   status: string;
   telegramUsername?: string;
@@ -668,6 +673,7 @@ export interface ProgramRequestRecord {
   targetProgramCardId: string;
   targetProgramTitle: string;
   targetProgramId?: string;
+  targetClassroomId?: string;
   status: ProgramRequestStatus;
   statusLabel: string;
   studentNote?: string;

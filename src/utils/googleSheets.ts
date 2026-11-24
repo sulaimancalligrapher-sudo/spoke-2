@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzlbWYra1WwqJcXpnsVKBmsZfxgugiELvnJ64gk4ya7KGHkn-H121CRsO3bKKBq3Co_cQ/exec';
+  'https://script.google.com/macros/s/AKfycbyiyC2mVp0pN-rrsfd645XeCMMwAh3XaXCTvlIb0t4Ju8lTus1xP5Xp9UZLoLADno-c2A/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -655,6 +655,7 @@ function normalizeRegistrantRow(r: any): StudentRegistrant {
     directLoginUrl: r?.directLoginUrl ? String(r.directLoginUrl).trim() : undefined,
     qrImageUrl: r?.qrImageUrl ? String(r.qrImageUrl).trim() : undefined,
     programId: r?.programId ? String(r.programId).trim() : undefined,
+    classroomId: r?.classroomId ? String(r.classroomId).trim() : undefined,
     telegramDirectUrl: r?.telegramDirectUrl ? String(r.telegramDirectUrl).trim() : undefined,
     telegramQrImageUrl: r?.telegramQrImageUrl ? String(r.telegramQrImageUrl).trim() : undefined,
     telegramLinked: r?.telegramLinked !== undefined ? Boolean(r.telegramLinked) : undefined,
@@ -751,7 +752,7 @@ export async function fetchIDRegistrants(webhookUrl: string): Promise<StudentReg
  */
 export async function addIDRegistrantToSheet(
   webhookUrl: string,
-  payload: { id: string; name: string; status?: string; maxDevices?: number; requireLocation?: boolean; programId?: string }
+  payload: { id: string; name: string; status?: string; maxDevices?: number; requireLocation?: boolean; programId?: string; classroomId?: string }
 ): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
   const cleanId = normalizeDigits(payload.id);
   const cleanName = payload.name.trim();
@@ -770,6 +771,7 @@ export async function addIDRegistrantToSheet(
     maxDevices: payload.maxDevices ?? 1,
     requireLocation: Boolean(payload.requireLocation),
     programId: payload.programId ? String(payload.programId).trim() : '',
+    classroomId: payload.classroomId ? String(payload.classroomId).trim() : '',
     appBaseUrl: getAppOriginBaseUrl(),
   });
 
@@ -784,7 +786,7 @@ export async function addIDRegistrantToSheet(
 }
 
 /**
- * Update an existing registrant (ID, Name, Status, MaxDevices, RequireLocation, ProgramId) in sheet "ID registrants"
+ * Update an existing registrant (ID, Name, Status, MaxDevices, RequireLocation, ProgramId, ClassroomId) in sheet "ID registrants"
  */
 export async function updateIDRegistrantInSheet(
   webhookUrl: string,
@@ -796,6 +798,7 @@ export async function updateIDRegistrantInSheet(
     maxDevices: number;
     requireLocation?: boolean;
     programId?: string;
+    classroomId?: string;
   }
 ): Promise<{ success: boolean; message: string; needsScriptUpdate?: boolean }> {
   if (!webhookUrl || !webhookUrl.trim().startsWith('http')) {
@@ -810,6 +813,7 @@ export async function updateIDRegistrantInSheet(
     maxDevices: Math.max(1, Math.min(10, Number(payload.maxDevices) || 1)),
     requireLocation: Boolean(payload.requireLocation),
     programId: payload.programId !== undefined ? String(payload.programId || '').trim() : undefined,
+    classroomId: payload.classroomId !== undefined ? String(payload.classroomId || '').trim() : undefined,
     appBaseUrl: getAppOriginBaseUrl(),
   });
   if (!res.success) {
@@ -819,7 +823,7 @@ export async function updateIDRegistrantInSheet(
     return {
       success: false,
       needsScriptUpdate: true,
-      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب والأجهزة وإجبار الموقع والبرنامج.',
+      message: 'يرجى تحديث نشر Google Apps Script (New Version) لتفعيل تعديل حالة الحساب والأجهزة وإجبار الموقع والبرنامج والفصل.',
     };
   }
   return { success: true, message: res.message || 'تم تحديث بيانات المشترك بنجاح' };
@@ -3473,17 +3477,16 @@ function authorizePermissions() {
   testFile.setTrashed(true);
   // تفويض الاتصال الخارجي لإرسال إشعارات بوت تيليغرام
   var tgPing = UrlFetchApp.fetch("https://api.telegram.org", { muteHttpExceptions: true });
-  // تفويض إرسال البريد الإلكتروني عبر MailApp
-  var mailQuota = 0;
-  try {
-    mailQuota = MailApp.getRemainingDailyQuota();
-  } catch (mErr) {
-    Logger.log("تنبيه صلاحية البريد: " + mErr);
-  }
+  // تفويض إرسال البريد الإلكتروني عبر MailApp بدون try/catch لكي تفتح نافذة موافقة Google صراحةً لصلاحية script.send_mail
+  var mailQuota = MailApp.getRemainingDailyQuota();
   Logger.log("تم تفويض Google Drive بنجاح: " + root.getName());
   Logger.log("تم تفويض Google Sheets بنجاح: " + ss.getName());
   Logger.log("تم تفويض الاتصال الخارجي (UrlFetchApp / تيليغرام) بنجاح: HTTP " + tgPing.getResponseCode());
-  Logger.log("تم تفويض البريد الإلكتروني (MailApp) بنجاح — الحصة المتبقية اليوم: " + mailQuota);
+  if (mailQuota > 0) {
+    Logger.log("تم تفويض البريد الإلكتروني (MailApp) بنجاح — الحصة المتبقية اليوم: " + mailQuota);
+  } else {
+    Logger.log("تحذير: صلاحية MailApp مفعّلة ولكن الحصة المتبقية اليوم تساوي 0 (قد يكون حساباً جديداً أو تم استهلاك الحصة اليومية).");
+  }
 }
 
 /**
@@ -3506,6 +3509,45 @@ function authorizeAndTestEmailGS() {
   } else {
     Logger.log("تم تفويض MailApp بنجاح. الرصيد اليومي المتبقي: " + quota);
   }
+}
+
+function diagnoseEmailStatusGS() {
+  var effectiveUserEmail = "";
+  var activeUserEmail = "";
+  try { effectiveUserEmail = String(Session.getEffectiveUser().getEmail() || "").trim(); } catch (e) {}
+  try { activeUserEmail = String(Session.getActiveUser().getEmail() || "").trim(); } catch (e) {}
+
+  var mailAuthorized = false;
+  var remainingQuota = 0;
+  var diagnosisCode = "UNKNOWN";
+  var rawError = "";
+
+  try {
+    remainingQuota = MailApp.getRemainingDailyQuota();
+    mailAuthorized = true;
+    diagnosisCode = remainingQuota > 0 ? "OK" : "QUOTA_ZERO";
+  } catch (err) {
+    rawError = String(err && err.message ? err.message : err || "Unknown MailApp error");
+    mailAuthorized = false;
+    if (rawError.indexOf("send_mail") !== -1 || rawError.indexOf("permission") !== -1 || rawError.indexOf("إذن") !== -1) {
+      diagnosisCode = "AUTH_REQUIRED";
+    } else {
+      diagnosisCode = "MAIL_ERROR";
+    }
+  }
+
+  return {
+    success: true,
+    emailDiagHandled: true,
+    scriptVersion: "email_diag_v2_classroom_v1",
+    mailAuthorized: mailAuthorized,
+    remainingQuota: remainingQuota,
+    diagnosisCode: diagnosisCode,
+    rawError: rawError,
+    effectiveUserEmail: effectiveUserEmail,
+    activeUserEmail: activeUserEmail,
+    scriptTimezone: Session.getScriptTimeZone() || ""
+  };
 }
 
 /**
@@ -3828,7 +3870,7 @@ function getLessonsSheet(ss) {
   return sheet;
 }
 
-// دالة مساعدة لضمان ترويسة الأعمدة الـ 11 لورقة المشتركين "ID registrants"
+// دالة مساعدة لضمان ترويسة الأعمدة الـ 12 لورقة المشتركين "ID registrants"
 function ensureIDRegistrantsHeadersGS(sheet) {
   var expected = [
     "ID",
@@ -3841,19 +3883,23 @@ function ensureIDRegistrantsHeadersGS(sheet) {
     "صورة QR",
     "البرنامج التدريبي",
     "رابط الدخول السريع لتيليغرام",
-    "QR الدخول السريع لتيليغرام"
+    "QR الدخول السريع لتيليغرام",
+    "ID الفصل"
   ];
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, 11).setValues([expected])
+    sheet.getRange(1, 1, 1, 12).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
     return;
   }
   var existingCols = Math.max(2, sheet.getLastColumn());
   if (existingCols < 9) {
-    sheet.getRange(1, 1, 1, 11).setValues([expected])
+    sheet.getRange(1, 1, 1, 12).setValues([expected])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
   } else if (existingCols < 11) {
-    sheet.getRange(1, 10, 1, 2).setValues([[expected[9], expected[10]]])
+    sheet.getRange(1, 10, 1, 3).setValues([[expected[9], expected[10], expected[11]]])
+      .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
+  } else if (existingCols < 12) {
+    sheet.getRange(1, 12).setValue(expected[11])
       .setBackground("#0c3868").setFontColor("#ffffff").setFontWeight("bold");
   }
 }
@@ -3999,7 +4045,7 @@ function readAllRegistrantsGS(sheet) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var colCount = Math.max(11, sheet.getLastColumn());
+  var colCount = Math.max(12, sheet.getLastColumn());
   var vals = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
   var baseUrl = getAppBaseUrlGS();
   var botUserFromCfg = "";
@@ -4020,6 +4066,7 @@ function readAllRegistrantsGS(sheet) {
       var progId = String(vals[i][8] || "").trim();
       var tgDirectUrl = String(vals[i][9] || "").trim() || buildTelegramQuickJoinUrlGS(botUserFromCfg, rId);
       var tgQrUrl = buildQrImageUrlGS(tgDirectUrl);
+      var clsId = String(vals[i][11] || "").trim();
       list.push({
         rowNumber: i + 2,
         id: rId,
@@ -4031,6 +4078,7 @@ function readAllRegistrantsGS(sheet) {
         directLoginUrl: directUrl,
         qrImageUrl: qrUrl,
         programId: progId,
+        classroomId: clsId,
         telegramDirectUrl: tgDirectUrl,
         telegramQrImageUrl: tgQrUrl
       });
@@ -4045,7 +4093,7 @@ function getIDRegistrantsSheet(ss) {
   if (!sheet) {
     sheet = ss.insertSheet("ID registrants");
     ensureIDRegistrantsHeadersGS(sheet);
-    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", "", "", "", ""]);
+    sheet.appendRow(["1001", "أحمد علي", "مفعّل", 1, "[]", "مسموح", "", "", "", "", "", ""]);
   } else {
     ensureIDRegistrantsHeadersGS(sheet);
   }
@@ -4778,7 +4826,7 @@ function getScheduleDaysSheet(ss) {
   var sheet = ss.getSheetByName(SCHEDULE_DAYS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SCHEDULE_DAYS_SHEET_NAME);
-    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON", "ID البرنامج", "وقت الحصة", "المدة (دقيقة)", "نمط الحصة", "رابط البث المباشر", "مكان الفصل الحضوري"];
+    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON", "ID البرنامج", "وقت الحصة", "المدة (دقيقة)", "نمط الحصة", "رابط البث المباشر", "مكان الفصل الحضوري", "ID الفصل"];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
@@ -4794,6 +4842,9 @@ function getScheduleDaysSheet(ss) {
       sheet.getRange(1, 11).setValue("نمط الحصة").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
       sheet.getRange(1, 12).setValue("رابط البث المباشر").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
       sheet.getRange(1, 13).setValue("مكان الفصل الحضوري").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+    }
+    if (sheet.getLastColumn() < 14) {
+      sheet.getRange(1, 14).setValue("ID الفصل").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     }
   }
   return sheet;
@@ -4845,6 +4896,7 @@ function readCourseScheduleGS(ss) {
   var days = [];
   var settings = { lockFutureDays: true, courseTitle: "جدول الدورة اليومي" };
   var programs = [];
+  var classrooms = [];
 
   if (gSheet && gSheet.getLastRow() > 1) {
     var gRows = gSheet.getRange(2, 1, gSheet.getLastRow() - 1, Math.max(6, gSheet.getLastColumn())).getValues();
@@ -4867,11 +4919,12 @@ function readCourseScheduleGS(ss) {
   }
 
   if (dSheet && dSheet.getLastRow() > 1) {
-    var dCols = Math.max(13, dSheet.getLastColumn());
+    var dCols = Math.max(14, dSheet.getLastColumn());
     var dRows = dSheet.getRange(2, 1, dSheet.getLastRow() - 1, dCols).getValues();
+    var settingsLoaded = false;
     for (var j = 0; j < dRows.length; j++) {
       var dr = dRows[j];
-      if (j === 0 && dr[6]) {
+      if (!settingsLoaded && dr[6]) {
         try {
           var parsedSettings = JSON.parse(String(dr[6]));
           if (parsedSettings && typeof parsedSettings === "object") {
@@ -4879,6 +4932,10 @@ function readCourseScheduleGS(ss) {
             if (Array.isArray(parsedSettings.programs)) {
               programs = parsedSettings.programs;
             }
+            if (Array.isArray(parsedSettings.classrooms)) {
+              classrooms = parsedSettings.classrooms;
+            }
+            settingsLoaded = true;
           }
         } catch (se) {}
       }
@@ -4892,6 +4949,7 @@ function readCourseScheduleGS(ss) {
       var attModeVal = String(dr[10] || "").trim();
       var liveUrlVal = String(dr[11] || "").trim();
       var classLocVal = String(dr[12] || "").trim();
+      var dayClsVal = String(dr[13] || "").trim();
       days.push({
         id: did || ("day_" + dDate),
         date: dDate,
@@ -4901,6 +4959,7 @@ function readCourseScheduleGS(ss) {
         customTitle: String(dr[4] || "").trim(),
         notes: String(dr[5] || "").trim(),
         programId: String(dr[7] || "").trim() || "prog_default",
+        classroomId: dayClsVal || undefined,
         startTime: dayStartTime || undefined,
         durationMinutes: (dayDur && !isNaN(dayDur)) ? dayDur : undefined,
         attendanceMode: attModeVal || undefined,
@@ -4910,7 +4969,7 @@ function readCourseScheduleGS(ss) {
     }
   }
 
-  return { groups: groups, days: days, settings: settings, programs: programs };
+  return { groups: groups, days: days, settings: settings, programs: programs, classrooms: classrooms };
 }
 
 function writeCourseScheduleGS(ss, payload) {
@@ -4919,6 +4978,7 @@ function writeCourseScheduleGS(ss, payload) {
   var groups = Array.isArray(payload.groups) ? payload.groups : [];
   var days = Array.isArray(payload.days) ? payload.days : [];
   var programs = Array.isArray(payload.programs) ? payload.programs : (payload.settings && Array.isArray(payload.settings.programs) ? payload.settings.programs : []);
+  var classrooms = Array.isArray(payload.classrooms) ? payload.classrooms : (payload.settings && Array.isArray(payload.settings.classrooms) ? payload.settings.classrooms : []);
   var settings = payload.settings || { lockFutureDays: true, courseTitle: "جدول الدورة اليومي" };
   var settingsPayload = {
     lockFutureDays: settings.lockFutureDays !== undefined ? Boolean(settings.lockFutureDays) : true,
@@ -4941,7 +5001,8 @@ function writeCourseScheduleGS(ss, payload) {
     defaultAttendanceMode: settings.defaultAttendanceMode === "in_person" ? "in_person" : "live",
     defaultLiveUrl: String(settings.defaultLiveUrl || ""),
     defaultClassroomLocation: String(settings.defaultClassroomLocation || ""),
-    programs: programs
+    programs: programs,
+    classrooms: classrooms
   };
 
   if (gSheet.getLastRow() > 1) {
@@ -4964,7 +5025,7 @@ function writeCourseScheduleGS(ss, payload) {
   }
 
   if (dSheet.getLastRow() > 1) {
-    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(13, dSheet.getLastColumn())).clearContent();
+    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(14, dSheet.getLastColumn())).clearContent();
   }
   var dValues = [];
   if (days.length > 0) {
@@ -4984,13 +5045,14 @@ function writeCourseScheduleGS(ss, payload) {
         d.durationMinutes ? Number(d.durationMinutes) : "",
         String(d.attendanceMode || ""),
         String(d.liveUrl || ""),
-        String(d.classroomLocation || "")
+        String(d.classroomLocation || ""),
+        String(d.classroomId || "")
       ]);
     }
   } else {
-    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settingsPayload), "", "", "", "", "", ""]);
+    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settingsPayload), "", "", "", "", "", "", ""]);
   }
-  dSheet.getRange(2, 1, dValues.length, 13).setValues(dValues);
+  dSheet.getRange(2, 1, dValues.length, 14).setValues(dValues);
 }
 
 // =========================================================================
@@ -5000,12 +5062,12 @@ function getAttendanceSheetGS(ss) {
   var sheet = ss.getSheetByName(ATTENDANCE_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(ATTENDANCE_SHEET_NAME);
-    var headers = ["التاريخ", "الوقت", "ID المشترك", "اسم المشترك", "الحصة / المجموعات", "نوع اليوم", "الموقع", "معرف الجهاز", "وقت التسجيل", "الحالة", "فرق الدقائق", "موعد الحصة", "ID البرنامج"];
+    var headers = ["التاريخ", "الوقت", "ID المشترك", "اسم المشترك", "الحصة / المجموعات", "نوع اليوم", "الموقع", "معرف الجهاز", "وقت التسجيل", "الحالة", "فرق الدقائق", "موعد الحصة", "ID البرنامج", "ID الفصل"];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
-  } else if (sheet.getLastColumn() < 13) {
-    var extraHeaders = ["الحالة", "فرق الدقائق", "موعد الحصة", "ID البرنامج"];
+  } else if (sheet.getLastColumn() < 14) {
+    var extraHeaders = ["الحالة", "فرق الدقائق", "موعد الحصة", "ID البرنامج", "ID الفصل"];
     for (var eh = 0; eh < extraHeaders.length; eh++) {
       var colIdx = 10 + eh;
       if (colIdx > sheet.getLastColumn() || !String(sheet.getRange(1, colIdx).getValue() || "").trim()) {
@@ -5054,7 +5116,7 @@ function readAttendanceRecordsGS(ss, filterStudentId, filterDate) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var colCount = Math.max(13, sheet.getLastColumn());
+  var colCount = Math.max(14, sheet.getLastColumn());
   var rows = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
   var cleanFilterId = filterStudentId ? normRegDigitsGS(filterStudentId) : "";
   var cleanFilterDate = filterDate ? formatSheetDateISO(filterDate) : "";
@@ -5094,6 +5156,7 @@ function readAttendanceRecordsGS(ss, filterStudentId, filterDate) {
       minutesDelta: rDelta,
       scheduledTime: rSchedTime || undefined,
       programId: String(r[12] || "").trim() || undefined,
+      classroomId: String(r[13] || "").trim() || undefined,
       syncedToSheets: true
     });
   }
@@ -5113,6 +5176,7 @@ function runAttendanceSchedulerGS(ss, overrideNow) {
       break;
     }
   }
+  var allClassrooms = Array.isArray(sched.classrooms) ? sched.classrooms : [];
   var allRegs = readAllRegistrantsGS(getIDRegistrantsSheet(ss));
   var attSheet = getAttendanceSheetGS(ss);
   var scriptProps = PropertiesService.getScriptProperties();
@@ -5124,152 +5188,185 @@ function runAttendanceSchedulerGS(ss, overrideNow) {
   for (var i = 0; i < programs.length; i++) {
     var prog = programs[i];
     var pSet = (prog && prog.settings) ? prog.settings : (sched.settings || {});
-    var tz = (overrideNow && overrideNow.timezone) ? String(overrideNow.timezone).trim() : (String(pSet.timezone || "").trim() || ss.getSpreadsheetTimeZone() || "Asia/Bangkok");
-    var nowObj = new Date();
-    var todayISO = (overrideNow && overrideNow.date) ? formatSheetDateISO(overrideNow.date) : Utilities.formatDate(nowObj, tz, "yyyy-MM-dd");
-    var nowHHmm = (overrideNow && overrideNow.time) ? formatSheetTimeHHmmGS(overrideNow.time, tz) : Utilities.formatDate(nowObj, tz, "HH:mm");
-    var archDate = formatSheetDateISO(pSet.archiveDate || "");
-    if (archDate && todayISO >= archDate) continue;
-    var nowMins = parseHHmmToMinutesGS(nowHHmm);
-    if (nowMins === null) continue;
-
-    // البحث عن حصة اليوم لهذا البرنامج
-    var todayDay = null;
-    for (var di = 0; di < sched.days.length; di++) {
-      var dItem = sched.days[di];
-      var dPid = String(dItem.programId || defaultProgId).trim();
-      if (dItem.date === todayISO && dPid === prog.id) {
-        todayDay = dItem;
+    var progClassrooms = [];
+    for (var ci = 0; ci < allClassrooms.length; ci++) {
+      if (String(allClassrooms[ci].programId || defaultProgId).trim() === prog.id) {
+        progClassrooms.push(allClassrooms[ci]);
+      }
+    }
+    if (progClassrooms.length === 0) {
+      progClassrooms.push({
+        id: "cls_default_" + prog.id,
+        programId: prog.id,
+        name: "",
+        isDefault: true,
+        settings: pSet
+      });
+    }
+    var defaultClsId = progClassrooms[0].id;
+    for (var dci = 0; dci < progClassrooms.length; dci++) {
+      if (progClassrooms[dci].isDefault) {
+        defaultClsId = progClassrooms[dci].id;
         break;
       }
     }
-    if (!todayDay) continue;
 
-    var effStart = formatSheetTimeHHmmGS(todayDay.startTime || pSet.defaultStartTime || "", tz);
-    if (!effStart) continue;
-    var startMins = parseHHmmToMinutesGS(effStart);
-    if (startMins === null) continue;
+    for (var cli = 0; cli < progClassrooms.length; cli++) {
+      var cls = progClassrooms[cli];
+      var cSet = (cls && cls.settings) ? cls.settings : pSet;
+      var tz = (overrideNow && overrideNow.timezone) ? String(overrideNow.timezone).trim() : (String(cSet.timezone || pSet.timezone || "").trim() || ss.getSpreadsheetTimeZone() || "Asia/Bangkok");
+      var nowObj = new Date();
+      var todayISO = (overrideNow && overrideNow.date) ? formatSheetDateISO(overrideNow.date) : Utilities.formatDate(nowObj, tz, "yyyy-MM-dd");
+      var nowHHmm = (overrideNow && overrideNow.time) ? formatSheetTimeHHmmGS(overrideNow.time, tz) : Utilities.formatDate(nowObj, tz, "HH:mm");
+      var archDate = formatSheetDateISO(cSet.archiveDate || pSet.archiveDate || "");
+      if (archDate && todayISO >= archDate) continue;
+      var nowMins = parseHHmmToMinutesGS(nowHHmm);
+      if (nowMins === null) continue;
 
-    var effDuration = Number(todayDay.durationMinutes || pSet.durationMinutes || 60) || 60;
-    var remBefore = (pSet.reminderMinutesBefore !== undefined && pSet.reminderMinutesBefore !== null) ? Number(pSet.reminderMinutesBefore) : 15;
-    var absGrace = (pSet.absenceGraceMinutes !== undefined && pSet.absenceGraceMinutes !== null) ? Number(pSet.absenceGraceMinutes) : 30;
-
-    var sessionTitle = String(todayDay.customTitle || "").trim();
-    if (!sessionTitle) {
-      var gNames = [];
-      var gIds = Array.isArray(todayDay.groupIds) ? todayDay.groupIds : [];
-      for (var gi = 0; gi < gIds.length; gi++) {
-        for (var gj = 0; gj < sched.groups.length; gj++) {
-          if (sched.groups[gj].id === gIds[gi]) {
-            gNames.push(sched.groups[gj].name);
-            break;
-          }
+      // البحث عن حصة اليوم لهذا البرنامج وهذا الفصل
+      var todayDay = null;
+      for (var di = 0; di < sched.days.length; di++) {
+        var dItem = sched.days[di];
+        var dPid = String(dItem.programId || defaultProgId).trim();
+        var dCid = String(dItem.classroomId || defaultClsId).trim();
+        if (dItem.date === todayISO && dPid === prog.id && dCid === cls.id) {
+          todayDay = dItem;
+          break;
         }
       }
-      sessionTitle = gNames.length > 0 ? gNames.join(" + ") : "حصة اليوم";
-    }
+      if (!todayDay) continue;
 
-    // المشتركون التابعون لهذا البرنامج والمفعلون
-    var progStudents = [];
-    for (var ri = 0; ri < allRegs.length; ri++) {
-      var st = allRegs[ri];
-      if (isRegistrantDisabledGS(st.status)) continue;
-      var stPid = String(st.programId || defaultProgId).trim() || defaultProgId;
-      if (stPid === prog.id) progStudents.push(st);
-    }
+      var effStart = formatSheetTimeHHmmGS(todayDay.startTime || cSet.defaultStartTime || pSet.defaultStartTime || "", tz);
+      if (!effStart) continue;
+      var startMins = parseHHmmToMinutesGS(effStart);
+      if (startMins === null) continue;
 
-    // 1. إرسال التذكير التلقائي قبل الحصة
-    var remFlagKey = "ATT_REM_" + prog.id + "_" + todayISO;
-    var alreadyReminded = scriptProps.getProperty(remFlagKey) === "1";
-    var remWindowStart = startMins - Math.max(0, remBefore);
-    var remWindowEnd = startMins + 30;
-    if (pSet.autoSendReminders && !alreadyReminded && nowMins >= remWindowStart && nowMins <= remWindowEnd && tgCfg.enabled && tgCfg.botToken) {
-      var sentHere = 0;
-      for (var si = 0; si < progStudents.length; si++) {
-        var stu = progStudents[si];
-        var stuChat = findStudentTelegramChatIdGS(ss, stu.id, stu.name);
-        if (!stuChat) continue;
-        var remMsgObj = renderTelegramTemplateGS(ss, tgCfg, "student_class_reminder", {
-          studentName: stu.name,
-          studentId: stu.id,
-          programName: prog.name,
-          sessionTitle: sessionTitle,
-          scheduledTime: effStart,
-          date: todayISO
-        });
-        if (remMsgObj.enabled && sendTelegramBotMessageGS(ss, stuChat, remMsgObj.text, "").ok) {
-          sentHere++;
-          remindersSent++;
-        }
-      }
-      scriptProps.setProperty(remFlagKey, "1");
-      details.push(prog.name + ": تم إرسال " + sentHere + " تذكير حصة");
-    }
+      var effDuration = Number(todayDay.durationMinutes || cSet.durationMinutes || pSet.durationMinutes || 60) || 60;
+      var remBefore = (cSet.reminderMinutesBefore !== undefined && cSet.reminderMinutesBefore !== null) ? Number(cSet.reminderMinutesBefore) : 15;
+      var absGrace = (cSet.absenceGraceMinutes !== undefined && cSet.absenceGraceMinutes !== null) ? Number(cSet.absenceGraceMinutes) : 30;
+      var cohortDisplayName = cls.name && progClassrooms.length > 1 ? (prog.name + " · " + cls.name) : prog.name;
 
-    // 2. التسجيل التلقائي للغياب بعد انتهاء الحصة وفترة السماح
-    var absFlagKey = "ATT_ABS_" + prog.id + "_" + todayISO;
-    var alreadyAbsDone = scriptProps.getProperty(absFlagKey) === "1";
-    var absCutoffMins = startMins + effDuration + Math.max(0, absGrace);
-    if (pSet.autoMarkAbsent && !alreadyAbsDone && nowMins >= absCutoffMins) {
-      var todayAttList = readAttendanceRecordsGS(ss, "", todayISO);
-      var checkedInIds = {};
-      for (var ai = 0; ai < todayAttList.length; ai++) {
-        checkedInIds[todayAttList[ai].studentId] = true;
-      }
-      var absentNames = [];
-      var createdStamp = Utilities.formatDate(nowObj, tz, "yyyy/MM/dd HH:mm:ss");
-      for (var si2 = 0; si2 < progStudents.length; si2++) {
-        var astu = progStudents[si2];
-        if (checkedInIds[astu.id]) continue;
-        attSheet.appendRow([
-          todayISO,
-          effStart,
-          astu.id,
-          astu.name,
-          sessionTitle,
-          todayDay.dayType || "lesson",
-          "تلقائي (غياب)",
-          "scheduler",
-          createdStamp,
-          "absent",
-          0,
-          effStart,
-          prog.id
-        ]);
-        absencesMarked++;
-        absentNames.push("• " + astu.name + " (ID: " + astu.id + ")");
-        if (tgCfg.enabled && tgCfg.botToken) {
-          var astuChat = findStudentTelegramChatIdGS(ss, astu.id, astu.name);
-          if (astuChat) {
-            var absMsgObj = renderTelegramTemplateGS(ss, tgCfg, "student_attendance_absent", {
-              studentName: astu.name,
-              studentId: astu.id,
-              programName: prog.name,
-              sessionTitle: sessionTitle,
-              scheduledTime: effStart,
-              date: todayISO
-            });
-            if (absMsgObj.enabled) {
-              sendTelegramBotMessageGS(ss, astuChat, absMsgObj.text, "");
+      var sessionTitle = String(todayDay.customTitle || "").trim();
+      if (!sessionTitle) {
+        var gNames = [];
+        var gIds = Array.isArray(todayDay.groupIds) ? todayDay.groupIds : [];
+        for (var gi = 0; gi < gIds.length; gi++) {
+          for (var gj = 0; gj < sched.groups.length; gj++) {
+            if (sched.groups[gj].id === gIds[gi]) {
+              gNames.push(sched.groups[gj].name);
+              break;
             }
           }
         }
+        sessionTitle = gNames.length > 0 ? gNames.join(" + ") : "حصة اليوم";
       }
-      if (tgCfg.enabled && tgCfg.botToken && tgCfg.adminChatId && absentNames.length > 0) {
-        var sumObj = renderTelegramTemplateGS(ss, tgCfg, "admin_daily_absence_summary", {
-          programName: prog.name,
-          sessionTitle: sessionTitle,
-          date: todayISO,
-          scheduledTime: effStart,
-          absentCount: absentNames.length,
-          absentList: absentNames.join("\\n")
-        });
-        if (sumObj.enabled && sendTelegramBotMessageGS(ss, tgCfg.adminChatId, sumObj.text, "").ok) {
-          adminSummariesSent++;
+
+      // المشتركون التابعون لهذا البرنامج وهذا الفصل والمفعلون
+      var progStudents = [];
+      for (var ri = 0; ri < allRegs.length; ri++) {
+        var st = allRegs[ri];
+        if (isRegistrantDisabledGS(st.status)) continue;
+        var stPid = String(st.programId || defaultProgId).trim() || defaultProgId;
+        var stCid = String(st.classroomId || defaultClsId).trim() || defaultClsId;
+        if (stPid === prog.id && (stCid === cls.id || (progClassrooms.length === 1 && !st.classroomId))) {
+          progStudents.push(st);
         }
       }
-      scriptProps.setProperty(absFlagKey, "1");
-      details.push(prog.name + ": تم تسجيل " + absentNames.length + " حالة غياب");
+
+      // 1. إرسال التذكير التلقائي قبل الحصة
+      var remFlagKey = "ATT_REM_" + prog.id + "_" + cls.id + "_" + todayISO;
+      var alreadyReminded = scriptProps.getProperty(remFlagKey) === "1";
+      var remWindowStart = startMins - Math.max(0, remBefore);
+      var remWindowEnd = startMins + 30;
+      if (cSet.autoSendReminders && !alreadyReminded && nowMins >= remWindowStart && nowMins <= remWindowEnd && tgCfg.enabled && tgCfg.botToken) {
+        var sentHere = 0;
+        for (var si = 0; si < progStudents.length; si++) {
+          var stu = progStudents[si];
+          var stuChat = findStudentTelegramChatIdGS(ss, stu.id, stu.name);
+          if (!stuChat) continue;
+          var remMsgObj = renderTelegramTemplateGS(ss, tgCfg, "student_class_reminder", {
+            studentName: stu.name,
+            studentId: stu.id,
+            programName: cohortDisplayName,
+            sessionTitle: sessionTitle,
+            scheduledTime: effStart,
+            date: todayISO
+          });
+          if (remMsgObj.enabled && sendTelegramBotMessageGS(ss, stuChat, remMsgObj.text, "").ok) {
+            sentHere++;
+            remindersSent++;
+          }
+        }
+        scriptProps.setProperty(remFlagKey, "1");
+        details.push(cohortDisplayName + ": تم إرسال " + sentHere + " تذكير حصة");
+      }
+
+      // 2. التسجيل التلقائي للغياب بعد انتهاء الحصة وفترة السماح
+      var absFlagKey = "ATT_ABS_" + prog.id + "_" + cls.id + "_" + todayISO;
+      var alreadyAbsDone = scriptProps.getProperty(absFlagKey) === "1";
+      var absCutoffMins = startMins + effDuration + Math.max(0, absGrace);
+      if (cSet.autoMarkAbsent && !alreadyAbsDone && nowMins >= absCutoffMins) {
+        var todayAttList = readAttendanceRecordsGS(ss, "", todayISO);
+        var checkedInIds = {};
+        for (var ai = 0; ai < todayAttList.length; ai++) {
+          checkedInIds[todayAttList[ai].studentId] = true;
+        }
+        var absentNames = [];
+        var createdStamp = Utilities.formatDate(nowObj, tz, "yyyy/MM/dd HH:mm:ss");
+        for (var si2 = 0; si2 < progStudents.length; si2++) {
+          var astu = progStudents[si2];
+          if (checkedInIds[astu.id]) continue;
+          attSheet.appendRow([
+            todayISO,
+            effStart,
+            astu.id,
+            astu.name,
+            sessionTitle,
+            todayDay.dayType || "lesson",
+            "تلقائي (غياب)",
+            "scheduler",
+            createdStamp,
+            "absent",
+            0,
+            effStart,
+            prog.id,
+            cls.id
+          ]);
+          absencesMarked++;
+          absentNames.push("• " + astu.name + " (ID: " + astu.id + ")");
+          if (tgCfg.enabled && tgCfg.botToken) {
+            var astuChat = findStudentTelegramChatIdGS(ss, astu.id, astu.name);
+            if (astuChat) {
+              var absMsgObj = renderTelegramTemplateGS(ss, tgCfg, "student_attendance_absent", {
+                studentName: astu.name,
+                studentId: astu.id,
+                programName: cohortDisplayName,
+                sessionTitle: sessionTitle,
+                scheduledTime: effStart,
+                date: todayISO
+              });
+              if (absMsgObj.enabled) {
+                sendTelegramBotMessageGS(ss, astuChat, absMsgObj.text, "");
+              }
+            }
+          }
+        }
+        if (tgCfg.enabled && tgCfg.botToken && tgCfg.adminChatId && absentNames.length > 0) {
+          var sumObj = renderTelegramTemplateGS(ss, tgCfg, "admin_daily_absence_summary", {
+            programName: cohortDisplayName,
+            sessionTitle: sessionTitle,
+            date: todayISO,
+            scheduledTime: effStart,
+            absentCount: absentNames.length,
+            absentList: absentNames.join("\\n")
+          });
+          if (sumObj.enabled && sendTelegramBotMessageGS(ss, tgCfg.adminChatId, sumObj.text, "").ok) {
+            adminSummariesSent++;
+          }
+        }
+        scriptProps.setProperty(absFlagKey, "1");
+        details.push(cohortDisplayName + ": تم تسجيل " + absentNames.length + " حالة غياب");
+      }
     }
   }
 
@@ -6964,12 +7061,19 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (ج-12) جلب بيانات المجموعات والجدول اليومي للدورة والبرامج التدريبية (GET)
+    // (ج-11-ب) فحص وتشخيص حالة البريد الإلكتروني (GET)
+    if (e && e.parameter && e.parameter.action === "diagnose_email_status") {
+      return ContentService.createTextOutput(JSON.stringify(diagnoseEmailStatusGS()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (ج-12) جلب بيانات المجموعات والجدول اليومي للدورة والبرامج التدريبية والفصول (GET)
     if (e && e.parameter && e.parameter.action === "get_course_schedule") {
       var schedData = readCourseScheduleGS(ss);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         programs: schedData.programs || [],
+        classrooms: schedData.classrooms || [],
         groups: schedData.groups,
         days: schedData.days,
         settings: schedData.settings
@@ -7788,12 +7892,13 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
     
-    // (S) نقاط نهاية قسم المجموعات والجدول اليومي للدورة والبرامج التدريبية (POST)
+    // (S) نقاط نهاية قسم المجموعات والجدول اليومي للدورة والبرامج التدريبية والفصول (POST)
     if (data.action === "get_course_schedule") {
       var schedRes = readCourseScheduleGS(ss);
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         programs: schedRes.programs || [],
+        classrooms: schedRes.classrooms || [],
         groups: schedRes.groups,
         days: schedRes.days,
         settings: schedRes.settings
@@ -7805,7 +7910,7 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         scheduleSaved: true,
-        message: "تم حفظ المجموعات والجدول اليومي في Google Sheets بنجاح!"
+        message: "تم حفظ البرامج والفصول والمجموعات والجدول اليومي في Google Sheets بنجاح!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -7822,6 +7927,7 @@ function doPost(e) {
       var attDayType = String(data.dayType || "lesson").trim();
       var attDevId = String(data.deviceId || "").trim();
       var attProgId = String(data.programId || "prog_default").trim();
+      var attClsId = String(data.classroomId || "").trim();
       var attSchedTime = formatSheetTimeHHmmGS(data.scheduledTime || "", tzAtt);
       var attGrace = (data.graceMinutes !== undefined && data.graceMinutes !== null) ? Number(data.graceMinutes) : 10;
 
@@ -7838,16 +7944,26 @@ function doPost(e) {
         try {
           var csAtt = readCourseScheduleGS(ss);
           var progsAtt = Array.isArray(csAtt.programs) ? csAtt.programs : [];
-          for (var pai = 0; pai < progsAtt.length; pai++) {
-            if (progsAtt[pai].id === attProgId && progsAtt[pai].settings) {
-              if (progsAtt[pai].settings.defaultStartTime) attSchedTime = formatSheetTimeHHmmGS(progsAtt[pai].settings.defaultStartTime, tzAtt);
-              if (progsAtt[pai].settings.graceMinutes !== undefined) attGrace = Number(progsAtt[pai].settings.graceMinutes);
+          var clssAtt = Array.isArray(csAtt.classrooms) ? csAtt.classrooms : [];
+          for (var cai = 0; cai < clssAtt.length; cai++) {
+            if (attClsId && clssAtt[cai].id === attClsId && clssAtt[cai].settings) {
+              if (clssAtt[cai].settings.defaultStartTime) attSchedTime = formatSheetTimeHHmmGS(clssAtt[cai].settings.defaultStartTime, tzAtt);
+              if (clssAtt[cai].settings.graceMinutes !== undefined) attGrace = Number(clssAtt[cai].settings.graceMinutes);
               break;
+            }
+          }
+          if (!attSchedTime) {
+            for (var pai = 0; pai < progsAtt.length; pai++) {
+              if (progsAtt[pai].id === attProgId && progsAtt[pai].settings) {
+                if (progsAtt[pai].settings.defaultStartTime) attSchedTime = formatSheetTimeHHmmGS(progsAtt[pai].settings.defaultStartTime, tzAtt);
+                if (progsAtt[pai].settings.graceMinutes !== undefined) attGrace = Number(progsAtt[pai].settings.graceMinutes);
+                break;
+              }
             }
           }
           for (var dai = 0; dai < csAtt.days.length; dai++) {
             var dAtt = csAtt.days[dai];
-            if (dAtt.date === attDate && (!dAtt.programId || dAtt.programId === attProgId) && dAtt.startTime) {
+            if (dAtt.date === attDate && (!dAtt.programId || dAtt.programId === attProgId) && (!attClsId || !dAtt.classroomId || dAtt.classroomId === attClsId) && dAtt.startTime) {
               attSchedTime = formatSheetTimeHHmmGS(dAtt.startTime, tzAtt);
               break;
             }
@@ -7893,10 +8009,11 @@ function doPost(e) {
         finalAttStatus,
         timingEval.minutesDelta,
         timingEval.scheduledTime || "",
-        attProgId
+        attProgId,
+        attClsId
       ];
       if (existingAbsentRow && existingAbsentRow.rowNumber >= 2) {
-        attSheet.getRange(existingAbsentRow.rowNumber, 1, 1, 13).setValues([rowPayloadAtt]);
+        attSheet.getRange(existingAbsentRow.rowNumber, 1, 1, 14).setValues([rowPayloadAtt]);
       } else {
         attSheet.appendRow(rowPayloadAtt);
       }
@@ -7915,6 +8032,7 @@ function doPost(e) {
         minutesDelta: timingEval.minutesDelta,
         scheduledTime: timingEval.scheduledTime || undefined,
         programId: attProgId,
+        classroomId: attClsId || undefined,
         syncedToSheets: true
       };
 
@@ -8013,16 +8131,48 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (E-0) فحص شامل لصلاحيات وحصة البريد الإلكتروني في Apps Script
+    if (data.action === "diagnose_email_status") {
+      return ContentService.createTextOutput(JSON.stringify(diagnoseEmailStatusGS()))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // (E-1) اختبار وتشخيص إرسال البريد الإلكتروني (MailApp) من لوحة الإدارة
     if (data.action === "test_welcome_email") {
       var toEmailTest = String(data.toEmail || "").trim();
       var portalTitleTest = String(data.academyName || "المنصة التعليمية").trim();
       var replyToTest = String(data.replyToEmail || data.adminNotificationEmail || "").trim();
+      var diagTest = diagnoseEmailStatusGS();
       if (!toEmailTest || toEmailTest.indexOf("@") === -1) {
         return ContentService.createTextOutput(JSON.stringify({
           success: false,
           emailTestHandled: true,
+          diagnosisCode: "RECIPIENT_INVALID",
+          remainingQuota: diagTest.remainingQuota,
+          effectiveUserEmail: diagTest.effectiveUserEmail,
           error: "يرجى إدخال بريد إلكتروني صحيح للاختبار."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (!diagTest.mailAuthorized) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          emailTestHandled: true,
+          diagnosisCode: "AUTH_REQUIRED",
+          remainingQuota: 0,
+          effectiveUserEmail: diagTest.effectiveUserEmail,
+          rawError: diagTest.rawError,
+          error: "صلاحية إرسال البريد (script.send_mail) غير مفوّضة بعد في Google Apps Script. الخطأ الخام: " + diagTest.rawError
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (diagTest.remainingQuota <= 0) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          emailTestHandled: true,
+          diagnosisCode: "QUOTA_ZERO",
+          remainingQuota: 0,
+          effectiveUserEmail: diagTest.effectiveUserEmail,
+          rawError: "Daily MailApp quota is 0",
+          error: "الحصة اليومية لإرسال البريد تساوي 0 رسالة لحساب المالك (" + (diagTest.effectiveUserEmail || "غير معروف") + "). جرب لاحقاً أو تحقق من قيود حساب Google."
         })).setMimeType(ContentService.MimeType.JSON);
       }
       try {
@@ -8042,7 +8192,11 @@ function doPost(e) {
         return ContentService.createTextOutput(JSON.stringify({
           success: true,
           emailTestHandled: true,
+          diagnosisCode: "SUCCESS",
+          quotaBefore: quotaBefore,
           remainingQuota: quotaAfter,
+          effectiveUserEmail: diagTest.effectiveUserEmail,
+          activeUserEmail: diagTest.activeUserEmail,
           message: "تم إرسال الرسالة الاختبارية بنجاح إلى (" + toEmailTest + "). المتبقي من رصيدك اليومي: " + quotaAfter + " رسالة."
         })).setMimeType(ContentService.MimeType.JSON);
       } catch (eTestErr) {
@@ -8050,9 +8204,100 @@ function doPost(e) {
         return ContentService.createTextOutput(JSON.stringify({
           success: false,
           emailTestHandled: true,
-          error: "فشل إرسال البريد: " + eMsg + " — إذا كان السبب عدم التفويض، افتح Apps Script وشغّل دالة authorizeAndTestEmailGS ثم انشر New Version."
+          diagnosisCode: eMsg.indexOf("send_mail") !== -1 ? "AUTH_REQUIRED" : "SEND_ERROR",
+          quotaBefore: diagTest.remainingQuota,
+          effectiveUserEmail: diagTest.effectiveUserEmail,
+          rawError: eMsg,
+          error: "فشل إرسال البريد: " + eMsg
         })).setMimeType(ContentService.MimeType.JSON);
       }
+    }
+
+    // (E-2) إرسال رسالة بريد إلكتروني مخصصة (فردي أو جماعي) من قسم البريد الإلكتروني
+    if (data.action === "send_custom_email") {
+      var recipientsRaw = Array.isArray(data.recipients) ? data.recipients : [];
+      var subjectCustom = String(data.subject || "").trim();
+      var bodyCustom = String(data.body || "").trim();
+      var senderNameCustom = String(data.senderName || data.academyName || "المنصة التعليمية").trim();
+      var replyToCustom = String(data.replyToEmail || "").trim();
+      var diagCustom = diagnoseEmailStatusGS();
+
+      if (!diagCustom.mailAuthorized) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          customEmailHandled: true,
+          diagnosisCode: "AUTH_REQUIRED",
+          rawError: diagCustom.rawError,
+          error: "صلاحية إرسال البريد غير مفوّضة بعد في Google Apps Script. يرجى تشغيل دالة authorizePermissions أو authorizeAndTestEmailGS."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+      if (!subjectCustom || !bodyCustom || recipientsRaw.length === 0) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false,
+          customEmailHandled: true,
+          error: "يرجى تحديد مستلم واحد على الأقل وإدخال الموضوع ونص الرسالة."
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+
+      var escHtmlC = function(txt) {
+        return String(txt || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      };
+
+      var sentCountC = 0;
+      var failedListC = [];
+      for (var riC = 0; riC < recipientsRaw.length; riC++) {
+        var rItemC = recipientsRaw[riC];
+        var rEmailC = typeof rItemC === "string" ? rItemC.trim() : String((rItemC && rItemC.email) || "").trim();
+        var rNameC = typeof rItemC === "object" && rItemC && rItemC.name ? String(rItemC.name).trim() : "";
+        var rIdC = typeof rItemC === "object" && rItemC && rItemC.registrationId ? String(rItemC.registrationId).trim() : "";
+        if (!rEmailC || rEmailC.indexOf("@") === -1) continue;
+
+        var personalizedBody = bodyCustom
+          .split("{name}").join(rNameC || "مشتركنا الكريم")
+          .split("{id}").join(rIdC || "");
+        var personalizedSubject = subjectCustom
+          .split("{name}").join(rNameC || "مشتركنا الكريم")
+          .split("{id}").join(rIdC || "");
+
+        var htmlMsgC = '<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;background:#f8fafc;padding:20px;color:#0f172a;">'
+          + '<div style="max-width:580px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">'
+          + '<div style="background:#0f172a;color:#ffffff;padding:18px 22px;"><h2 style="margin:0;font-size:17px;">' + escHtmlC(senderNameCustom) + '</h2></div>'
+          + '<div style="padding:22px;font-size:14px;line-height:1.8;white-space:pre-line;">' + escHtmlC(personalizedBody) + '</div>'
+          + '</div></div>';
+        try {
+          var cMailOpts = {
+            to: rEmailC,
+            name: senderNameCustom,
+            subject: personalizedSubject,
+            body: personalizedBody,
+            htmlBody: htmlMsgC
+          };
+          if (replyToCustom && replyToCustom.indexOf("@") !== -1) {
+            cMailOpts.replyTo = replyToCustom;
+          }
+          MailApp.sendEmail(cMailOpts);
+          sentCountC++;
+        } catch (cErr) {
+          failedListC.push({ email: rEmailC, error: String(cErr && cErr.message ? cErr.message : cErr) });
+        }
+      }
+
+      var remainingAfterC = 0;
+      try { remainingAfterC = MailApp.getRemainingDailyQuota(); } catch (e) {}
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: sentCountC > 0,
+        customEmailHandled: true,
+        sentCount: sentCountC,
+        failedCount: failedListC.length,
+        failedList: failedListC,
+        remainingQuota: remainingAfterC,
+        message: "تم إرسال " + sentCountC + " رسالة بريد بنجاح" + (failedListC.length > 0 ? (" (تعذر إرسال " + failedListC.length + ")") : "") + "."
+      })).setMimeType(ContentService.MimeType.JSON);
     }
 
     // (-1) تهيئة ورقة "الرئيسية"
@@ -8174,6 +8419,7 @@ function doPost(e) {
         })).setMimeType(ContentService.MimeType.JSON);
       }
       var stage1ProgramId = String(data.stage1DefaultProgramId || "prog_default").trim() || "prog_default";
+      var stage1ClassroomId = String(data.stage1DefaultClassroomId || "").trim();
       var stage1ProgramName = String(data.stage1ProgramName || "القسم الافتراضي (المرحلة التمهيدية)").trim();
       var activeBaseUrlSub = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
       var nowSub = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone() || "Asia/Bangkok", "yyyy/MM/dd HH:mm");
@@ -8181,7 +8427,7 @@ function doPost(e) {
       // 1. إضافة المشترك فوراً في ورقة ID registrants على البرنامج الافتراضي (المرحلة الأولى)
       var tgCfgSub = readTelegramConfigGS(ss);
       var cleanBotUser = String(tgCfgSub.botUsername || data.botUsername || "").replace(/^@/, "").trim();
-      regSheetSub.appendRow([newRegId, regStudentName, "مفعّل", 1, "[]", "مسموح", "", "", stage1ProgramId, "", ""]);
+      regSheetSub.appendRow([newRegId, regStudentName, "مفعّل", 1, "[]", "مسموح", "", "", stage1ProgramId, "", "", stage1ClassroomId]);
       var createdRegRowNum = regSheetSub.getLastRow();
       var syncSubRes = syncRegistrantLinkAndQrCellsGS(regSheetSub, createdRegRowNum, newRegId, regStudentName, activeBaseUrlSub, cleanBotUser);
       var createdDirectUrl = String(syncSubRes.directLoginUrl || "").trim();
@@ -8376,6 +8622,7 @@ function doPost(e) {
           directLoginUrl: createdDirectUrl,
           qrImageUrl: createdQrUrl,
           programId: stage1ProgramId,
+          classroomId: stage1ClassroomId || undefined,
           telegramDirectUrl: tgDeepLink,
           telegramQrImageUrl: createdTgQrUrl
         }
@@ -8395,8 +8642,11 @@ function doPost(e) {
       var tRegId = normRegDigitsGS(data.registrationId || "");
       var tProgId = String(data.targetProgramId || "prog_default").trim();
       var tProgName = String(data.targetProgramName || tProgId).trim();
+      var tClsId = data.targetClassroomId !== undefined ? String(data.targetClassroomId || "").trim() : undefined;
+      var tClsName = String(data.targetClassroomName || "").trim();
+      var tFullLabel = tClsName ? (tProgName + " (" + tClsName + ")") : tProgName;
       var tStage = String(data.stage || "stage2_assigned").trim();
-      var tStatusLabel = String(data.statusLabel || ("تم التحويل إلى: " + tProgName)).trim();
+      var tStatusLabel = String(data.statusLabel || ("تم التحويل إلى: " + tFullLabel)).trim();
       var tAccountStatus = String(data.accountStatus || "مفعّل").trim();
       var tNotes = data.adminNotes !== undefined ? String(data.adminNotes) : undefined;
 
@@ -8408,6 +8658,9 @@ function doPost(e) {
         if (allRegsT[riT].id === tRegId) {
           rSheetT.getRange(allRegsT[riT].rowNumber, 3).setValue(tAccountStatus);
           rSheetT.getRange(allRegsT[riT].rowNumber, 9).setValue(tProgId);
+          if (tClsId !== undefined) {
+            rSheetT.getRange(allRegsT[riT].rowNumber, 12).setValue(tClsId);
+          }
           if (!matchedStudentNameT) matchedStudentNameT = allRegsT[riT].name;
           break;
         }
@@ -8437,7 +8690,7 @@ function doPost(e) {
           var trStuObj = renderTelegramTemplateGS(ss, tgCfgT, "student_stage_transfer", {
             studentName: matchedStudentNameT || "مشتركنا الكريم",
             studentId: tRegId,
-            programName: tProgName
+            programName: tFullLabel
           });
           if (trStuObj.enabled && sendTelegramBotMessageGS(ss, sChatIdT, trStuObj.text, "").ok) {
             tgNotifiedStudent = true;
@@ -8448,7 +8701,7 @@ function doPost(e) {
         sendTelegramBotMessageGS(
           ss,
           tgCfgT.adminChatId,
-          "تم تحويل المشترك <b>" + (matchedStudentNameT || tRegId) + "</b> (ID: <code>" + tRegId + "</code>) إلى برنامج: <b>" + tProgName + "</b>.",
+          "تم تحويل المشترك <b>" + (matchedStudentNameT || tRegId) + "</b> (ID: <code>" + tRegId + "</code>) إلى: <b>" + tFullLabel + "</b>.",
           ""
         );
       }
@@ -8457,7 +8710,7 @@ function doPost(e) {
         success: true,
         portalHandled: true,
         tgNotifiedStudent: tgNotifiedStudent,
-        message: "تم تحويل المشترك (" + (matchedStudentNameT || tRegId) + ") إلى برنامج (" + tProgName + ") بنجاح!"
+        message: "تم تحويل المشترك (" + (matchedStudentNameT || tRegId) + ") إلى (" + tFullLabel + ") بنجاح!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -8621,6 +8874,9 @@ function doPost(e) {
             if (allRegsU[ru].id === uRegId) {
               rSheetU.getRange(allRegsU[ru].rowNumber, 3).setValue("مفعّل");
               rSheetU.getRange(allRegsU[ru].rowNumber, 9).setValue(uTargetProgId);
+              if (data.targetClassroomId !== undefined) {
+                rSheetU.getRange(allRegsU[ru].rowNumber, 12).setValue(String(data.targetClassroomId || "").trim());
+              }
               if (!matchedNameU) matchedNameU = allRegsU[ru].name;
               foundExistingReg = true;
               break;
@@ -8631,7 +8887,7 @@ function doPost(e) {
         // إذا كان المتقدم عبر المتجر طالباً جديداً (لا يملك ID مسبقاً) -> إنشاء رقم ID عشوائي غير متسلسل وتفعيله على البرنامج
         if (!foundExistingReg && matchedNameU) {
           finalAssignedRegId = generateNextRegistrantIdGS(rSheetU, ss, "random", 7);
-          rSheetU.appendRow([finalAssignedRegId, matchedNameU, "مفعّل", 1, "[]", "مسموح", "", "", uTargetProgId, "", ""]);
+          rSheetU.appendRow([finalAssignedRegId, matchedNameU, "مفعّل", 1, "[]", "مسموح", "", "", uTargetProgId, "", "", String(data.targetClassroomId || "").trim()]);
           var newRegRowNum = rSheetU.getLastRow();
           var activeBaseU = String(getAppBaseUrlGS() || "").trim();
           var tgBotApprove = String(readTelegramConfigGS(ss).botUsername || "").replace(/^@/, "").trim();
@@ -9025,7 +9281,7 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة وإجبار الموقع والبرنامج ورابط الدخول
+    // (0) جلب قائمة المشتركين من ورقة "ID registrants" مع بيانات الحالة والأجهزة وإجبار الموقع والبرنامج والفصل ورابط الدخول
     if (data.action === "get_registrants" || data.action === "verify_student") {
       var regSheet = getIDRegistrantsSheet(ss);
       var rows = readAllRegistrantsGS(regSheet).map(function(r) {
@@ -9039,6 +9295,7 @@ function doPost(e) {
           directLoginUrl: r.directLoginUrl || "",
           qrImageUrl: r.qrImageUrl || "",
           programId: r.programId || "",
+          classroomId: r.classroomId || "",
           telegramDirectUrl: r.telegramDirectUrl || "",
           telegramQrImageUrl: r.telegramQrImageUrl || "",
           telegramLinked: Boolean(findStudentTelegramChatIdGS(ss, r.id, r.name))
@@ -9161,6 +9418,7 @@ function doPost(e) {
           directLoginUrl: matchedRow.directLoginUrl || "",
           qrImageUrl: matchedRow.qrImageUrl || "",
           programId: matchedRow.programId || "",
+          classroomId: matchedRow.classroomId || "",
           telegramDirectUrl: matchedRow.telegramDirectUrl || "",
           telegramQrImageUrl: matchedRow.telegramQrImageUrl || "",
           telegramLinked: Boolean(findStudentTelegramChatIdGS(ss, matchedRow.id, matchedRow.name))
@@ -9182,6 +9440,7 @@ function doPost(e) {
         var newMax = Math.max(1, Math.min(10, Number(data.maxDevices) || 1));
         var newReqLoc = isLocationRequiredGS(data.requireLocation) ? "إجبار" : "مسموح";
         var newProgId = String(data.programId || "").trim();
+        var newClsId = String(data.classroomId || "").trim();
         var existingRows = readAllRegistrantsGS(regSheet);
         var existingRow = null;
         for (var k = 0; k < existingRows.length; k++) {
@@ -9196,8 +9455,9 @@ function doPost(e) {
           regSheet.getRange(targetRowNum, 1, 1, 4).setValues([[newId, newName, newStatus, newMax]]);
           regSheet.getRange(targetRowNum, 6).setValue(newReqLoc);
           regSheet.getRange(targetRowNum, 9).setValue(newProgId);
+          regSheet.getRange(targetRowNum, 12).setValue(newClsId);
         } else {
-          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", "", newProgId, "", ""]);
+          regSheet.appendRow([newId, newName, newStatus, newMax, "[]", newReqLoc, "", "", newProgId, "", "", newClsId]);
           targetRowNum = regSheet.getLastRow();
         }
         syncRegistrantLinkAndQrCellsGS(regSheet, targetRowNum, newId, newName, activeBaseUrl, activeBotReg);
@@ -9216,11 +9476,11 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         registrantHandled: true,
-        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة الـ 11 بنجاح"
+        message: "تم إعداد وحفظ ورقة ID registrants بالأعمدة الـ 12 بنجاح"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة، إجبار الموقع، البرنامج، الرابط وQR)
+    // (0-د) تعديل بيانات مشترك (ID، الاسم، الحالة، عدد الأجهزة، إجبار الموقع، البرنامج، الفصل، الرابط وQR)
     if (data.action === "update_registrant") {
       if (data.appBaseUrl) saveAppBaseUrlGS(data.appBaseUrl);
       var regSheet = getIDRegistrantsSheet(ss);
@@ -9250,9 +9510,13 @@ function doPost(e) {
       var nextProgId = data.programId !== undefined
         ? String(data.programId || "").trim()
         : (targetRow.programId || "");
+      var nextClsId = data.classroomId !== undefined
+        ? String(data.classroomId || "").trim()
+        : (targetRow.classroomId || "");
       regSheet.getRange(targetRow.rowNumber, 1, 1, 4).setValues([[nextId, nextName, nextStatus, nextMax]]);
       regSheet.getRange(targetRow.rowNumber, 6).setValue(nextReqLoc);
       regSheet.getRange(targetRow.rowNumber, 9).setValue(nextProgId);
+      regSheet.getRange(targetRow.rowNumber, 12).setValue(nextClsId);
       var activeBaseUrlUpd = String(data.appBaseUrl || getAppBaseUrlGS() || "").trim();
       var activeBotUpd = String(readTelegramConfigGS(ss).botUsername || data.botUsername || "").replace(/^@/, "").trim();
       syncRegistrantLinkAndQrCellsGS(regSheet, targetRow.rowNumber, nextId, nextName, activeBaseUrlUpd, activeBotUpd);

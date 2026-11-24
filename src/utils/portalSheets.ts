@@ -989,6 +989,74 @@ export function generateLocalRandomRegistrationId(length = 7): string {
   return String(Math.floor(min + Math.random() * (max - min + 1)));
 }
 
+export interface EmailDiagnosisResult {
+  success: boolean;
+  emailDiagHandled?: boolean;
+  scriptVersion?: string;
+  mailAuthorized: boolean;
+  remainingQuota: number;
+  diagnosisCode: 'OK' | 'AUTH_REQUIRED' | 'QUOTA_ZERO' | 'MAIL_ERROR' | 'SCRIPT_OUTDATED' | 'NETWORK_ERROR' | string;
+  rawError?: string;
+  effectiveUserEmail?: string;
+  activeUserEmail?: string;
+  scriptTimezone?: string;
+  needsScriptUpdate?: boolean;
+  message?: string;
+}
+
+export async function diagnosePortalEmailStatus(
+  webhookUrl: string
+): Promise<EmailDiagnosisResult> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  if (!url.startsWith('http')) {
+    return {
+      success: false,
+      mailAuthorized: false,
+      remainingQuota: 0,
+      diagnosisCode: 'NETWORK_ERROR',
+      message: 'يرجى ربط Google Apps Script Webhook أولاً.',
+    };
+  }
+  try {
+    const res = await callGoogleSheetsPost(url, { action: 'diagnose_email_status' });
+    const rawRes: any = res;
+    const d: any = res.data || {};
+    if (d.emailDiagHandled || rawRes.emailDiagHandled) {
+      const src: any = d.emailDiagHandled ? d : rawRes;
+      return {
+        success: Boolean(src.success),
+        emailDiagHandled: true,
+        scriptVersion: src.scriptVersion || '',
+        mailAuthorized: Boolean(src.mailAuthorized),
+        remainingQuota: Number(src.remainingQuota || 0),
+        diagnosisCode: src.diagnosisCode || 'UNKNOWN',
+        rawError: src.rawError ? String(src.rawError) : undefined,
+        effectiveUserEmail: src.effectiveUserEmail ? String(src.effectiveUserEmail) : undefined,
+        activeUserEmail: src.activeUserEmail ? String(src.activeUserEmail) : undefined,
+        scriptTimezone: src.scriptTimezone ? String(src.scriptTimezone) : undefined,
+      };
+    }
+    return {
+      success: false,
+      mailAuthorized: false,
+      remainingQuota: 0,
+      diagnosisCode: 'SCRIPT_OUTDATED',
+      needsScriptUpdate: true,
+      message:
+        'الرابط الخلفي الحالي لا يدعم الفحص العميق للبريد بعد — يرجى نسخ الكود المحدث في Google Apps Script ونشر إصدار جديد (New version).',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      mailAuthorized: false,
+      remainingQuota: 0,
+      diagnosisCode: 'NETWORK_ERROR',
+      rawError: err?.message || 'Network error',
+      message: err?.message || 'تعذر الاتصال بالسيرفر لفحص حالة البريد.',
+    };
+  }
+}
+
 export async function testPortalWelcomeEmail(
   webhookUrl: string,
   payload: {
@@ -999,6 +1067,10 @@ export async function testPortalWelcomeEmail(
 ): Promise<{
   success: boolean;
   quota?: number;
+  quotaBefore?: number;
+  diagnosisCode?: string;
+  effectiveUserEmail?: string;
+  rawError?: string;
   error?: string;
   message: string;
   needsScriptUpdate?: boolean;
@@ -1017,17 +1089,23 @@ export async function testPortalWelcomeEmail(
       toEmail: email,
       academyName: payload.academyName || 'الأكاديمية التعليمية',
       adminNotificationEmail: payload.adminNotificationEmail || '',
+      replyToEmail: payload.adminNotificationEmail || '',
     });
-    if (res.data?.emailTestHandled) {
+    const d = res.data || {};
+    if (d.emailTestHandled) {
       return {
         success: Boolean(res.success),
-        quota: res.data?.remainingQuota !== undefined ? Number(res.data.remainingQuota) : undefined,
-        error: res.data?.error ? String(res.data.error) : undefined,
+        quota: d.remainingQuota !== undefined ? Number(d.remainingQuota) : undefined,
+        quotaBefore: d.quotaBefore !== undefined ? Number(d.quotaBefore) : undefined,
+        diagnosisCode: d.diagnosisCode ? String(d.diagnosisCode) : undefined,
+        effectiveUserEmail: d.effectiveUserEmail ? String(d.effectiveUserEmail) : undefined,
+        rawError: d.rawError ? String(d.rawError) : undefined,
+        error: d.error ? String(d.error) : undefined,
         message:
-          res.data?.message ||
+          d.message ||
           (res.success
             ? 'تم إرسال بريد الاختبار بنجاح! تفقد البريد الوارد أو الرسائل غير المرغوب فيها (Spam).'
-            : String(res.data?.error || 'فشل إرسال البريد.')),
+            : String(d.error || 'فشل إرسال البريد.')),
       };
     }
     return {
@@ -1043,6 +1121,65 @@ export async function testPortalWelcomeEmail(
   }
 }
 
+export async function sendCustomAdminEmails(
+  webhookUrl: string,
+  payload: {
+    recipients: { email: string; name?: string; registrationId?: string }[];
+    subject: string;
+    body: string;
+    senderName?: string;
+    replyToEmail?: string;
+  }
+): Promise<{
+  success: boolean;
+  sentCount?: number;
+  failedCount?: number;
+  failedList?: { email: string; error: string }[];
+  remainingQuota?: number;
+  diagnosisCode?: string;
+  rawError?: string;
+  needsScriptUpdate?: boolean;
+  message: string;
+}> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  if (!url.startsWith('http')) {
+    return { success: false, message: 'يرجى ربط Google Apps Script Webhook أولاً.' };
+  }
+  try {
+    const res = await callGoogleSheetsPost(url, {
+      action: 'send_custom_email',
+      recipients: payload.recipients,
+      subject: payload.subject,
+      body: payload.body,
+      senderName: payload.senderName || 'الأكاديمية التعليمية',
+      replyToEmail: payload.replyToEmail || '',
+    });
+    const d = res.data || {};
+    if (d.customEmailHandled) {
+      return {
+        success: Boolean(res.success),
+        sentCount: d.sentCount !== undefined ? Number(d.sentCount) : undefined,
+        failedCount: d.failedCount !== undefined ? Number(d.failedCount) : undefined,
+        failedList: Array.isArray(d.failedList) ? d.failedList : undefined,
+        remainingQuota: d.remainingQuota !== undefined ? Number(d.remainingQuota) : undefined,
+        diagnosisCode: d.diagnosisCode ? String(d.diagnosisCode) : undefined,
+        rawError: d.rawError ? String(d.rawError) : undefined,
+        message: d.message || d.error || (res.success ? 'تم الإرسال بنجاح.' : 'تعذر إرسال البريد.'),
+      };
+    }
+    return {
+      success: false,
+      needsScriptUpdate: true,
+      message: 'الرابط الخلفي المنشور لا يدعم الإرسال المخصص بعد — انسخ الكود المحدث في Apps Script وانشر إصداراً جديداً.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'تعذر الاتصال بالسيرفر لإرسال البريد.',
+    };
+  }
+}
+
 export async function submitPortalRegistrationToSheets(
   webhookUrl: string,
   payload: {
@@ -1054,6 +1191,7 @@ export async function submitPortalRegistrationToSheets(
     attachments: RegistrationAttachment[];
     settings: PortalSettingsConfig;
     stage1ProgramName?: string;
+    stage1DefaultClassroomId?: string;
   }
 ): Promise<{
   success: boolean;
@@ -1069,6 +1207,7 @@ export async function submitPortalRegistrationToSheets(
   const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
   const stage1ProgId = payload.settings.stage1DefaultProgramId || DEFAULT_PROGRAM_ID;
   const stage1ProgName = payload.stage1ProgramName || 'القسم الافتراضي (المرحلة التمهيدية)';
+  const stage1ClassroomId = (payload.stage1DefaultClassroomId || '').trim();
   const idMode = payload.settings.registrationIdMode === 'sequential' ? 'sequential' : 'random';
   const idLength = payload.settings.registrationIdLength || 7;
   const originBase =
@@ -1089,6 +1228,7 @@ export async function submitPortalRegistrationToSheets(
         answers: payload.answers,
         attachments: payload.attachments,
         stage1DefaultProgramId: stage1ProgId,
+        stage1DefaultClassroomId: stage1ClassroomId,
         stage1ProgramName: stage1ProgName,
         academyName: payload.settings.academyName || '',
         botUsername: payload.settings.telegramBotUsername || getSavedPortalBotUsername(),
@@ -1291,25 +1431,29 @@ export async function transferRegistrationStageInSheets(
     studentName: string;
     targetProgramId: string;
     targetProgramName: string;
+    targetClassroomId?: string;
+    targetClassroomName?: string;
     stage: RegistrationStage;
     accountStatus?: string;
     adminNotes?: string;
     notifyStudentTelegram?: boolean;
   }
 ): Promise<{ success: boolean; message: string; tgNotifiedStudent?: boolean; needsScriptUpdate?: boolean }> {
+  const clsSuffix = payload.targetClassroomName ? ` — ${payload.targetClassroomName}` : '';
   const local = getLocalRegistrationSubmissions().map((rec) =>
     normalizeDigits(rec.registrationId) === normalizeDigits(payload.registrationId)
       ? {
           ...rec,
           programId: payload.targetProgramId,
           programName: payload.targetProgramName,
+          classroomId: payload.targetClassroomId !== undefined ? payload.targetClassroomId : rec.classroomId,
           stage: payload.stage,
           status:
             payload.stage === 'stage2_assigned'
-              ? `تم التحويل إلى: ${payload.targetProgramName}`
+              ? `تم التحويل إلى: ${payload.targetProgramName}${clsSuffix}`
               : payload.stage === 'paused'
               ? 'معلّق / موقوف'
-              : `المرحلة 1 - في القسم الافتراضي (${payload.targetProgramName})`,
+              : `المرحلة 1 - في القسم الافتراضي (${payload.targetProgramName}${clsSuffix})`,
           adminNotes: payload.adminNotes !== undefined ? payload.adminNotes : rec.adminNotes,
         }
       : rec
@@ -1323,10 +1467,10 @@ export async function transferRegistrationStageInSheets(
 
   const statusLabel =
     payload.stage === 'stage2_assigned'
-      ? `تم التحويل إلى: ${payload.targetProgramName}`
+      ? `تم التحويل إلى: ${payload.targetProgramName}${clsSuffix}`
       : payload.stage === 'paused'
       ? 'معلّق / موقوف'
-      : `المرحلة 1 - في القسم الافتراضي (${payload.targetProgramName})`;
+      : `المرحلة 1 - في القسم الافتراضي (${payload.targetProgramName}${clsSuffix})`;
 
   const res = await callGoogleSheetsPost(url, {
     action: 'transfer_registration_stage',
@@ -1334,6 +1478,8 @@ export async function transferRegistrationStageInSheets(
     studentName: payload.studentName,
     targetProgramId: payload.targetProgramId,
     targetProgramName: payload.targetProgramName,
+    targetClassroomId: payload.targetClassroomId,
+    targetClassroomName: payload.targetClassroomName,
     stage: payload.stage,
     statusLabel,
     accountStatus: payload.accountStatus || (payload.stage === 'paused' ? 'معطّل' : 'مفعّل'),
@@ -1516,13 +1662,15 @@ export async function updateProgramRequestStatusInSheets(
     status: ProgramRequestStatus;
     targetProgramId?: string;
     targetProgramName?: string;
+    targetClassroomId?: string;
+    targetClassroomName?: string;
     adminNotes?: string;
     notifyStudentTelegram?: boolean;
   }
 ): Promise<{ success: boolean; message: string; tgNotifiedStudent?: boolean; needsScriptUpdate?: boolean }> {
   const statusLabel =
     payload.status === 'approved'
-      ? `تمت الموافقة (${payload.targetProgramName || payload.targetProgramId || ''})`
+      ? `تمت الموافقة (${payload.targetProgramName || payload.targetProgramId || ''}${payload.targetClassroomName ? ` — ${payload.targetClassroomName}` : ''})`
       : payload.status === 'rejected'
       ? 'مؤجل / مرفوض'
       : 'قيد المراجعة';
@@ -1534,6 +1682,7 @@ export async function updateProgramRequestStatusInSheets(
           status: payload.status,
           statusLabel,
           targetProgramId: payload.targetProgramId || req.targetProgramId,
+          targetClassroomId: payload.targetClassroomId !== undefined ? payload.targetClassroomId : req.targetClassroomId,
           adminNotes: payload.adminNotes !== undefined ? payload.adminNotes : req.adminNotes,
         }
       : req
@@ -1555,6 +1704,8 @@ export async function updateProgramRequestStatusInSheets(
     statusLabel,
     targetProgramId: payload.targetProgramId || '',
     targetProgramName: payload.targetProgramName || payload.targetProgramId || '',
+    targetClassroomId: payload.targetClassroomId,
+    targetClassroomName: payload.targetClassroomName,
     adminNotes: payload.adminNotes,
     notifyStudentTelegram: payload.notifyStudentTelegram !== false,
   });

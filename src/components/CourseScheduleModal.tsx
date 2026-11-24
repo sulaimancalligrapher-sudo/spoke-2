@@ -187,6 +187,7 @@ interface CourseScheduleModalProps {
   currentStudent: StudentRegistrant | null;
   isAdminAuthenticated?: boolean;
   initialProgramId?: string;
+  initialClassroomId?: string;
   currentLang: SupportedLang;
   translations: TranslationItem[];
   t: (id: string, fallback?: string) => string;
@@ -263,6 +264,7 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   currentStudent,
   isAdminAuthenticated = false,
   initialProgramId,
+  initialClassroomId,
   currentLang,
   translations,
   t,
@@ -289,6 +291,9 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   const [adminSelectedProgramId, setAdminSelectedProgramId] = useState<string>(
     initialProgramId || ''
   );
+  const [adminSelectedClassroomId, setAdminSelectedClassroomId] = useState<string>(
+    initialClassroomId || ''
+  );
   const [pdfPreview, setPdfPreview] = useState<{
     title: string;
     html: string;
@@ -299,8 +304,9 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   useEffect(() => {
     if (isOpen && isAdminAuthenticated) {
       setAdminSelectedProgramId(initialProgramId || '');
+      setAdminSelectedClassroomId(initialClassroomId || '');
     }
-  }, [isOpen, isAdminAuthenticated, initialProgramId]);
+  }, [isOpen, isAdminAuthenticated, initialProgramId, initialClassroomId]);
 
   const normalizedSchedule = useMemo(
     () => normalizeCourseScheduleData(schedule),
@@ -311,9 +317,13 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
     ? adminSelectedProgramId || initialProgramId
     : currentStudent?.programId;
 
-  const { programs, activeProgram, scopedSchedule } = useMemo(
-    () => getScheduleForProgram(normalizedSchedule, effectiveProgramId),
-    [normalizedSchedule, effectiveProgramId]
+  const effectiveClassroomId = isAdminAuthenticated
+    ? adminSelectedClassroomId || initialClassroomId
+    : currentStudent?.classroomId;
+
+  const { programs, activeProgram, classrooms, activeClassroom, scopedSchedule } = useMemo(
+    () => getScheduleForProgram(normalizedSchedule, effectiveProgramId, effectiveClassroomId),
+    [normalizedSchedule, effectiveProgramId, effectiveClassroomId]
   );
 
   const isProgramEnded = useMemo(
@@ -484,6 +494,7 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
           id: currentStudent?.id || (isAdminAuthenticated ? 'معاينة' : '—'),
           name: currentStudent?.name || (isAdminAuthenticated ? 'طالب (معاينة المعلم)' : 'طالب'),
           programId: activeProgram.id,
+          classroomId: activeClassroom.id,
         },
         schedule: normalizedSchedule,
         attendanceRecords,
@@ -504,6 +515,7 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
       currentStudent,
       isAdminAuthenticated,
       activeProgram.id,
+      activeClassroom.id,
       normalizedSchedule,
       attendanceRecords,
       curriculum,
@@ -844,6 +856,11 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
                     {activeProgram.name}
                   </span>
                 )}
+                {classrooms.length > 1 && (
+                  <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-indigo-500/20 text-indigo-100 border border-indigo-400/40">
+                    {activeClassroom.name}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-300 truncate">
                 {currentStudent
@@ -868,30 +885,61 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
           </button>
         </div>
 
-        {/* Admin Preview Program Switcher when > 1 program exists */}
-        {isAdminAuthenticated && programs.length > 1 && (
-          <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
-            <span className="text-[11px] font-extrabold text-slate-600">
-              معاينة برنامج:
-            </span>
-            {programs.map((prog) => {
-              const isAct = prog.id === activeProgram.id;
-              const pCol = PROGRAM_COLOR_META[prog.color || 'emerald'];
-              return (
-                <button
-                  key={prog.id}
-                  type="button"
-                  onClick={() => setAdminSelectedProgramId(prog.id)}
-                  className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
-                    isAct
-                      ? pCol.activeBtn
-                      : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  {prog.name}
-                </button>
-              );
-            })}
+        {/* Admin Preview Program & Classroom Switcher when > 1 program or classroom exists */}
+        {isAdminAuthenticated && (programs.length > 1 || classrooms.length > 1) && (
+          <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 space-y-2 shrink-0">
+            {programs.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-extrabold text-slate-600">
+                  معاينة برنامج:
+                </span>
+                {programs.map((prog) => {
+                  const isAct = prog.id === activeProgram.id;
+                  const pCol = PROGRAM_COLOR_META[prog.color || 'emerald'];
+                  return (
+                    <button
+                      key={prog.id}
+                      type="button"
+                      onClick={() => {
+                        setAdminSelectedProgramId(prog.id);
+                        setAdminSelectedClassroomId('');
+                      }}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                        isAct
+                          ? pCol.activeBtn
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      {prog.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {classrooms.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] font-extrabold text-indigo-700">
+                  الفصل:
+                </span>
+                {classrooms.map((cls) => {
+                  const isAct = cls.id === activeClassroom.id;
+                  return (
+                    <button
+                      key={cls.id}
+                      type="button"
+                      onClick={() => setAdminSelectedClassroomId(cls.id)}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                        isAct
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      {cls.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -907,52 +955,61 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
               <p className="text-xs text-slate-600 font-semibold leading-relaxed">
                 وصل البرنامج إلى تاريخ الإغلاق ({scopedSchedule.settings.archiveDate})، وتم إخفاء الجدول والدروس والمراجعة.
               </p>
-              {(studentPdfAccess.canViewReport || studentPdfAccess.canViewCertificate) && (
-                <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
-                  {studentPdfAccess.canViewReport && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPdfPreview({
-                          title: `التقرير الشامل - ${studentFullSummary.studentName}`,
-                          orientation: 'portrait',
-                          html: buildFullReportHtml({
-                            summary: studentFullSummary,
-                            pdfSettings,
-                            platformTitle,
-                            homeLogoUrl,
-                          }),
-                        })
-                      }
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>التقرير (PDF)</span>
-                    </button>
-                  )}
-                  {studentPdfAccess.canViewCertificate && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPdfPreview({
-                          title: `شهادة إتمام البرنامج - ${studentFullSummary.studentName}`,
-                          orientation: pdfSettings.certificate.orientation,
-                          html: buildCertificateHtml({
-                            summary: studentFullSummary,
-                            pdfSettings,
-                            platformTitle,
-                            homeLogoUrl,
-                          }),
-                        })
-                      }
-                      className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Award className="w-3.5 h-3.5" />
-                      <span>الشهادة (PDF)</span>
-                    </button>
-                  )}
-                </div>
-              )}
+              {(() => {
+                const canShowEndedReport =
+                  studentPdfAccess.canViewReport &&
+                  pdfSettings.showReportButtonWhenEnded !== false;
+                const canShowEndedCert =
+                  studentPdfAccess.canViewCertificate &&
+                  pdfSettings.showCertificateButtonWhenEnded !== false;
+                if (!canShowEndedReport && !canShowEndedCert) return null;
+                return (
+                  <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+                    {canShowEndedReport && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPdfPreview({
+                            title: `التقرير الشامل - ${studentFullSummary.studentName}`,
+                            orientation: 'portrait',
+                            html: buildFullReportHtml({
+                              summary: studentFullSummary,
+                              pdfSettings,
+                              platformTitle,
+                              homeLogoUrl,
+                            }),
+                          })
+                        }
+                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>التقرير (PDF)</span>
+                      </button>
+                    )}
+                    {canShowEndedCert && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPdfPreview({
+                            title: `شهادة إتمام البرنامج - ${studentFullSummary.studentName}`,
+                            orientation: pdfSettings.certificate.orientation,
+                            html: buildCertificateHtml({
+                              summary: studentFullSummary,
+                              pdfSettings,
+                              platformTitle,
+                              homeLogoUrl,
+                            }),
+                          })
+                        }
+                        className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Award className="w-3.5 h-3.5" />
+                        <span>الشهادة (PDF)</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         ) : (
