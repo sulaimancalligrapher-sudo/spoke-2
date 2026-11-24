@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { SupportedLang, LANGUAGE_OPTIONS } from '../utils/translations';
-import { Globe, ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, Check } from 'lucide-react';
 
 interface LanguageSelectorProps {
   currentLang: SupportedLang;
@@ -38,17 +38,16 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className={
           iconOnly
-            ? 'inline-flex items-center justify-center gap-1 min-w-[40px] h-[40px] px-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl transition-all shadow-2xs cursor-pointer select-none active:scale-95 shrink-0'
+            ? 'inline-flex items-center justify-center w-10 h-10 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 rounded-xl transition-all shadow-2xs cursor-pointer select-none active:scale-95 shrink-0'
             : 'flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer select-none active:scale-95'
         }
         title={`تغيير لغة الواجهة (${currentOption.nativeName})`}
         aria-label={`تغيير لغة الواجهة (${currentOption.nativeName})`}
       >
         {iconOnly ? (
-          <>
-            <Globe className="w-4 h-4 text-slate-600 shrink-0" />
-            <span className="text-sm leading-none" aria-hidden="true">{currentOption.flag}</span>
-          </>
+          <span className="text-lg leading-none" aria-hidden="true">
+            {currentOption.flag}
+          </span>
         ) : (
           <>
             <span className="text-sm leading-none">{currentOption.flag}</span>

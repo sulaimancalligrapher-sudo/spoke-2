@@ -115,7 +115,9 @@ export interface CourseGroup {
   programId?: string;
 }
 
-export type ScheduleDayType = 'lesson' | 'review' | 'exam';
+export type ScheduleDayType = 'lesson' | 'review' | 'exam' | 'attendance';
+
+export type AttendanceSessionMode = 'live' | 'in_person';
 
 export type AttendanceStatus = 'early' | 'on_time' | 'late' | 'absent';
 
@@ -130,6 +132,9 @@ export interface CourseScheduleDay {
   programId?: string;
   startTime?: string; // HH:mm optional per-day override
   durationMinutes?: number; // optional per-day duration override
+  attendanceMode?: AttendanceSessionMode;
+  liveUrl?: string;
+  classroomLocation?: string;
 }
 
 export interface CourseScheduleSettings {
@@ -143,6 +148,16 @@ export interface CourseScheduleSettings {
   absenceGraceMinutes?: number; // minutes after session end to auto-mark absent
   autoSendReminders?: boolean;
   autoMarkAbsent?: boolean;
+  programStartDate?: string; // YYYY-MM-DD
+  programEndDate?: string; // YYYY-MM-DD
+  archiveDate?: string; // YYYY-MM-DD — hide schedule & lock all lessons/review once reached
+  genWeekdays?: number[];
+  genDayType?: ScheduleDayType;
+  genGroupsPerDay?: string;
+  genMode?: 'replace' | 'append';
+  defaultAttendanceMode?: AttendanceSessionMode;
+  defaultLiveUrl?: string;
+  defaultClassroomLocation?: string;
 }
 
 export interface CourseProgram {
@@ -238,6 +253,17 @@ export const SCHEDULE_DAY_TYPE_META: Record<
     dotBg: 'bg-rose-500',
     calBg: 'bg-rose-50 border-rose-300 text-rose-950 hover:bg-rose-100',
     selectCls: 'bg-rose-100 border-rose-400 text-rose-950',
+  },
+  attendance: {
+    labelAr: 'حصة حضور',
+    cardBg: 'bg-purple-50/80',
+    cardBorder: 'border-purple-300',
+    badgeBg: 'bg-purple-100',
+    badgeText: 'text-purple-900',
+    badgeBorder: 'border-purple-300',
+    dotBg: 'bg-purple-500',
+    calBg: 'bg-purple-50 border-purple-300 text-purple-950 hover:bg-purple-100',
+    selectCls: 'bg-purple-100 border-purple-400 text-purple-950',
   },
 };
 
@@ -453,6 +479,22 @@ export function createDefaultCourseProgram(
         settings?.absenceGraceMinutes !== undefined ? Number(settings.absenceGraceMinutes) : 30,
       autoSendReminders: Boolean(settings?.autoSendReminders),
       autoMarkAbsent: Boolean(settings?.autoMarkAbsent),
+      programStartDate: normalizeDateISO(settings?.programStartDate || '') || '',
+      programEndDate: normalizeDateISO(settings?.programEndDate || '') || '',
+      archiveDate: normalizeDateISO(settings?.archiveDate || '') || '',
+      genWeekdays: Array.isArray(settings?.genWeekdays)
+        ? settings.genWeekdays
+        : [0, 1, 2, 3, 4],
+      genDayType: settings?.genDayType || 'lesson',
+      genGroupsPerDay:
+        settings?.genGroupsPerDay !== undefined ? String(settings.genGroupsPerDay) : '',
+      genMode: settings?.genMode === 'append' ? 'append' : 'replace',
+      defaultAttendanceMode:
+        settings?.defaultAttendanceMode === 'in_person' ? 'in_person' : 'live',
+      defaultLiveUrl: settings?.defaultLiveUrl ? String(settings.defaultLiveUrl) : '',
+      defaultClassroomLocation: settings?.defaultClassroomLocation
+        ? String(settings.defaultClassroomLocation)
+        : '',
     },
   };
 }
@@ -572,6 +614,24 @@ const VALID_PROGRAM_COLORS = new Set<ProgramColorKey>([
   'purple',
 ]);
 
+const VALID_DAY_TYPES = new Set<ScheduleDayType>(['lesson', 'review', 'exam', 'attendance']);
+
+function parseScheduleDayType(rawTypeVal: unknown): ScheduleDayType {
+  const s = String(rawTypeVal || 'lesson').trim();
+  if (s === 'review' || s === 'مراجعة') return 'review';
+  if (s === 'exam' || s === 'امتحان') return 'exam';
+  if (s === 'attendance' || s === 'حصة حضور' || s === 'حضور') return 'attendance';
+  return VALID_DAY_TYPES.has(s as ScheduleDayType) ? (s as ScheduleDayType) : 'lesson';
+}
+
+function normalizeWeekdaysList(raw: unknown, fallback: number[] = [0, 1, 2, 3, 4]): number[] {
+  if (!Array.isArray(raw)) return fallback;
+  const nums = raw
+    .map((n) => Number(n))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+  return Array.from(new Set(nums));
+}
+
 export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
   const empty = createEmptyCourseSchedule();
   if (!raw || typeof raw !== 'object') return empty;
@@ -600,6 +660,20 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
         : 30,
     autoSendReminders: Boolean(raw.settings?.autoSendReminders),
     autoMarkAbsent: Boolean(raw.settings?.autoMarkAbsent),
+    programStartDate: normalizeDateISO(raw.settings?.programStartDate || '') || '',
+    programEndDate: normalizeDateISO(raw.settings?.programEndDate || '') || '',
+    archiveDate: normalizeDateISO(raw.settings?.archiveDate || '') || '',
+    genWeekdays: normalizeWeekdaysList(raw.settings?.genWeekdays, [0, 1, 2, 3, 4]),
+    genDayType: parseScheduleDayType(raw.settings?.genDayType || 'lesson'),
+    genGroupsPerDay:
+      raw.settings?.genGroupsPerDay !== undefined ? String(raw.settings.genGroupsPerDay) : '',
+    genMode: raw.settings?.genMode === 'append' ? 'append' : 'replace',
+    defaultAttendanceMode:
+      raw.settings?.defaultAttendanceMode === 'in_person' ? 'in_person' : 'live',
+    defaultLiveUrl: raw.settings?.defaultLiveUrl ? String(raw.settings.defaultLiveUrl) : '',
+    defaultClassroomLocation: raw.settings?.defaultClassroomLocation
+      ? String(raw.settings.defaultClassroomLocation)
+      : '',
   };
 
   const rawProgramsList: any[] = Array.isArray(raw.programs)
@@ -610,19 +684,21 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
 
   const seenProgramIds = new Set<string>();
   let programs: CourseProgram[] = rawProgramsList
-    .filter((p: any) => p && (p.id || p.name))
+    .filter((p: any) => p && (p.id || p.name !== undefined))
     .map((p: any, idx: number) => {
       const pid = String(p.id || `prog_${idx + 1}`).trim() || `prog_${idx + 1}`;
       if (seenProgramIds.has(pid)) return null;
       seenProgramIds.add(pid);
       const rawColor = String(p.color || 'emerald').trim() as ProgramColorKey;
       const color: ProgramColorKey = VALID_PROGRAM_COLORS.has(rawColor) ? rawColor : 'emerald';
+      const pName =
+        p.name !== undefined && p.name !== null ? String(p.name) : `برنامج ${idx + 1}`;
       return {
         id: pid,
-        name: String(p.name || `برنامج ${idx + 1}`).trim(),
-        description: p.description ? String(p.description) : '',
-        welcomeTitle: p.welcomeTitle ? String(p.welcomeTitle) : '',
-        welcomeMessage: p.welcomeMessage ? String(p.welcomeMessage) : '',
+        name: pName,
+        description: p.description !== undefined && p.description !== null ? String(p.description) : '',
+        welcomeTitle: p.welcomeTitle !== undefined && p.welcomeTitle !== null ? String(p.welcomeTitle) : '',
+        welcomeMessage: p.welcomeMessage !== undefined && p.welcomeMessage !== null ? String(p.welcomeMessage) : '',
         color,
         isDefault: Boolean(p.isDefault),
         settings: {
@@ -633,7 +709,7 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
           courseTitle:
             p.settings?.courseTitle !== undefined
               ? String(p.settings.courseTitle)
-              : String(p.name || rootSettings.courseTitle),
+              : pName || rootSettings.courseTitle,
           defaultStartTime:
             normalizeHHmm(p.settings?.defaultStartTime) || rootSettings.defaultStartTime || '',
           durationMinutes:
@@ -661,6 +737,50 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
             p.settings?.autoMarkAbsent !== undefined
               ? Boolean(p.settings.autoMarkAbsent)
               : Boolean(rootSettings.autoMarkAbsent),
+          programStartDate:
+            p.settings?.programStartDate !== undefined
+              ? normalizeDateISO(p.settings.programStartDate) || ''
+              : rootSettings.programStartDate || '',
+          programEndDate:
+            p.settings?.programEndDate !== undefined
+              ? normalizeDateISO(p.settings.programEndDate) || ''
+              : rootSettings.programEndDate || '',
+          archiveDate:
+            p.settings?.archiveDate !== undefined
+              ? normalizeDateISO(p.settings.archiveDate) || ''
+              : rootSettings.archiveDate || '',
+          genWeekdays: normalizeWeekdaysList(
+            p.settings?.genWeekdays,
+            rootSettings.genWeekdays || [0, 1, 2, 3, 4]
+          ),
+          genDayType:
+            p.settings?.genDayType !== undefined
+              ? parseScheduleDayType(p.settings.genDayType)
+              : rootSettings.genDayType || 'lesson',
+          genGroupsPerDay:
+            p.settings?.genGroupsPerDay !== undefined
+              ? String(p.settings.genGroupsPerDay)
+              : rootSettings.genGroupsPerDay || '',
+          genMode:
+            p.settings?.genMode !== undefined
+              ? p.settings.genMode === 'append'
+                ? 'append'
+                : 'replace'
+              : rootSettings.genMode || 'replace',
+          defaultAttendanceMode:
+            p.settings?.defaultAttendanceMode !== undefined
+              ? p.settings.defaultAttendanceMode === 'in_person'
+                ? 'in_person'
+                : 'live'
+              : rootSettings.defaultAttendanceMode || 'live',
+          defaultLiveUrl:
+            p.settings?.defaultLiveUrl !== undefined
+              ? String(p.settings.defaultLiveUrl)
+              : rootSettings.defaultLiveUrl || '',
+          defaultClassroomLocation:
+            p.settings?.defaultClassroomLocation !== undefined
+              ? String(p.settings.defaultClassroomLocation)
+              : rootSettings.defaultClassroomLocation || '',
         },
         createdAt: p.createdAt ? String(p.createdAt) : undefined,
       } as CourseProgram;
@@ -693,7 +813,7 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
 
   const groups: CourseGroup[] = Array.isArray(raw.groups)
     ? raw.groups
-        .filter((g: any) => g && (g.id || g.name))
+        .filter((g: any) => g && (g.id || g.name !== undefined))
         .map((g: any, idx: number) => {
           const lessons: ScheduleLessonRef[] = Array.isArray(g.lessons)
             ? g.lessons
@@ -711,8 +831,10 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
           const programId = rawProgId && programIdSet.has(rawProgId) ? rawProgId : defaultProgId;
           return {
             id: String(g.id || `grp_${idx + 1}`).trim(),
-            name: String(g.name || `مجموعة ${idx + 1}`).trim(),
-            description: g.description ? String(g.description) : '',
+            name:
+              g.name !== undefined && g.name !== null ? String(g.name) : `مجموعة ${idx + 1}`,
+            description:
+              g.description !== undefined && g.description !== null ? String(g.description) : '',
             lessons,
             createdAt: g.createdAt ? String(g.createdAt) : undefined,
             programId,
@@ -725,29 +847,38 @@ export function normalizeCourseScheduleData(raw: any): CourseScheduleData {
         .map((d: any, idx: number) => {
           const iso = normalizeDateISO(d?.date);
           if (!iso) return null;
-          const rawType = String(d?.dayType || 'lesson').trim();
-          const dayType: ScheduleDayType =
-            rawType === 'review' || rawType === 'مراجعة'
-              ? 'review'
-              : rawType === 'exam' || rawType === 'امتحان'
-              ? 'exam'
-              : 'lesson';
+          const dayType = parseScheduleDayType(d?.dayType);
           const groupIds = parseScheduleGroupIds(d?.groupIds, d?.groupId);
           const rawProgId = String(d?.programId || '').trim();
           const programId = rawProgId && programIdSet.has(rawProgId) ? rawProgId : defaultProgId;
+          const attModeRaw = String(d?.attendanceMode || '').trim();
+          const attendanceMode: AttendanceSessionMode | undefined =
+            dayType === 'attendance'
+              ? attModeRaw === 'in_person'
+                ? 'in_person'
+                : 'live'
+              : attModeRaw === 'in_person' || attModeRaw === 'live'
+              ? (attModeRaw as AttendanceSessionMode)
+              : undefined;
           return {
             id: String(d?.id || `day_${iso}_${idx}`).trim(),
             date: iso,
             dayType,
             groupIds,
             groupId: groupIds[0] || '',
-            customTitle: d?.customTitle ? String(d.customTitle) : '',
-            notes: d?.notes ? String(d.notes) : '',
+            customTitle: d?.customTitle !== undefined && d?.customTitle !== null ? String(d.customTitle) : '',
+            notes: d?.notes !== undefined && d?.notes !== null ? String(d.notes) : '',
             programId,
             startTime: normalizeHHmm(d?.startTime) || undefined,
             durationMinutes:
               d?.durationMinutes !== undefined && Number(d.durationMinutes) > 0
                 ? Number(d.durationMinutes)
+                : undefined,
+            attendanceMode,
+            liveUrl: d?.liveUrl !== undefined && d?.liveUrl !== null ? String(d.liveUrl) : undefined,
+            classroomLocation:
+              d?.classroomLocation !== undefined && d?.classroomLocation !== null
+                ? String(d.classroomLocation)
                 : undefined,
           } as CourseScheduleDay;
         })
@@ -960,8 +1091,14 @@ export function generateCalendarDays(
   weekdays: number[],
   defaultDayType: ScheduleDayType = 'lesson',
   groups: CourseGroup[] = [],
-  groupsPerDay: number = 1,
-  options?: { programId?: string; startGroupIndex?: number }
+  groupsPerDay: number = 0,
+  options?: {
+    programId?: string;
+    startGroupIndex?: number;
+    attendanceMode?: AttendanceSessionMode;
+    liveUrl?: string;
+    classroomLocation?: string;
+  }
 ): CourseScheduleDay[] {
   const sISO = normalizeDateISO(startDateISO);
   const eISO = normalizeDateISO(endDateISO);
@@ -1002,6 +1139,13 @@ export function generateCalendarDays(
         customTitle: '',
         notes: '',
         programId,
+        ...(defaultDayType === 'attendance'
+          ? {
+              attendanceMode: options?.attendanceMode || 'live',
+              liveUrl: options?.liveUrl || '',
+              classroomLocation: options?.classroomLocation || '',
+            }
+          : {}),
       });
     }
     cursor.setDate(cursor.getDate() + 1);
@@ -1300,11 +1444,23 @@ export interface UnlockedScheduleIndex {
   videoFallbackTitles: Set<string>;
 }
 
+export function isProgramEndedForStudent(
+  settings?: Partial<CourseScheduleSettings> | null,
+  isAdminAuthenticated = false,
+  targetDateISO?: string
+): boolean {
+  if (isAdminAuthenticated) return false;
+  const archiveDate = normalizeDateISO(settings?.archiveDate || '');
+  if (!archiveDate) return false;
+  const tz = (settings?.timezone || '').trim() || getLocalDeviceTimezone();
+  const today = normalizeDateISO(targetDateISO) || getTodayLocalISO(tz);
+  return Boolean(today && today >= archiveDate);
+}
+
 /**
  * Builds an index of lessons unlocked up to today (date <= todayISO).
  * Future lessons (date > todayISO) and unscheduled lessons are excluded when Strict Hide is active.
- * Strict Hide is active ONLY when:
- *   schedule.days.length > 0 && schedule.settings.lockFutureDays !== false && !isAdminAuthenticated
+ * Also locks and hides ALL lessons & review when archiveDate is reached for students.
  */
 export function getUnlockedScheduleIndex(
   schedule: CourseScheduleData,
@@ -1313,12 +1469,18 @@ export function getUnlockedScheduleIndex(
   programId?: string
 ): UnlockedScheduleIndex {
   const { scopedSchedule } = getScheduleForProgram(schedule, programId);
+  const programEnded = isProgramEndedForStudent(
+    scopedSchedule?.settings,
+    isAdminAuthenticated,
+    targetDateISO
+  );
   const enforceStrictHide = Boolean(
-    scopedSchedule &&
-      Array.isArray(scopedSchedule.days) &&
-      scopedSchedule.days.length > 0 &&
-      scopedSchedule.settings?.lockFutureDays !== false &&
-      !isAdminAuthenticated
+    !isAdminAuthenticated &&
+      (programEnded ||
+        (scopedSchedule &&
+          Array.isArray(scopedSchedule.days) &&
+          scopedSchedule.days.length > 0 &&
+          scopedSchedule.settings?.lockFutureDays !== false))
   );
 
   const index: UnlockedScheduleIndex = {
@@ -1332,11 +1494,13 @@ export function getUnlockedScheduleIndex(
     videoFallbackTitles: new Set<string>(),
   };
 
-  if (!enforceStrictHide) {
+  if (!enforceStrictHide || programEnded) {
     return index;
   }
 
-  const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO();
+  const todayISO =
+    normalizeDateISO(targetDateISO) ||
+    getTodayLocalISO((scopedSchedule.settings?.timezone || '').trim() || undefined);
   const groupMap = new Map<string, CourseGroup>();
   for (const grp of scopedSchedule.groups || []) {
     if (grp?.id) groupMap.set(grp.id, grp);
@@ -1513,12 +1677,18 @@ export interface TodayScheduleSummary {
   durationMinutes: number;
   timezone: string;
   graceMinutes: number;
+  attendanceMode?: AttendanceSessionMode;
+  liveUrl?: string;
+  classroomLocation?: string;
+  archiveDate?: string;
+  isProgramEnded: boolean;
 }
 
 export function getTodayScheduleSummary(
   schedule: CourseScheduleData,
   targetDateISO?: string,
-  programId?: string
+  programId?: string,
+  isAdminAuthenticated = false
 ): TodayScheduleSummary {
   const { activeProgram, scopedSchedule } = getScheduleForProgram(
     schedule,
@@ -1526,7 +1696,14 @@ export function getTodayScheduleSummary(
   );
   const timing = getEffectiveDayTiming(null, activeProgram.settings);
   const todayISO = normalizeDateISO(targetDateISO) || getTodayLocalISO(timing.timezone);
-  const day = scopedSchedule.days.find((d) => d.date === todayISO) || null;
+  const isProgramEnded = isProgramEndedForStudent(
+    activeProgram.settings,
+    isAdminAuthenticated,
+    todayISO
+  );
+  const day = isProgramEnded
+    ? null
+    : scopedSchedule.days.find((d) => d.date === todayISO) || null;
   const effectiveTiming = getEffectiveDayTiming(day, activeProgram.settings);
   const gIds = day
     ? day.groupIds?.length
@@ -1573,6 +1750,15 @@ export function getTodayScheduleSummary(
     durationMinutes: effectiveTiming.durationMinutes,
     timezone: effectiveTiming.timezone,
     graceMinutes: effectiveTiming.graceMinutes,
+    attendanceMode:
+      day?.attendanceMode ||
+      (dayType === 'attendance' ? activeProgram.settings.defaultAttendanceMode || 'live' : undefined),
+    liveUrl: (day?.liveUrl ?? activeProgram.settings.defaultLiveUrl ?? '').trim() || undefined,
+    classroomLocation:
+      (day?.classroomLocation ?? activeProgram.settings.defaultClassroomLocation ?? '').trim() ||
+      undefined,
+    archiveDate: normalizeDateISO(activeProgram.settings.archiveDate || '') || undefined,
+    isProgramEnded,
   };
 }
 

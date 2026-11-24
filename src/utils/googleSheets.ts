@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbyAHPq5mzlooQ3mVEpUF8ieluEte48xqpn7pEv_NxAQl41oxHdbsk_iIYMwxxBf1kxUFQ/exec';
+  'https://script.google.com/macros/s/AKfycbzlbWYra1WwqJcXpnsVKBmsZfxgugiELvnJ64gk4ya7KGHkn-H121CRsO3bKKBq3Co_cQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -657,6 +657,7 @@ function normalizeRegistrantRow(r: any): StudentRegistrant {
     programId: r?.programId ? String(r.programId).trim() : undefined,
     telegramDirectUrl: r?.telegramDirectUrl ? String(r.telegramDirectUrl).trim() : undefined,
     telegramQrImageUrl: r?.telegramQrImageUrl ? String(r.telegramQrImageUrl).trim() : undefined,
+    telegramLinked: r?.telegramLinked !== undefined ? Boolean(r.telegramLinked) : undefined,
   };
 }
 
@@ -4777,7 +4778,7 @@ function getScheduleDaysSheet(ss) {
   var sheet = ss.getSheetByName(SCHEDULE_DAYS_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SCHEDULE_DAYS_SHEET_NAME);
-    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON", "ID البرنامج", "وقت الحصة", "المدة (دقيقة)"];
+    var headers = ["معرف اليوم", "التاريخ", "نوع اليوم", "ID المجموعة", "عنوان مخصص", "ملاحظات", "إعدادات الجدول JSON", "ID البرنامج", "وقت الحصة", "المدة (دقيقة)", "نمط الحصة", "رابط البث المباشر", "مكان الفصل الحضوري"];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
@@ -4788,6 +4789,11 @@ function getScheduleDaysSheet(ss) {
     if (sheet.getLastColumn() < 10) {
       sheet.getRange(1, 9).setValue("وقت الحصة").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
       sheet.getRange(1, 10).setValue("المدة (دقيقة)").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+    }
+    if (sheet.getLastColumn() < 13) {
+      sheet.getRange(1, 11).setValue("نمط الحصة").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+      sheet.getRange(1, 12).setValue("رابط البث المباشر").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
+      sheet.getRange(1, 13).setValue("مكان الفصل الحضوري").setBackground("#1e293b").setFontColor("#ffffff").setFontWeight("bold");
     }
   }
   return sheet;
@@ -4861,7 +4867,7 @@ function readCourseScheduleGS(ss) {
   }
 
   if (dSheet && dSheet.getLastRow() > 1) {
-    var dCols = Math.max(10, dSheet.getLastColumn());
+    var dCols = Math.max(13, dSheet.getLastColumn());
     var dRows = dSheet.getRange(2, 1, dSheet.getLastRow() - 1, dCols).getValues();
     for (var j = 0; j < dRows.length; j++) {
       var dr = dRows[j];
@@ -4883,6 +4889,9 @@ function readCourseScheduleGS(ss) {
       var gIds = parseScheduleGroupIdsGS(dr[3]);
       var dayStartTime = formatSheetTimeHHmmGS(dr[8], ss.getSpreadsheetTimeZone());
       var dayDur = dr[9] !== "" && dr[9] !== null && dr[9] !== undefined ? Number(dr[9]) : undefined;
+      var attModeVal = String(dr[10] || "").trim();
+      var liveUrlVal = String(dr[11] || "").trim();
+      var classLocVal = String(dr[12] || "").trim();
       days.push({
         id: did || ("day_" + dDate),
         date: dDate,
@@ -4893,7 +4902,10 @@ function readCourseScheduleGS(ss) {
         notes: String(dr[5] || "").trim(),
         programId: String(dr[7] || "").trim() || "prog_default",
         startTime: dayStartTime || undefined,
-        durationMinutes: (dayDur && !isNaN(dayDur)) ? dayDur : undefined
+        durationMinutes: (dayDur && !isNaN(dayDur)) ? dayDur : undefined,
+        attendanceMode: attModeVal || undefined,
+        liveUrl: liveUrlVal || undefined,
+        classroomLocation: classLocVal || undefined
       });
     }
   }
@@ -4919,6 +4931,16 @@ function writeCourseScheduleGS(ss, payload) {
     absenceGraceMinutes: settings.absenceGraceMinutes !== undefined ? Number(settings.absenceGraceMinutes) : 30,
     autoSendReminders: Boolean(settings.autoSendReminders),
     autoMarkAbsent: Boolean(settings.autoMarkAbsent),
+    programStartDate: String(settings.programStartDate || ""),
+    programEndDate: String(settings.programEndDate || ""),
+    archiveDate: String(settings.archiveDate || ""),
+    genWeekdays: Array.isArray(settings.genWeekdays) ? settings.genWeekdays : [0, 1, 2, 3, 4],
+    genDayType: String(settings.genDayType || "lesson"),
+    genGroupsPerDay: settings.genGroupsPerDay !== undefined ? String(settings.genGroupsPerDay) : "",
+    genMode: settings.genMode === "append" ? "append" : "replace",
+    defaultAttendanceMode: settings.defaultAttendanceMode === "in_person" ? "in_person" : "live",
+    defaultLiveUrl: String(settings.defaultLiveUrl || ""),
+    defaultClassroomLocation: String(settings.defaultClassroomLocation || ""),
     programs: programs
   };
 
@@ -4942,7 +4964,7 @@ function writeCourseScheduleGS(ss, payload) {
   }
 
   if (dSheet.getLastRow() > 1) {
-    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(10, dSheet.getLastColumn())).clearContent();
+    dSheet.getRange(2, 1, dSheet.getLastRow() - 1, Math.max(13, dSheet.getLastColumn())).clearContent();
   }
   var dValues = [];
   if (days.length > 0) {
@@ -4959,13 +4981,16 @@ function writeCourseScheduleGS(ss, payload) {
         j === 0 ? JSON.stringify(settingsPayload) : "",
         String(d.programId || "prog_default"),
         formatSheetTimeHHmmGS(d.startTime, "") || "",
-        d.durationMinutes ? Number(d.durationMinutes) : ""
+        d.durationMinutes ? Number(d.durationMinutes) : "",
+        String(d.attendanceMode || ""),
+        String(d.liveUrl || ""),
+        String(d.classroomLocation || "")
       ]);
     }
   } else {
-    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settingsPayload), "", "", ""]);
+    dValues.push(["__SETTINGS__", "", "", "", "", "", JSON.stringify(settingsPayload), "", "", "", "", "", ""]);
   }
-  dSheet.getRange(2, 1, dValues.length, 10).setValues(dValues);
+  dSheet.getRange(2, 1, dValues.length, 13).setValues(dValues);
 }
 
 // =========================================================================
@@ -5103,6 +5128,8 @@ function runAttendanceSchedulerGS(ss, overrideNow) {
     var nowObj = new Date();
     var todayISO = (overrideNow && overrideNow.date) ? formatSheetDateISO(overrideNow.date) : Utilities.formatDate(nowObj, tz, "yyyy-MM-dd");
     var nowHHmm = (overrideNow && overrideNow.time) ? formatSheetTimeHHmmGS(overrideNow.time, tz) : Utilities.formatDate(nowObj, tz, "HH:mm");
+    var archDate = formatSheetDateISO(pSet.archiveDate || "");
+    if (archDate && todayISO >= archDate) continue;
     var nowMins = parseHHmmToMinutesGS(nowHHmm);
     if (nowMins === null) continue;
 
@@ -9013,7 +9040,8 @@ function doPost(e) {
           qrImageUrl: r.qrImageUrl || "",
           programId: r.programId || "",
           telegramDirectUrl: r.telegramDirectUrl || "",
-          telegramQrImageUrl: r.telegramQrImageUrl || ""
+          telegramQrImageUrl: r.telegramQrImageUrl || "",
+          telegramLinked: Boolean(findStudentTelegramChatIdGS(ss, r.id, r.name))
         };
       });
       return ContentService.createTextOutput(JSON.stringify({
@@ -9134,7 +9162,8 @@ function doPost(e) {
           qrImageUrl: matchedRow.qrImageUrl || "",
           programId: matchedRow.programId || "",
           telegramDirectUrl: matchedRow.telegramDirectUrl || "",
-          telegramQrImageUrl: matchedRow.telegramQrImageUrl || ""
+          telegramQrImageUrl: matchedRow.telegramQrImageUrl || "",
+          telegramLinked: Boolean(findStudentTelegramChatIdGS(ss, matchedRow.id, matchedRow.name))
         }
       })).setMimeType(ContentService.MimeType.JSON);
     }

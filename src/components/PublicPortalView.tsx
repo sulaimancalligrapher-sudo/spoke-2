@@ -21,6 +21,11 @@ import {
   Heart,
   Clock as ClockIcon,
   Users,
+  Info,
+  Images,
+  PlayCircle,
+  MessageCircle,
+  Layers,
 } from 'lucide-react';
 import {
   PortalContentItem,
@@ -195,6 +200,8 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     : settings.showStoreNavSlot;
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const stripRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [lightboxState, setLightboxState] = useState<{
     item: PortalContentItem;
     slideIdx: number;
@@ -215,6 +222,21 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   };
 
   useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+    };
+  }, [mobileMenuOpen]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     const timer = window.setInterval(() => {
@@ -230,6 +252,22 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
     }, 5500);
     return () => window.clearInterval(timer);
   }, [selectedHomeProduct, selectedHomeProgram, lightboxState, activeVideoItem]);
+
+  useEffect(() => {
+    Object.keys(stripRefs.current).forEach((secKey) => {
+      const container = stripRefs.current[secKey];
+      if (!container) return;
+      const activeEl = container.querySelector('[data-active-mini="true"]') as HTMLElement | null;
+      if (!activeEl) return;
+      const cRect = container.getBoundingClientRect();
+      const aRect = activeEl.getBoundingClientRect();
+      if (cRect.width === 0) return;
+      const delta = aRect.left + aRect.width / 2 - (cRect.left + cRect.width / 2);
+      if (Math.abs(delta) > 6) {
+        container.scrollBy({ left: delta, behavior: 'smooth' });
+      }
+    });
+  }, [mobileSlideMap]);
 
   const handleToggleFavorite = (productId: string) => {
     setFavorites((prev) => {
@@ -647,6 +685,9 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             {renderAboutCard(list[activeAboutIdx], activeAboutIdx)}
             {list.length > 1 && (
               <div
+                ref={(el) => {
+                  stripRefs.current.about = el;
+                }}
                 className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
                 style={{ scrollbarWidth: 'none' }}
               >
@@ -658,6 +699,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                     <button
                       key={it.id}
                       type="button"
+                      data-active-mini={isActive ? 'true' : 'false'}
                       onClick={() => {
                         pauseMobileRotation();
                         setMobileSlideMap((p) => ({ ...p, about: idx }));
@@ -889,6 +931,9 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               {renderProgramCard(list[activeProgIdx], activeProgIdx)}
               {list.length > 1 && (
                 <div
+                  ref={(el) => {
+                    stripRefs.current.programs = el;
+                  }}
                   className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
                   style={{ scrollbarWidth: 'none' }}
                 >
@@ -900,6 +945,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                       <button
                         key={prog.id}
                         type="button"
+                        data-active-mini={isActive ? 'true' : 'false'}
                         onClick={() => {
                           pauseMobileRotation();
                           setMobileSlideMap((p) => ({ ...p, programs: idx }));
@@ -1055,6 +1101,9 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             {renderGalleryCard(list[activeGalIdx])}
             {list.length > 1 && (
               <div
+                ref={(el) => {
+                  stripRefs.current.gallery = el;
+                }}
                 className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
                 style={{ scrollbarWidth: 'none' }}
               >
@@ -1067,6 +1116,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                     <button
                       key={item.id}
                       type="button"
+                      data-active-mini={isActive ? 'true' : 'false'}
                       onClick={() => {
                         pauseMobileRotation();
                         setMobileSlideMap((p) => ({ ...p, gallery: idx }));
@@ -1197,6 +1247,9 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               {renderVideoCard(list[activeVidIdx])}
               {list.length > 1 && (
                 <div
+                  ref={(el) => {
+                    stripRefs.current.videos = el;
+                  }}
                   className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
                   style={{ scrollbarWidth: 'none' }}
                 >
@@ -1208,6 +1261,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                       <button
                         key={vid.id}
                         type="button"
+                        data-active-mini={isActive ? 'true' : 'false'}
                         onClick={() => {
                           pauseMobileRotation();
                           setMobileSlideMap((p) => ({ ...p, videos: idx }));
@@ -1394,6 +1448,9 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 {renderProductCard(showcaseProducts[activeProdIdx])}
                 {showcaseProducts.length > 1 && (
                   <div
+                    ref={(el) => {
+                      stripRefs.current.store_slot = el;
+                    }}
                     className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x"
                     style={{ scrollbarWidth: 'none' }}
                   >
@@ -1404,6 +1461,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                         <button
                           key={product.id}
                           type="button"
+                          data-active-mini={isActive ? 'true' : 'false'}
                           onClick={() => {
                             pauseMobileRotation();
                             setMobileSlideMap((p) => ({ ...p, store_slot: idx }));
@@ -1534,12 +1592,12 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                   {getPortalUiText(settings, 'contact_subheading', currentLang)}
                 </p>
 
-                <div className="flex flex-wrap gap-2.5 pt-2">
+                <div className="flex flex-wrap gap-2 pt-2">
                   {showUnifiedAuth && (
                     <button
                       type="button"
                       onClick={onOpenUnifiedAccess}
-                      className="px-5 py-3 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-2 cursor-pointer min-h-[42px] whitespace-nowrap shrink-0"
+                      className="px-4 py-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer min-h-[38px] whitespace-nowrap shrink-0"
                     >
                       <UserPlus className="w-4 h-4 text-amber-300" />
                       <span>{getPortalUiText(settings, 'unified_auth_btn', currentLang)}</span>
@@ -1551,18 +1609,17 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                       href={safeTelegram}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-3 rounded-xl bg-white hover:bg-sky-50 text-sky-800 border border-slate-300 text-xs font-extrabold inline-flex items-center gap-2 min-h-[42px] whitespace-nowrap shrink-0"
+                      className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-sky-50 text-sky-800 border border-slate-300 text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[34px] whitespace-nowrap shrink-0"
                     >
-                      <Send className="w-4 h-4" />
+                      <Send className="w-3.5 h-3.5" />
                       <span>{getPortalUiText(settings, 'contact_telegram_btn', currentLang)}</span>
-                      <ExternalLink className="w-3 h-3 opacity-75" />
                     </a>
                   )}
                 </div>
 
-                {/* Dynamic Social Channels shown in Contact section */}
+                {/* Dynamic Social Channels shown in Contact section (Compact padding + single icon) */}
                 {contactSocialChannels.length > 0 && (
-                  <div className="pt-3 flex flex-wrap items-center gap-2">
+                  <div className="pt-2 flex flex-wrap items-center gap-1.5">
                     {contactSocialChannels.map((ch) => {
                       const safeHref = sanitizeExternalUrl(ch.url);
                       if (!safeHref) return null;
@@ -1572,7 +1629,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                           href={safeHref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={`px-3.5 py-2.5 rounded-xl border text-xs font-extrabold inline-flex items-center gap-2 transition-colors min-h-[40px] ${getSocialButtonStyle(
+                          className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors min-h-[34px] ${getSocialButtonStyle(
                             ch.iconKey
                           )}`}
                         >
@@ -1582,7 +1639,6 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                             label={ch.appName}
                           />
                           <span>{ch.appName}</span>
-                          <ExternalLink className="w-3 h-3 opacity-60" />
                         </a>
                       );
                     })}
@@ -1624,6 +1680,23 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
   const showHeaderUnifiedAuth = isPortalUiButtonVisible(settings, 'unified_auth_btn');
   const headerUnifiedAuthText = getPortalUiText(settings, 'unified_auth_btn', currentLang);
 
+  const renderSectionNavIcon = (secKey: PortalSectionType) => {
+    switch (secKey) {
+      case 'about':
+        return <Info className="w-4 h-4" />;
+      case 'programs':
+        return <BookOpen className="w-4 h-4" />;
+      case 'gallery':
+        return <Images className="w-4 h-4" />;
+      case 'videos':
+        return <PlayCircle className="w-4 h-4" />;
+      case 'contact':
+        return <MessageCircle className="w-4 h-4" />;
+      default:
+        return <Layers className="w-4 h-4" />;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAF9] text-slate-800 font-cairo flex flex-col" dir={dir}>
       {/* Optional Top Announcement Ribbon */}
@@ -1635,11 +1708,11 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
 
       {/* 3-Zone Top Bar Contract */}
       <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-6">
-          {/* Zone 1: Brand Wordmark */}
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 sm:gap-5">
+          {/* Zone 1: Brand Wordmark (Animated Marquee on Mobile & Tablet, Static on Desktop) */}
           <a
             href="#portal-hero"
-            className="flex items-center gap-2.5 text-base sm:text-lg font-extrabold text-slate-900 whitespace-nowrap shrink-0"
+            className="flex items-center gap-2.5 text-base sm:text-lg font-extrabold text-slate-900 whitespace-nowrap min-w-0"
           >
             {settings.logoUrl ? (
               <img
@@ -1652,18 +1725,34 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 }}
               />
             ) : null}
-            <span className="truncate max-w-[160px] sm:max-w-[230px] lg:max-w-none">{academyName}</span>
+            <span className="hidden lg:inline">{academyName}</span>
+            <span className="lg:hidden overflow-hidden max-w-[140px] sm:max-w-[240px] block">
+              <span
+                className={
+                  dir === 'rtl'
+                    ? 'animate-title-marquee whitespace-nowrap'
+                    : 'animate-title-marquee-ltr whitespace-nowrap'
+                }
+              >
+                <span>{academyName}</span>
+                <span className="px-5 opacity-40" aria-hidden="true">·</span>
+                <span>{academyName}</span>
+                <span className="px-5 opacity-40" aria-hidden="true">·</span>
+              </span>
+            </span>
           </a>
 
-          {/* Zone 2: Clean Single-Line Text Nav Links + Icon-Only Store Cart */}
-          <nav className="hidden lg:flex items-center gap-6 text-sm font-semibold text-slate-600">
+          {/* Zone 2: Icon-Only Section Links + Icon-Only Store Cart (Desktop) */}
+          <nav className="hidden lg:flex items-center gap-2">
             {navLinks.map((lnk) => (
               <a
                 key={lnk.key}
                 href={lnk.href}
-                className="hover:text-emerald-800 transition-colors whitespace-nowrap shrink-0"
+                title={lnk.label}
+                aria-label={lnk.label}
+                className="w-10 h-10 rounded-xl border border-slate-200/80 bg-slate-50/70 hover:bg-emerald-50 hover:border-emerald-300 text-slate-600 hover:text-emerald-800 transition-colors inline-flex items-center justify-center shrink-0"
               >
-                {lnk.label}
+                {renderSectionNavIcon(lnk.key)}
               </a>
             ))}
             {isStoreEnabled && (
@@ -1672,7 +1761,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 onClick={openFullStore}
                 title="المتجر"
                 aria-label="المتجر"
-                className="relative p-2 rounded-xl text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50 border border-emerald-200/80 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0 min-h-[40px] min-w-[40px]"
+                className="relative w-10 h-10 rounded-xl text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50 border border-emerald-200/80 transition-colors cursor-pointer inline-flex items-center justify-center shrink-0"
               >
                 <ShoppingCart className="w-4 h-4" />
                 {cartCount > 0 && (
@@ -1684,7 +1773,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
             )}
           </nav>
 
-          {/* Zone 3: Icon-Only Language + Unified Access Button + Mobile Controls */}
+          {/* Zone 3: Flag-Only Language + Single-Word Access Button + Mobile Floating Dropdown */}
           <div className="flex items-center gap-2 shrink-0">
             <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} iconOnly />
 
@@ -1692,7 +1781,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               <button
                 type="button"
                 onClick={onOpenUnifiedAccess}
-                className="hidden sm:inline-flex px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-800 hover:bg-emerald-900 text-white transition-colors cursor-pointer whitespace-nowrap shrink-0 items-center gap-1.5 min-h-[40px]"
+                className="hidden sm:inline-flex px-3.5 py-2 rounded-xl text-xs font-extrabold bg-emerald-800 hover:bg-emerald-900 text-white transition-colors cursor-pointer whitespace-nowrap shrink-0 items-center gap-1.5 min-h-[40px]"
               >
                 <UserPlus className="w-3.5 h-3.5 text-amber-300" />
                 <span>{headerUnifiedAuthText}</span>
@@ -1705,7 +1794,7 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
                 onClick={openFullStore}
                 title="المتجر"
                 aria-label="المتجر"
-                className="lg:hidden relative p-2 rounded-xl border border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
+                className="lg:hidden relative w-10 h-10 rounded-xl border border-emerald-200 bg-emerald-50/70 text-emerald-800 hover:bg-emerald-100 cursor-pointer flex items-center justify-center shrink-0"
               >
                 <ShoppingCart className="w-4 h-4" />
                 {cartCount > 0 && (
@@ -1716,49 +1805,55 @@ export const PublicPortalView: React.FC<PublicPortalViewProps> = ({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => setMobileMenuOpen((v) => !v)}
-              className="lg:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
-              aria-label="القائمة"
-            >
-              {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </button>
+            {/* Mobile / Tablet Sections Icon Dropdown Button */}
+            <div ref={mobileMenuRef} className="relative lg:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((v) => !v)}
+                className={`w-10 h-10 rounded-xl border transition-colors cursor-pointer flex items-center justify-center shrink-0 ${
+                  mobileMenuOpen
+                    ? 'bg-emerald-800 border-emerald-800 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                }`}
+                aria-label="أقسام الصفحة"
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+              </button>
+
+              {mobileMenuOpen && (
+                <div className="absolute top-full mt-2 left-0 rtl:left-0 ltr:right-0 p-2 rounded-2xl bg-white/95 backdrop-blur-md shadow-2xl border border-slate-200 z-50 flex flex-col items-center gap-1.5 min-w-[56px] animate-in fade-in slide-in-from-top-2 duration-150">
+                  {navLinks.map((lnk) => (
+                    <a
+                      key={lnk.key}
+                      href={lnk.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      title={lnk.label}
+                      aria-label={lnk.label}
+                      className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-emerald-50 border border-slate-200/80 hover:border-emerald-300 text-slate-700 hover:text-emerald-800 flex items-center justify-center transition-colors shrink-0"
+                    >
+                      {renderSectionNavIcon(lnk.key)}
+                    </a>
+                  ))}
+                  {showHeaderUnifiedAuth && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        onOpenUnifiedAccess();
+                      }}
+                      title={headerUnifiedAuthText}
+                      aria-label={headerUnifiedAuthText}
+                      className="sm:hidden w-10 h-10 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                    >
+                      <UserPlus className="w-4 h-4 text-amber-300" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-
-        {/* Mobile / Tablet Drawer */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-3">
-            <div className="flex flex-wrap gap-2.5">
-              {navLinks.map((lnk) => (
-                <a
-                  key={lnk.key}
-                  href={lnk.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="text-sm font-bold text-slate-700 hover:text-emerald-800 py-1.5 px-2.5 rounded-lg hover:bg-slate-50"
-                >
-                  {lnk.label}
-                </a>
-              ))}
-            </div>
-            {showHeaderUnifiedAuth && (
-              <div className="pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenUnifiedAccess();
-                  }}
-                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer min-h-[42px]"
-                >
-                  <UserPlus className="w-4 h-4 text-amber-300" />
-                  <span>{headerUnifiedAuthText}</span>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </header>
 
       {/* Main Content */}

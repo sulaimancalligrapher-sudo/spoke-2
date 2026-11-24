@@ -72,6 +72,7 @@ import {
 } from './utils/portalSheets';
 import {
   fetchStoreDataFromSheets,
+  getLocalStoreCart,
   getLocalStoreData,
   saveLocalStoreData,
 } from './utils/storeSheets';
@@ -92,7 +93,6 @@ import {
   getLocalAttendanceRecords,
   getLocalCourseSchedule,
   getLocalPdfReportSettings,
-  getNowLocalHHmm,
   getScheduleForProgram,
   getTodayLocalISO,
   getTodayScheduleSummary,
@@ -103,6 +103,7 @@ import {
 import {
   VideoLesson,
   VideoStudentProgress,
+  fetchTelegramUsers,
   fetchVideoLessonsFromSheets,
   fetchStudentVideoProgress,
   getLocalVideoLessons,
@@ -187,10 +188,6 @@ import {
   ArrowRight,
   ArrowLeft,
   CheckCircle2,
-  ShieldCheck,
-  Headphones,
-  Zap,
-  RotateCcw,
   Home,
   Layers,
   Award,
@@ -205,12 +202,14 @@ import {
   Calendar,
   UserCheck,
   Clock,
-  MapPin,
   LogIn,
   Loader2,
   Bot,
   ExternalLink,
   RefreshCw,
+  Video,
+  Building2,
+  Archive,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -411,6 +410,10 @@ export default function App() {
   const [storeData, setStoreData] = useState<StorePublicData>(() => getLocalStoreData());
   const [storeRouteMode, setStoreRouteMode] = useState<'none' | 'store' | 'orders'>('none');
   const [storeEntryToast, setStoreEntryToast] = useState<string | null>(null);
+  const [telegramLinkedStudentIds, setTelegramLinkedStudentIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [showTodayLessonsInCard, setShowTodayLessonsInCard] = useState(false);
 
   const activeStudentProgramId = isAdminAuthenticated
     ? schedulePreviewProgramId
@@ -420,13 +423,6 @@ export default function App() {
     () => getScheduleForProgram(courseSchedule, activeStudentProgramId),
     [courseSchedule, activeStudentProgramId]
   );
-
-  const hasTodayScheduleLesson = useMemo(() => {
-    const tIso = getTodayLocalISO();
-    return activeScopedSchedule.scopedSchedule.days.some(
-      (d) => d.date === tIso && ((d.groupIds && d.groupIds.length > 0) || Boolean(d.groupId))
-    );
-  }, [activeScopedSchedule.scopedSchedule.days]);
 
   // Daily Class Attendance Check-in State (سجل_الحضور)
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() =>
@@ -439,9 +435,36 @@ export default function App() {
   } | null>(null);
 
   const todayScheduleSummary = useMemo(
-    () => getTodayScheduleSummary(courseSchedule, undefined, activeStudentProgramId),
-    [courseSchedule, activeStudentProgramId]
+    () =>
+      getTodayScheduleSummary(
+        courseSchedule,
+        undefined,
+        activeStudentProgramId,
+        isAdminAuthenticated
+      ),
+    [courseSchedule, activeStudentProgramId, isAdminAuthenticated]
   );
+
+  const hasTodayScheduleLesson = useMemo(() => {
+    if (todayScheduleSummary.isProgramEnded) return false;
+    const tIso = getTodayLocalISO();
+    return activeScopedSchedule.scopedSchedule.days.some(
+      (d) => d.date === tIso && ((d.groupIds && d.groupIds.length > 0) || Boolean(d.groupId))
+    );
+  }, [activeScopedSchedule.scopedSchedule.days, todayScheduleSummary.isProgramEnded]);
+
+  const storeCartCount = useMemo(() => {
+    return getLocalStoreCart().reduce((sum, item) => sum + (item.qty || 1), 0);
+  }, [storeRouteMode, isPortalPreview, currentView]);
+
+  const isStudentTelegramLinked = useMemo(() => {
+    if (!currentStudent?.id) return false;
+    return (
+      Boolean(currentStudent.telegramLinked) ||
+      telegramLinkedStudentIds.has(normalizeDigits(currentStudent.id))
+    );
+  }, [currentStudent, telegramLinkedStudentIds]);
+
   const [showWelcomeBanner, setShowWelcomeBanner] = useState(true);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
@@ -799,19 +822,33 @@ export default function App() {
             match &&
             (match.programId !== currentStudent.programId ||
               match.name !== currentStudent.name ||
-              match.status !== currentStudent.status)
+              match.status !== currentStudent.status ||
+              match.telegramLinked !== currentStudent.telegramLinked)
           ) {
             const updated = {
               ...currentStudent,
               name: match.name || currentStudent.name,
               status: match.status || currentStudent.status,
               programId: match.programId,
+              telegramLinked: match.telegramLinked ?? currentStudent.telegramLinked,
             };
             setCurrentStudent(updated);
             try {
               localStorage.setItem(STORAGE_KEY_STUDENT, JSON.stringify(updated));
             } catch {}
           }
+        })
+        .catch(() => {});
+      fetchTelegramUsers(url)
+        .then((users) => {
+          if (!Array.isArray(users)) return;
+          const next = new Set<string>();
+          users.forEach((u) => {
+            if (u.studentId && u.chatId && u.notificationsEnabled !== false) {
+              next.add(normalizeDigits(u.studentId));
+            }
+          });
+          setTelegramLinkedStudentIds(next);
         })
         .catch(() => {});
     }
@@ -1793,6 +1830,7 @@ export default function App() {
           name: match.name || currentStudent.name,
           status: match.status || currentStudent.status,
           programId: match.programId,
+          telegramLinked: match.telegramLinked ?? currentStudent.telegramLinked,
         };
         setCurrentStudent(updated);
         try {
@@ -2449,6 +2487,26 @@ export default function App() {
     }
   }, [appMode, currentStudent?.id, sheetsConfig.webhookUrl]);
 
+  useEffect(() => {
+    if (!currentStudent?.id || !sheetsConfig.webhookUrl) return;
+    let cancelled = false;
+    fetchTelegramUsers(sheetsConfig.webhookUrl)
+      .then((users) => {
+        if (cancelled || !Array.isArray(users)) return;
+        const next = new Set<string>();
+        users.forEach((u) => {
+          if (u.studentId && u.chatId && u.notificationsEnabled !== false) {
+            next.add(normalizeDigits(u.studentId));
+          }
+        });
+        setTelegramLinkedStudentIds(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currentStudent?.id, sheetsConfig.webhookUrl]);
+
   const openVideoLessonsModal = () => {
     closeAllLessonModals();
     refreshAllVideoData().catch(() => {});
@@ -2778,7 +2836,15 @@ export default function App() {
               setRegistrationPreselectedProgram(progLabel);
               setIsRegistrationModalOpen(true);
             }}
-            onOpenStudentLogin={() => setIsLoginModalOpen(true)}
+            onOpenStudentLogin={() => {
+              if (currentStudent) {
+                setIsPortalPreview(false);
+                setStoreRouteMode('none');
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              } else {
+                setIsLoginModalOpen(true);
+              }
+            }}
           />
         ) : (
           <PublicPortalView
@@ -2797,7 +2863,14 @@ export default function App() {
               setIsRegistrationModalOpen(true);
             }}
             onOpenProgramRequest={(item) => setActiveProgramRequestItem(item)}
-            onOpenStudentLogin={() => setIsLoginModalOpen(true)}
+            onOpenStudentLogin={() => {
+              if (currentStudent) {
+                setIsPortalPreview(false);
+                setStoreRouteMode('none');
+              } else {
+                setIsLoginModalOpen(true);
+              }
+            }}
             onOpenStore={(toastMsg) => {
               setStoreEntryToast(toastMsg || null);
               setStoreRouteMode('store');
@@ -2805,6 +2878,23 @@ export default function App() {
             }}
             highlightedProgramSlug={highlightedProgramSlug}
           />
+        )}
+
+        {currentStudent && isPortalPreview && !isAdminAuthenticated && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsPortalPreview(false);
+              setStoreRouteMode('none');
+              if (window.location.hash.toLowerCase().startsWith('#store')) {
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+              }
+            }}
+            className="fixed bottom-4 left-4 z-[85] px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-lg border border-emerald-400 inline-flex items-center gap-2 cursor-pointer"
+          >
+            <Home className="w-3.5 h-3.5" />
+            <span>العودة لصفحتي التعليمية</span>
+          </button>
         )}
 
         {isAdminAuthenticated && isPortalPreview && (
@@ -3028,11 +3118,24 @@ export default function App() {
           closeAllLessonModals();
           setIsScheduleModalOpen(true);
         }}
-        hasCourseSchedule={activeScopedSchedule.scopedSchedule.days.length > 0}
+        hasCourseSchedule={!todayScheduleSummary.isProgramEnded && activeScopedSchedule.scopedSchedule.days.length > 0}
         hasTodayScheduleLesson={hasTodayScheduleLesson}
         showLessonsBtn={homeNavbarControls.showLessons}
         showVideoBtn={homeNavbarControls.showVideo}
         showScheduleBtn={homeNavbarControls.showSchedule}
+        onBackToPublicPortal={() => {
+          closeAllLessonModals();
+          setStoreRouteMode('none');
+          setIsPortalPreview(true);
+        }}
+        onOpenStore={() => {
+          closeAllLessonModals();
+          setStoreRouteMode('store');
+          setIsPortalPreview(true);
+          window.location.hash = '#store';
+        }}
+        showStoreBtn={storeData.settings.show_in_public_portal !== false}
+        storeCartCount={storeCartCount}
         currentMode={appMode}
         onSelectMode={(mode) => {
           closeAllLessonModals();
@@ -3094,191 +3197,23 @@ export default function App() {
               </div>
             )}
 
-            {/* Main Hero Card - Controlled exclusively by sheet 'الرئيسية' B21:B27 */}
-            <div
-              className="relative overflow-visible rounded-3xl text-white shadow-2xl border border-slate-800/80 max-w-4xl w-full mx-auto"
-              style={
-                homeConfig?.card?.cardBgUrl
-                  ? {
-                      backgroundImage: `url(${homeConfig.card.cardBgUrl})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }
-                  : undefined
-              }
-            >
-              {/* Clipped backdrop layer so dropdown can extend smoothly outside if needed */}
-              <div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none">
-                <div className="absolute inset-0 bg-linear-to-b from-slate-950/90 via-slate-950/85 to-slate-950/92 backdrop-blur-xs" />
-                <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl" />
-                <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/15 rounded-full blur-3xl" />
-              </div>
-
-              <div className="relative z-10 flex flex-col items-center text-center p-7 sm:p-14 max-w-3xl mx-auto">
-                {/* 1. B21: Card Logo (Centered) */}
-                {homeConfig?.card?.cardLogoUrl && (
-                  <div className="mb-6 flex justify-center">
-                    <img
-                      src={homeConfig.card.cardLogoUrl}
-                      alt="شعار البطاقة"
-                      className="w-20 h-20 sm:w-28 sm:h-28 rounded-3xl object-contain shadow-2xl border-2 border-white/20 bg-white/10 p-2 backdrop-blur-xs"
-                      onError={(e) => {
-                        (e.target as any).style.display = 'none';
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* 2. B23: Card Main Title */}
-                {(() => {
-                  const rawFallback = homeConfig?.card?.cardTitle !== undefined ? homeConfig.card.cardTitle : (homeConfig?.title !== undefined ? homeConfig.title : '');
-                  const cardTitleVal = t('home_card_title', rawFallback);
-                  return cardTitleVal ? (
-                    <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight font-amiri leading-tight sm:leading-snug mb-4 text-white">
-                      {cardTitleVal}
-                    </h1>
-                  ) : null;
-                })()}
-
-                {/* 3. B24: Card Subtitle / Description */}
-                {(() => {
-                  const rawSubFallback = homeConfig?.card?.cardSubtitle !== undefined ? homeConfig.card.cardSubtitle : (homeConfig?.subtitle !== undefined ? homeConfig.subtitle : '');
-                  const cardSubVal = t('home_card_subtitle', rawSubFallback);
-                  return cardSubVal ? (
-                    <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-2xl mx-auto mb-6">
-                      {cardSubVal}
-                    </p>
-                  ) : null;
-                })()}
-
-                {/* 4. B25:B27: Optional Extra Texts */}
-                {(() => {
-                  const ex1 = t('home_card_extra1', homeConfig?.card?.extraText1 || '');
-                  const ex2 = t('home_card_extra2', homeConfig?.card?.extraText2 || '');
-                  const ex3 = t('home_card_extra3', homeConfig?.card?.extraText3 || '');
-                  if (!ex1 && !ex2 && !ex3) return null;
-                  return (
-                    <div className="flex flex-wrap items-center justify-center gap-2.5 max-w-2xl mx-auto mb-8">
-                      {Boolean(ex1) && (
-                        <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 backdrop-blur-xs">
-                          {ex1}
-                        </span>
-                      )}
-                      {Boolean(ex2) && (
-                        <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-sky-500/20 text-sky-200 border border-sky-400/30 backdrop-blur-xs">
-                          {ex2}
-                        </span>
-                      )}
-                      {Boolean(ex3) && (
-                        <span className="px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 backdrop-blur-xs">
-                          {ex3}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })()}
-
-              </div>
-            </div>
-
-            {/* Stage-1 Onboarding Guidance Card (shown only while student is in the default Stage-1 program) */}
-            {currentStudent &&
-              (!currentStudent.programId ||
-                currentStudent.programId === portalData.settings.stage1DefaultProgramId) && (() => {
-                const tgLink = buildTelegramBotStartLink(
-                  portalData.settings.telegramBotUsername || getSavedPortalBotUsername(),
-                  currentStudent.id
-                );
-                return (
-                  <div className="max-w-4xl w-full mx-auto bg-amber-50/80 rounded-3xl border border-amber-200 shadow-sm p-5 sm:p-6 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-extrabold">
-                          المرحلة التمهيدية · بانتظار اعتماد الإدارة
-                        </span>
-                        <span className="font-mono tabular-nums text-xs font-extrabold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-amber-200">
-                          ID #{currentStudent.id}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleRefreshCurrentStudentStage}
-                        disabled={isRefreshingStudentStage}
-                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-amber-100/60 text-amber-950 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 transition-colors"
-                      >
-                        <RefreshCw
-                          className={`w-3.5 h-3.5 ${isRefreshingStudentStage ? 'animate-spin' : ''}`}
-                        />
-                        <span>تحقق من الانتقال للمرحلة الثانية</span>
-                      </button>
-                    </div>
-
-                    {portalData.settings.stage1BannerTitle && (
-                      <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
-                        {portalData.settings.stage1BannerTitle}
-                      </h2>
-                    )}
-                    {portalData.settings.stage1BannerBody && (
-                      <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line font-semibold">
-                        {portalData.settings.stage1BannerBody}
-                      </p>
-                    )}
-
-                    {tgLink && (
-                      <div className="pt-1 flex flex-wrap items-center gap-2.5">
-                        <a
-                          href={tgLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold shadow-xs transition-colors"
-                        >
-                          <Bot className="w-4 h-4" />
-                          <span>ربط حساب تيليغرام برقم التسجيل ({currentStudent.id})</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                        <span className="text-[11px] font-bold text-slate-600">
-                          يصلك إشعار فوري على تيليغرام فور اعتماد الإدارة ونقلك لمجموعتك التدريبية.
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-            {/* Dedicated Program Welcome & Guidelines Card */}
+            {/* Unified Compact Student Home Card */}
             {(() => {
               const prog = activeScopedSchedule.activeProgram;
-              const multiProg = (activeScopedSchedule.programs?.length || 0) > 1;
-              const customTitle = (prog.welcomeTitle || '').trim();
-              const customBody = (prog.welcomeMessage || '').trim() || (multiProg ? (prog.description || '').trim() : '');
-              if (!customTitle && !customBody) return null;
               const pMeta = PROGRAM_COLOR_META[prog.color || 'emerald'];
-              return (
-                <div className="max-w-4xl w-full mx-auto bg-white rounded-3xl border border-slate-200 shadow-md p-5 sm:p-6 space-y-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <span className={`px-3 py-1 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 ${pMeta.pillBg} ${pMeta.pillText} ${pMeta.pillBorder}`}>
-                        <span className={`w-2 h-2 rounded-full ${pMeta.dotBg}`} />
-                        <span>{prog.name}</span>
-                      </span>
-                      {customTitle && (
-                        <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
-                          {customTitle}
-                        </h2>
-                      )}
-                    </div>
-                  </div>
-                  {customBody && (
-                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line font-semibold">
-                      {customBody}
-                    </p>
-                  )}
-                </div>
+              const isStage1 = Boolean(
+                currentStudent &&
+                  (!currentStudent.programId ||
+                    currentStudent.programId === portalData.settings.stage1DefaultProgramId)
               );
-            })()}
+              const tgLink =
+                currentStudent && !isStudentTelegramLinked
+                  ? buildTelegramBotStartLink(
+                      portalData.settings.telegramBotUsername || getSavedPortalBotUsername(),
+                      currentStudent.id
+                    )
+                  : '';
 
-            {/* Today's Class & Attendance Check-in Card (حصة اليوم وتأكيد الحضور - سجل_الحضور) */}
-            {(() => {
               const dateMeta = formatScheduleDateLabel(todayScheduleSummary.todayISO, currentLang);
               const dayTypeMeta = SCHEDULE_DAY_TYPE_META[todayScheduleSummary.dayType];
               const dayTypeLabel =
@@ -3286,265 +3221,315 @@ export default function App() {
                   ? t('schedule_type_review', dayTypeMeta.labelAr)
                   : todayScheduleSummary.dayType === 'exam'
                   ? t('schedule_type_exam', dayTypeMeta.labelAr)
+                  : todayScheduleSummary.dayType === 'attendance'
+                  ? t('schedule_type_attendance', dayTypeMeta.labelAr)
                   : t('schedule_type_lesson', dayTypeMeta.labelAr);
 
+              const progWelcomeTitle = (prog.welcomeTitle || '').trim();
+              const progWelcomeBody = (prog.welcomeMessage || '').trim();
+              const dayNote = (todayScheduleSummary.day?.notes || '').trim();
+              const isCheckedIn = Boolean(
+                todayStudentAttendance && todayStudentAttendance.status !== 'absent'
+              );
+              const attStatusMeta =
+                isCheckedIn && todayStudentAttendance
+                  ? getAttendanceStatusMeta(
+                      todayStudentAttendance.status,
+                      todayStudentAttendance.minutesDelta
+                    )
+                  : null;
+
               return (
-                <div className="max-w-4xl w-full mx-auto bg-white rounded-3xl border border-slate-200 shadow-lg p-5 sm:p-7 space-y-4">
-                  {/* Top Bar: Date + Session Type */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
-                        <UserCheck className="w-6 h-6" />
+                <div className="max-w-4xl w-full mx-auto bg-white rounded-3xl border border-slate-200 shadow-lg p-5 sm:p-6 space-y-4">
+                  {/* 1. Greeting with subscriber name + Program pill + Date/Time */}
+                  <div className="flex flex-wrap items-start justify-between gap-3 pb-3.5 border-b border-slate-100">
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h1 className="text-lg sm:text-xl font-extrabold text-slate-900">
+                          {currentStudent ? `مرحباً ${currentStudent.name}` : 'مرحباً بك'}
+                        </h1>
+                        {prog.name && (
+                          <span
+                            className={`px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border inline-flex items-center gap-1.5 ${pMeta.pillBg} ${pMeta.pillText} ${pMeta.pillBorder}`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dotBg}`} />
+                            <span>{prog.name}</span>
+                          </span>
+                        )}
+                        {isStage1 && (
+                          <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold">
+                            مرحلة تمهيدية
+                          </span>
+                        )}
                       </div>
-                      <div>
-                        <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
-                          {t('attendance_home_title', 'حصة اليوم وتأكيد الحضور')}
-                        </h2>
-                        <div className="text-xs text-slate-500 font-bold flex flex-wrap items-center gap-2">
-                          <span>{dateMeta.weekday}</span>
-                          <span>•</span>
-                          <span className="font-mono">{dateMeta.formattedDate}</span>
-                          {todayScheduleSummary.startTime && (
-                            <>
-                              <span>•</span>
-                              <span className="inline-flex items-center gap-1 text-indigo-700 font-extrabold tabular-nums">
-                                <Clock className="w-3.5 h-3.5" />
-                                <span>
-                                  {todayScheduleSummary.startTime} ({todayScheduleSummary.durationMinutes} د)
-                                </span>
-                              </span>
-                            </>
-                          )}
-                        </div>
+
+                      <div className="text-xs text-slate-500 font-bold flex flex-wrap items-center gap-2">
+                        <span>{dateMeta.weekday}</span>
+                        <span>·</span>
+                        <span className="font-mono">{dateMeta.formattedDate}</span>
+                        {todayScheduleSummary.startTime && (
+                          <>
+                            <span>·</span>
+                            <span className="inline-flex items-center gap-1 text-indigo-700 font-extrabold tabular-nums">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>{todayScheduleSummary.startTime}</span>
+                            </span>
+                          </>
+                        )}
+                        {!todayScheduleSummary.isProgramEnded && todayScheduleSummary.day && (
+                          <span
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${dayTypeMeta.badgeBg} ${dayTypeMeta.badgeText} ${dayTypeMeta.badgeBorder}`}
+                          >
+                            {dayTypeLabel}
+                          </span>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      {todayScheduleSummary.day ? (
-                        <span
-                          className={`px-3 py-1 rounded-xl text-xs font-extrabold border ${dayTypeMeta.badgeBg} ${dayTypeMeta.badgeText} ${dayTypeMeta.badgeBorder}`}
-                        >
-                          {dayTypeLabel}
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 rounded-xl text-xs font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
-                          {t('attendance_open_session', 'حضور التدريب اليومي')}
-                        </span>
-                      )}
+                    {isStage1 && (
+                      <button
+                        type="button"
+                        onClick={handleRefreshCurrentStudentStage}
+                        disabled={isRefreshingStudentStage}
+                        className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-300 text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 transition-colors shrink-0"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${isRefreshingStudentStage ? 'animate-spin' : ''}`}
+                        />
+                        <span>تحقق من الترقية</span>
+                      </button>
+                    )}
+                  </div>
 
-                      {activeScopedSchedule.scopedSchedule.days.length > 0 && (
+                  {/* 2. Essential Notes Only (if present) */}
+                  {(progWelcomeTitle ||
+                    progWelcomeBody ||
+                    dayNote ||
+                    (isStage1 && (portalData.settings.stage1BannerTitle || portalData.settings.stage1BannerBody))) && (
+                    <div className="rounded-2xl bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 space-y-1 text-xs text-slate-700 font-semibold">
+                      {(progWelcomeTitle || progWelcomeBody) && (
+                        <div>
+                          {progWelcomeTitle && (
+                            <span className="font-extrabold text-slate-900 ml-1.5">
+                              {progWelcomeTitle}:
+                            </span>
+                          )}
+                          {progWelcomeBody && <span className="whitespace-pre-line">{progWelcomeBody}</span>}
+                        </div>
+                      )}
+                      {dayNote && <div className="text-slate-600">{dayNote}</div>}
+                      {isStage1 && (portalData.settings.stage1BannerTitle || portalData.settings.stage1BannerBody) && (
+                        <div className="text-amber-900">
+                          {portalData.settings.stage1BannerTitle && (
+                            <span className="font-extrabold ml-1">
+                              {portalData.settings.stage1BannerTitle}:
+                            </span>
+                          )}
+                          <span>{portalData.settings.stage1BannerBody}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 3. Live / In-Person Attendance Info OR Program Ended Notice */}
+                  {todayScheduleSummary.isProgramEnded ? (
+                    <div className="rounded-2xl bg-slate-100 border border-slate-200 px-3.5 py-2.5 flex items-center gap-2 text-xs font-extrabold text-slate-700">
+                      <Archive className="w-4 h-4 text-slate-600 shrink-0" />
+                      <span>
+                        تم إنهاء البرنامج وإخفاء الجدول والدروس ({todayScheduleSummary.archiveDate})
+                      </span>
+                    </div>
+                  ) : (
+                    todayScheduleSummary.dayType === 'attendance' && (
+                      <div className="rounded-2xl bg-purple-50 border border-purple-200 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                        {todayScheduleSummary.attendanceMode === 'in_person' ? (
+                          <div className="flex items-center gap-2 text-xs font-extrabold text-purple-950">
+                            <Building2 className="w-4 h-4 text-purple-700 shrink-0" />
+                            <span>
+                              حضور مباشر في الفصل
+                              {todayScheduleSummary.classroomLocation
+                                ? ` — ${todayScheduleSummary.classroomLocation}`
+                                : ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2 text-xs font-extrabold text-purple-950">
+                              <Video className="w-4 h-4 text-purple-700 shrink-0" />
+                              <span>حصة بث مباشر</span>
+                            </div>
+                            {todayScheduleSummary.liveUrl && (
+                              <a
+                                href={todayScheduleSummary.liveUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold"
+                              >
+                                <span>دخول البث</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )
+                  )}
+
+                  {/* 4. Action Buttons Row: Check-in + Today's Lessons + Schedule + Telegram Link (only if unlinked) */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!currentStudent ? (
+                      <button
+                        type="button"
+                        onClick={() => setIsLoginModalOpen(true)}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <LogIn className="w-4 h-4" />
+                        <span>{t('attendance_login_btn', 'دخول وتأكيد الحضور')}</span>
+                      </button>
+                    ) : isCheckedIn ? (
+                      <div className="px-4 py-2 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-extrabold inline-flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                        <span>تم تأكيد الحضور ✓</span>
+                        {attStatusMeta && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-white/80 text-[10px] font-extrabold text-emerald-800">
+                            {attStatusMeta.shortAr}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleConfirmTodayAttendance}
+                        disabled={isCheckingInAttendance}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-60 transition-colors"
+                      >
+                        {isCheckingInAttendance ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <UserCheck className="w-4 h-4" />
+                        )}
+                        <span>
+                          {isCheckingInAttendance
+                            ? 'جاري التأكيد...'
+                            : todayStudentAttendance?.status === 'absent'
+                            ? 'تأكيد الحضور (متأخر)'
+                            : 'تأكيد الحضور'}
+                        </span>
+                      </button>
+                    )}
+
+                    {!todayScheduleSummary.isProgramEnded && (
+                      <button
+                        type="button"
+                        onClick={() => setShowTodayLessonsInCard((prev) => !prev)}
+                        className={`px-4 py-2.5 rounded-xl text-xs font-extrabold border inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                          showTodayLessonsInCard
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border-indigo-200'
+                        }`}
+                      >
+                        <BookOpen className="w-4 h-4" />
+                        <span>درس اليوم</span>
+                        {todayScheduleSummary.totalLessons > 0 && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              showTodayLessonsInCard
+                                ? 'bg-white/20 text-white'
+                                : 'bg-indigo-600 text-white'
+                            }`}
+                          >
+                            {todayScheduleSummary.totalLessons}
+                          </span>
+                        )}
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform ${
+                            showTodayLessonsInCard ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+                    )}
+
+                    {!todayScheduleSummary.isProgramEnded &&
+                      activeScopedSchedule.scopedSchedule.days.length > 0 && (
                         <button
                           type="button"
                           onClick={() => {
                             closeAllLessonModals();
                             setIsScheduleModalOpen(true);
                           }}
-                          className="px-3 py-1 rounded-xl text-xs font-bold bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 flex items-center gap-1 cursor-pointer transition-colors"
+                          className="px-3.5 py-2.5 rounded-xl text-xs font-extrabold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                         >
-                          <Calendar className="w-3.5 h-3.5" />
-                          <span>{t('attendance_view_schedule', 'عرض الجدول')}</span>
+                          <Calendar className="w-4 h-4 text-teal-700" />
+                          <span>{t('attendance_view_schedule', 'الجدول')}</span>
                         </button>
                       )}
-                    </div>
-                  </div>
 
-                  {/* Today's Groups / Lessons Summary */}
-                  <div className="space-y-2.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {(activeScopedSchedule.programs?.length || 0) > 1 && (() => {
-                          const pMeta = PROGRAM_COLOR_META[activeScopedSchedule.activeProgram.color || 'emerald'];
-                          return (
-                            <span
-                              className={`px-2.5 py-0.5 rounded-lg text-[11px] font-extrabold border ${pMeta.pillBg} ${pMeta.pillText} ${pMeta.pillBorder}`}
-                            >
-                              {todayScheduleSummary.programName}
-                            </span>
-                          );
-                        })()}
-                        <div className="text-sm font-extrabold text-slate-800">
-                          {todayScheduleSummary.sessionTitle}
-                        </div>
-                      </div>
-                      {todayScheduleSummary.totalLessons > 0 && (
-                        <span className="text-[11px] font-bold text-slate-500">
-                          {todayScheduleSummary.totalLessons} دروس مخصصة لليوم
-                        </span>
-                      )}
-                    </div>
-
-                    {todayScheduleSummary.day?.notes && (
-                      <p className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 font-semibold">
-                        {todayScheduleSummary.day.notes}
-                      </p>
-                    )}
-
-                    {todayScheduleSummary.allLessonRefs.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-0.5">
-                        {todayScheduleSummary.allLessonRefs.slice(0, 6).map((ref) => {
-                          const exMeta = SCHEDULE_EXERCISE_META[ref.exerciseType];
-                          return (
-                            <button
-                              key={ref.key}
-                              type="button"
-                              onClick={() => handleOpenScheduledLesson(ref)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-transform hover:scale-[1.02] cursor-pointer ${exMeta.badgeBg} ${exMeta.badgeText} ${exMeta.badgeBorder}`}
-                            >
-                              <span className="px-1.5 py-0.5 rounded-md bg-white/80 text-[10px] font-extrabold">
-                                {exMeta.shortAr}
-                              </span>
-                              <span>{ref.topicName}</span>
-                            </button>
-                          );
-                        })}
-                        {todayScheduleSummary.allLessonRefs.length > 6 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              closeAllLessonModals();
-                              setIsScheduleModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-extrabold cursor-pointer"
-                          >
-                            +{todayScheduleSummary.allLessonRefs.length - 6} أخرى...
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Check-in Action Box */}
-                  <div className="pt-2">
-                    {!currentStudent ? (
-                      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="text-xs sm:text-sm font-bold text-slate-700">
-                          {t(
-                            'attendance_login_prompt',
-                            'سجّل دخولك برقم المشترك لتأكيد حضورك في حصة اليوم وحفظ سجل المواظبة.'
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setIsLoginModalOpen(true)}
-                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer shrink-0"
-                        >
-                          <LogIn className="w-4 h-4" />
-                          <span>{t('attendance_login_btn', 'تسجيل الدخول وتأكيد الحضور')}</span>
-                        </button>
-                      </div>
-                    ) : todayStudentAttendance && todayStudentAttendance.status !== 'absent' ? (
-                      (() => {
-                        const attStatusMeta = getAttendanceStatusMeta(
-                          todayStudentAttendance.status,
-                          todayStudentAttendance.minutesDelta
-                        );
-                        return (
-                          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-start sm:items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                                <CheckCircle2 className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="text-sm font-extrabold text-emerald-950">
-                                    {t('attendance_checked_in_title', 'تم تأكيد حضورك في حصة اليوم ✓')}
-                                  </span>
-                                  <span
-                                    className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold border ${attStatusMeta.badgeCls}`}
-                                  >
-                                    {attStatusMeta.labelAr}
-                                  </span>
-                                </div>
-                                <div className="text-xs text-emerald-800 font-semibold flex flex-wrap items-center gap-2.5 mt-0.5">
-                                  <span>{currentStudent.name}</span>
-                                  {todayStudentAttendance.time && (
-                                    <span className="inline-flex items-center gap-1 font-mono tabular-nums">
-                                      <Clock className="w-3.5 h-3.5" />
-                                      {todayStudentAttendance.time}
-                                    </span>
-                                  )}
-                                  {todayStudentAttendance.scheduledTime && (
-                                    <span className="text-[11px] text-emerald-700 font-bold tabular-nums">
-                                      (موعد الحصة: {todayStudentAttendance.scheduledTime})
-                                    </span>
-                                  )}
-                                  {todayStudentAttendance.location &&
-                                    todayStudentAttendance.location !== 'غير متاح' && (
-                                      <span className="inline-flex items-center gap-1">
-                                        <MapPin className="w-3.5 h-3.5" />
-                                        {todayStudentAttendance.location}
-                                      </span>
-                                    )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 self-end sm:self-center">
-                              <span className="px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-xs font-extrabold tabular-nums">
-                                مجموع حضورك: {studentAttendanceCount} يوم
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="space-y-2.5">
-                        {todayStudentAttendance?.status === 'absent' && (
-                          <div className="px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-                            <span>
-                              انتهى وقت السماح المعتاد وتم تسجيل غياب مبدئي لحصة اليوم — يمكنك تأكيد حضورك الآن وسيتم تحديث الحالة إلى «حضور متأخر».
-                            </span>
-                          </div>
-                        )}
-                        <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="space-y-0.5">
-                            <div className="text-sm font-extrabold text-slate-900">
-                              مرحباً {currentStudent.name}
-                            </div>
-                            <div className="text-xs text-slate-600 font-semibold">
-                              {studentAttendanceCount > 0
-                                ? `سجل حضورك حتى الآن: ${studentAttendanceCount} يوم — الزر متاح طوال اليوم لتسجيل حضورك`
-                                : 'اضغط على الزر لتسجيل حضورك لحصة اليوم في السجل'}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={handleConfirmTodayAttendance}
-                            disabled={isCheckingInAttendance}
-                            className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-60 shrink-0 whitespace-nowrap"
-                          >
-                            {isCheckingInAttendance ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <UserCheck className="w-4 h-4" />
-                            )}
-                            <span>
-                              {isCheckingInAttendance
-                                ? t('attendance_saving', 'جاري تأكيد الحضور...')
-                                : todayStudentAttendance?.status === 'absent'
-                                ? 'تأكيد الحضور الآن (يُسجَّل متأخراً)'
-                                : t('attendance_checkin_btn', 'تأكيد حضور الحصة الآن')}
-                            </span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {attendanceFeedback && (
-                      <div
-                        className={`mt-2.5 px-3.5 py-2 rounded-xl text-xs font-bold border ${
-                          attendanceFeedback.type === 'success'
-                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                            : attendanceFeedback.type === 'warn'
-                            ? 'bg-amber-50 border-amber-200 text-amber-900'
-                            : 'bg-rose-50 border-rose-200 text-rose-900'
-                        }`}
+                    {tgLink && (
+                      <a
+                        href={tgLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3.5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 shadow-xs transition-colors"
                       >
-                        {attendanceFeedback.text}
-                      </div>
+                        <Bot className="w-4 h-4" />
+                        <span>ربط تيليغرام</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
                     )}
                   </div>
+
+                  {/* 5. Expandable Today's Lessons Drawer */}
+                  {!todayScheduleSummary.isProgramEnded && showTodayLessonsInCard && (
+                    <div className="pt-3 border-t border-slate-100 space-y-2.5 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between gap-2 text-xs font-extrabold text-slate-800">
+                        <span>{todayScheduleSummary.sessionTitle}</span>
+                        {todayScheduleSummary.totalLessons > 0 && (
+                          <span className="text-[11px] font-bold text-slate-500">
+                            {todayScheduleSummary.totalLessons} دروس
+                          </span>
+                        )}
+                      </div>
+
+                      {todayScheduleSummary.allLessonRefs.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {todayScheduleSummary.allLessonRefs.map((ref) => {
+                            const exMeta = SCHEDULE_EXERCISE_META[ref.exerciseType];
+                            return (
+                              <button
+                                key={ref.key}
+                                type="button"
+                                onClick={() => handleOpenScheduledLesson(ref)}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-transform hover:scale-[1.02] cursor-pointer ${exMeta.badgeBg} ${exMeta.badgeText} ${exMeta.badgeBorder}`}
+                              >
+                                <span className="px-1.5 py-0.5 rounded-md bg-white/80 text-[10px] font-extrabold">
+                                  {exMeta.shortAr}
+                                </span>
+                                <span>{ref.topicName}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500 font-semibold">
+                          لا توجد دروس مجدولة لهذا اليوم.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {attendanceFeedback && (
+                    <div
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border ${
+                        attendanceFeedback.type === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                          : attendanceFeedback.type === 'warn'
+                          ? 'bg-amber-50 border-amber-200 text-amber-900'
+                          : 'bg-rose-50 border-rose-200 text-rose-900'
+                      }`}
+                    >
+                      {attendanceFeedback.text}
+                    </div>
+                  )}
                 </div>
               );
             })()}

@@ -134,6 +134,7 @@ export interface StudentRegistrant {
   programId?: string; // معرف البرنامج التدريبي المخصص للطالب
   telegramDirectUrl?: string; // رابط الدخول السريع لتيليغرام
   telegramQrImageUrl?: string; // رابط صورة QR للدخول السريع لتيليغرام
+  telegramLinked?: boolean; // هل قام الطالب بربط حسابه ببوت تيليغرام
 }
 
 export interface SocialLinkItem {

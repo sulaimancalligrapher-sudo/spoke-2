@@ -21,6 +21,10 @@ import {
   Download,
   Loader2,
   Star,
+  Video,
+  Building2,
+  ExternalLink,
+  Archive,
 } from 'lucide-react';
 import {
   WordItem,
@@ -64,6 +68,7 @@ import {
   formatScheduleDateLabel,
   getScheduleForProgram,
   getTodayLocalISO,
+  isProgramEndedForStudent,
   normalizeCourseScheduleData,
   printHtmlViaIframe,
 } from '../utils/courseSchedule';
@@ -309,6 +314,11 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
   const { programs, activeProgram, scopedSchedule } = useMemo(
     () => getScheduleForProgram(normalizedSchedule, effectiveProgramId),
     [normalizedSchedule, effectiveProgramId]
+  );
+
+  const isProgramEnded = useMemo(
+    () => isProgramEndedForStudent(scopedSchedule.settings, isAdminAuthenticated, todayISO),
+    [scopedSchedule.settings, isAdminAuthenticated, todayISO]
   );
 
   const tr = (id: string, fallback: string) => t(id, fallback) || fallback;
@@ -562,6 +572,13 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
         meta,
       };
     }
+    if (dayType === 'attendance') {
+      return {
+        label: tr('schedule_type_attendance', 'حصة حضور'),
+        cls: `${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`,
+        meta,
+      };
+    }
     return {
       label: tr('schedule_type_lesson', 'درس عادي'),
       cls: `${meta.badgeBg} ${meta.badgeText} ${meta.badgeBorder}`,
@@ -626,6 +643,38 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
         {item.day.notes && (
           <div className="text-xs text-slate-700 bg-white/80 border border-slate-200 rounded-xl p-2.5">
             {item.day.notes}
+          </div>
+        )}
+
+        {item.day.dayType === 'attendance' && (
+          <div className="p-3 rounded-2xl bg-purple-50/90 border border-purple-200 flex flex-wrap items-center justify-between gap-2.5">
+            {item.day.attendanceMode === 'in_person' ? (
+              <div className="flex items-center gap-2 text-xs font-extrabold text-purple-950">
+                <Building2 className="w-4 h-4 text-purple-700 shrink-0" />
+                <span>
+                  حضور مباشر في الفصل
+                  {item.day.classroomLocation ? ` — ${item.day.classroomLocation}` : ''}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 text-xs font-extrabold text-purple-950">
+                  <Video className="w-4 h-4 text-purple-700 shrink-0" />
+                  <span>حصة بث مباشر</span>
+                </div>
+                {item.day.liveUrl && !item.isLocked && (
+                  <a
+                    href={item.day.liveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold shadow-xs"
+                  >
+                    <span>دخول البث</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -846,6 +895,68 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
           </div>
         )}
 
+        {isProgramEnded ? (
+          <div className="flex-1 overflow-y-auto p-5 flex items-center justify-center">
+            <div className="bg-white rounded-3xl p-7 border border-slate-200 max-w-md w-full text-center space-y-3 shadow-xs">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-700 flex items-center justify-center mx-auto">
+                <Archive className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                تم إنهاء البرنامج وإخفاء الجدول
+              </h3>
+              <p className="text-xs text-slate-600 font-semibold leading-relaxed">
+                وصل البرنامج إلى تاريخ الإغلاق ({scopedSchedule.settings.archiveDate})، وتم إخفاء الجدول والدروس والمراجعة.
+              </p>
+              {(studentPdfAccess.canViewReport || studentPdfAccess.canViewCertificate) && (
+                <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+                  {studentPdfAccess.canViewReport && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPdfPreview({
+                          title: `التقرير الشامل - ${studentFullSummary.studentName}`,
+                          orientation: 'portrait',
+                          html: buildFullReportHtml({
+                            summary: studentFullSummary,
+                            pdfSettings,
+                            platformTitle,
+                            homeLogoUrl,
+                          }),
+                        })
+                      }
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>التقرير (PDF)</span>
+                    </button>
+                  )}
+                  {studentPdfAccess.canViewCertificate && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPdfPreview({
+                          title: `شهادة إتمام البرنامج - ${studentFullSummary.studentName}`,
+                          orientation: pdfSettings.certificate.orientation,
+                          html: buildCertificateHtml({
+                            summary: studentFullSummary,
+                            pdfSettings,
+                            platformTitle,
+                            homeLogoUrl,
+                          }),
+                        })
+                      }
+                      className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Award className="w-3.5 h-3.5" />
+                      <span>الشهادة (PDF)</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Overall Progress & 3 Main Tabs */}
         <div className="p-4 bg-white border-b border-slate-200 space-y-3 shrink-0">
           {overallStats.total > 0 && (
@@ -1041,6 +1152,10 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
                       <span className="inline-flex items-center gap-1.5 text-rose-900">
                         <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
                         {tr('schedule_type_exam', 'امتحان')}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 text-purple-900">
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                        {tr('schedule_type_attendance', 'حصة حضور')}
                       </span>
                     </div>
                   </div>
@@ -1472,6 +1587,8 @@ export const CourseScheduleModal: React.FC<CourseScheduleModalProps> = ({
             </>
           )}
         </div>
+        </>
+        )}
       </div>
 
       <PdfPreviewModal

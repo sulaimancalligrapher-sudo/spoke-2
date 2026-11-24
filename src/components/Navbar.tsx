@@ -18,6 +18,8 @@ import {
   Target,
   Film,
   Calendar,
+  Globe,
+  ShoppingCart,
 } from 'lucide-react';
 import { StudentRegistrant } from '../types';
 import { LanguageSelector } from './LanguageSelector';
@@ -59,6 +61,10 @@ interface NavbarProps {
   showLessonsBtn?: boolean;
   showVideoBtn?: boolean;
   showScheduleBtn?: boolean;
+  onBackToPublicPortal?: () => void;
+  onOpenStore?: () => void;
+  showStoreBtn?: boolean;
+  storeCartCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -96,6 +102,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   showLessonsBtn = false,
   showVideoBtn = false,
   showScheduleBtn = true,
+  onBackToPublicPortal,
+  onOpenStore,
+  showStoreBtn = true,
+  storeCartCount = 0,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
   const [lessonsMenuOpen, setLessonsMenuOpen] = useState(false);
@@ -176,10 +186,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="truncate max-w-[85px]">{currentStudent.name}</span>
                 <button
                   onClick={onLogout}
-                  className="p-0.5 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                  className="p-0.5 text-rose-600 hover:text-rose-700 hover:bg-rose-100 rounded transition-colors cursor-pointer"
                   title={tr('nav_logout', 'تسجيل الخروج')}
+                  aria-label={tr('nav_logout', 'تسجيل الخروج')}
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="w-3.5 h-3.5 text-rose-600" />
                 </button>
               </div>
             ) : (
@@ -197,9 +208,40 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* ROW 2 ON MOBILE (باقي الأزرار): Dedicated row on mobile, right side on desktop */}
         <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2.5 w-full sm:w-auto pt-1 sm:pt-0 border-t border-slate-100 sm:border-t-0">
-          {/* Unified Language Selector (Arabic, Thai, English) */}
+          {/* Icon-only Back to Public Portal */}
+          {onBackToPublicPortal && (
+            <button
+              type="button"
+              onClick={onBackToPublicPortal}
+              className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-200 text-slate-700 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              title="الرجوع للصفحة العامة"
+              aria-label="الرجوع للصفحة العامة"
+            >
+              <Globe className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Icon-only Store Cart */}
+          {showStoreBtn && onOpenStore && (
+            <button
+              type="button"
+              onClick={onOpenStore}
+              className="relative w-10 h-10 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              title="المتجر"
+              aria-label="المتجر"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              {storeCartCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-slate-950 text-[10px] font-extrabold tabular-nums flex items-center justify-center">
+                  {storeCartCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Icon-Only Language Selector (Flag only) */}
           {onSelectLang && (
-            <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} />
+            <LanguageSelector currentLang={currentLang} onSelectLang={onSelectLang} iconOnly />
           )}
 
           {/* Unified Lessons Dropdown Button (دروس) */}
@@ -374,19 +416,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
 
-          {/* Student Status on Desktop (اسم المشترك وزر خروج أيقونة فقط) */}
+          {/* Student Status on Desktop (اسم المشترك بدون الرقم + زر خروج أحمر) */}
           <div className="hidden sm:flex items-center gap-1.5">
             {currentStudent ? (
               <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-xl text-xs font-bold shadow-2xs">
                 <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <span className="font-extrabold">{currentStudent.name}</span>
-                <span className="text-[10px] text-emerald-700 font-mono bg-emerald-100/80 px-1.5 py-0.5 rounded-md">ID: {currentStudent.id}</span>
                 <button
                   onClick={onLogout}
-                  className="p-1 hover:bg-emerald-200/80 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                  className="p-1 hover:bg-rose-100 text-rose-600 hover:text-rose-700 rounded-md transition-colors cursor-pointer"
                   title={tr('nav_logout', 'تسجيل الخروج')}
+                  aria-label={tr('nav_logout', 'تسجيل الخروج')}
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="w-3.5 h-3.5 text-rose-600" />
                 </button>
               </div>
             ) : (

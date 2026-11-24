@@ -75,7 +75,7 @@ export const PORTAL_UI_TEXT_METADATA: { key: string; group: string; isButton?: b
 ];
 
 export const DEFAULT_PORTAL_UI_TEXTS: Record<string, PortalUiTextEntry> = {
-  unified_auth_btn: { ar: 'الدخول والتسجيل', en: 'Sign In / Register', th: 'เข้าสู่ระบบ / สมัครเรียน', visible: true },
+  unified_auth_btn: { ar: 'تسجيل', en: 'Access', th: 'เข้าใช้', visible: true },
   unified_auth_title: { ar: 'مرحباً بك في بوابة المنصة', en: 'Welcome to the Academy Portal', th: 'ยินดีต้อนรับสู่พอร์ทัลสถาบัน', visible: true },
   unified_auth_subtitle: {
     ar: 'اختر تسجيل مشترك جديد للبدء الفوري بالمرحلة التمهيدية، أو دخول المشتركين إذا كان لديك رقم تسجيل (ID).',
@@ -519,9 +519,24 @@ export function normalizePortalPublicData(raw?: Partial<PortalPublicData> | null
     const customEntry = s.uiTexts && s.uiTexts[k];
     mergedUiTexts[k] = customEntry
       ? {
-          ar: customEntry.ar !== undefined ? String(customEntry.ar) : defEntry.ar,
-          en: customEntry.en !== undefined ? String(customEntry.en) : defEntry.en,
-          th: customEntry.th !== undefined ? String(customEntry.th) : defEntry.th,
+          ar:
+            k === 'unified_auth_btn' && String(customEntry.ar || '').trim() === 'الدخول والتسجيل'
+              ? defEntry.ar
+              : customEntry.ar !== undefined
+              ? String(customEntry.ar)
+              : defEntry.ar,
+          en:
+            k === 'unified_auth_btn' && String(customEntry.en || '').trim() === 'Sign In / Register'
+              ? defEntry.en
+              : customEntry.en !== undefined
+              ? String(customEntry.en)
+              : defEntry.en,
+          th:
+            k === 'unified_auth_btn' && String(customEntry.th || '').trim() === 'เข้าสู่ระบบ / สมัครเรียน'
+              ? defEntry.th
+              : customEntry.th !== undefined
+              ? String(customEntry.th)
+              : defEntry.th,
           visible: customEntry.visible !== undefined ? Boolean(customEntry.visible) : defEntry.visible !== false,
         }
       : { ...defEntry };

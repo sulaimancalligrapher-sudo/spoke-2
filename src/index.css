@@ -35,6 +35,15 @@
   }
 }
 
+@keyframes arabic-marquee-loop-ltr {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
 .animate-title-marquee {
   display: inline-flex;
   width: max-content;
@@ -42,7 +51,15 @@
   animation: arabic-marquee-loop 12s linear infinite;
 }
 
-.animate-title-marquee:hover {
+.animate-title-marquee-ltr {
+  display: inline-flex;
+  width: max-content;
+  will-change: transform;
+  animation: arabic-marquee-loop-ltr 12s linear infinite;
+}
+
+.animate-title-marquee:hover,
+.animate-title-marquee-ltr:hover {
   animation-play-state: paused;
 }
 
