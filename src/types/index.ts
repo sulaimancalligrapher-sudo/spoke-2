@@ -830,6 +830,20 @@ export interface StorePublicData {
 export type MarkingExerciseType = 'writing' | 'pronunciation' | 'video' | 'dictation';
 export type MarkingStatus = 'pending' | 'corrected' | 'retry';
 
+export interface MarkingPresetText {
+  id: string;
+  text: string;
+  category?: 'positive' | 'correction' | 'general';
+}
+
+export interface MarkingSticker {
+  id: string;
+  label: string;
+  symbol: string;
+  color?: string;
+  kind?: 'positive' | 'correction' | 'stamp';
+}
+
 export interface MarkingConfig {
   cloudinaryCloudName: string;
   cloudinaryUploadPreset: string;
@@ -840,6 +854,8 @@ export interface MarkingConfig {
   portalBaseUrl?: string;
   teacherSubmissionTemplate?: string;
   studentCorrectionTemplate?: string;
+  presetTexts?: MarkingPresetText[];
+  stickers?: MarkingSticker[];
 }
 
 export interface TeacherCorrectionRecord {
@@ -855,8 +871,17 @@ export interface TeacherCorrectionRecord {
   ratingLabel?: string;
   notes: string;
   correctedImageUrl?: string;
+  additionalImages?: string[];
   teacherAudioUrl?: string;
+  teacherAudios?: string[];
   teacherVideoUrl?: string;
+  teacherVideos?: string[];
+  stickerSymbol?: string;
+  stickerLabel?: string;
+  imageScore?: number | string;
+  imageNotes?: string;
+  audioScore?: number | string;
+  audioNotes?: string;
   teacherName?: string;
   allowRetry?: boolean;
   updatedAt: string;
@@ -872,11 +897,14 @@ export interface UnifiedMarkingSubmission {
   programName?: string;
   classroomId?: string;
   classroomName?: string;
+  lessonId?: string;
   lessonSubject: string;
   itemTitle: string;
   slotIndex?: number;
   timestamp: string;
   studentScore?: number;
+  videoScore?: number;
+  answeredQuestions?: Record<string, unknown>;
   studentGrade?: string;
   studentDetails?: string;
   studentImageUrl?: string;
@@ -886,4 +914,43 @@ export interface UnifiedMarkingSubmission {
   referenceAutoReadText?: string;
   correction?: TeacherCorrectionRecord | null;
 }
+
+export interface StudentAchievementModuleItem {
+  title: string;
+  score?: number;
+  status?: string;
+}
+
+export interface StudentAchievementModule {
+  key: 'video' | 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch';
+  label: string;
+  totalLessons: number;
+  completedLessons: number;
+  pendingLessons: number;
+  averageScore: number | null;
+  completedItems: StudentAchievementModuleItem[];
+  pendingItems: string[];
+}
+
+export interface StudentVideoQuizSummaryItem {
+  lessonId: string;
+  lessonTitle: string;
+  topic: string;
+  completed: string;
+  videoScore: number;
+  answeredCount: number;
+  totalQuestions: number;
+  hasImage: boolean;
+  hasAudio: boolean;
+  updatedAt: string;
+}
+
+export interface StudentAchievementSummary {
+  studentId: string;
+  studentName: string;
+  generatedAt: string;
+  videoQuizDetails: StudentVideoQuizSummaryItem[];
+  modules: StudentAchievementModule[];
+}
+
 

@@ -108,10 +108,29 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
             </div>
           ) : (
             corrections.map((c) => {
-              const audioCandidates = c.teacherAudioUrl
-                ? getAlternativeAudioUrls(c.teacherAudioUrl)
-                : [];
-              const audioSrc = audioCandidates[0] || c.teacherAudioUrl || '';
+              const allImages = Array.from(
+                new Set(
+                  [c.correctedImageUrl, ...(c.additionalImages || [])]
+                    .map((u) => (u || '').trim())
+                    .filter(Boolean)
+                )
+              );
+
+              const allAudios = Array.from(
+                new Set(
+                  [c.teacherAudioUrl, ...(c.teacherAudios || [])]
+                    .map((u) => (u || '').trim())
+                    .filter(Boolean)
+                )
+              );
+
+              const allVideos = Array.from(
+                new Set(
+                  [c.teacherVideoUrl, ...(c.teacherVideos || [])]
+                    .map((u) => (u || '').trim())
+                    .filter(Boolean)
+                )
+              );
 
               return (
                 <article
@@ -174,73 +193,143 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
                     </div>
                   </div>
 
+                  {/* Celebratory / Alert Big Sticker Emblem */}
+                  {c.stickerSymbol && (
+                    <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200 flex items-center gap-3">
+                      <span className="text-4xl leading-none select-none">{c.stickerSymbol}</span>
+                      <div>
+                        <div className="text-sm font-extrabold text-slate-900">
+                          {c.stickerLabel || 'تقييم المعلم'}
+                        </div>
+                        <div className="text-[11px] font-semibold text-amber-900">
+                          ملصق خاص من المعلم على هذا الواجب
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {c.notes && (
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-semibold text-slate-800 whitespace-pre-line">
                       {c.notes}
                     </div>
                   )}
 
-                  {/* Annotated Correction Image */}
-                  {c.correctedImageUrl && (
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] font-bold text-slate-600 flex items-center justify-between">
-                        <span className="inline-flex items-center gap-1">
-                          <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>صورة تصحيح المعلم:</span>
+                  {/* Annotated & Additional Correction Images */}
+                  {allImages.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                        <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>
+                          {allImages.length > 1
+                            ? `صور تصحيح المعلم (${allImages.length}):`
+                            : 'صورة تصحيح المعلم:'}
                         </span>
-                        <a
-                          href={c.correctedImageUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-700 underline inline-flex items-center gap-1"
-                        >
-                          <span>فتح بحجم كامل</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
                       </div>
-                      <img
-                        src={getDirectImageUrl(c.correctedImageUrl)}
-                        alt="تصحيح المعلم"
-                        className="w-full max-h-72 object-contain rounded-xl border border-slate-200 bg-slate-50"
-                      />
+                      <div
+                        className={`grid gap-2.5 ${
+                          allImages.length > 1 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'
+                        }`}
+                      >
+                        {allImages.map((imgUrl, idx) => (
+                          <div
+                            key={`${imgUrl}-${idx}`}
+                            className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden"
+                          >
+                            <img
+                              src={getDirectImageUrl(imgUrl)}
+                              alt={`تصحيح المعلم ${idx + 1}`}
+                              className="w-full max-h-72 object-contain"
+                            />
+                            <div className="px-3 py-1.5 bg-white border-t border-slate-100 flex justify-end">
+                              <a
+                                href={imgUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] font-bold text-emerald-700 underline inline-flex items-center gap-1"
+                              >
+                                <span>فتح بحجم كامل</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
-                  {/* Teacher Voice Note */}
-                  {audioSrc && (
-                    <div className="p-2.5 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-1">
+                  {/* Teacher Voice Notes (1 or more) */}
+                  {allAudios.length > 0 && (
+                    <div className="p-3 rounded-xl bg-indigo-50/60 border border-indigo-200 space-y-2">
                       <div className="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
                         <Volume2 className="w-3.5 h-3.5" />
-                        <span>ملاحظة المعلم الصوتية:</span>
+                        <span>
+                          {allAudios.length > 1
+                            ? `ملاحظات المعلم الصوتية (${allAudios.length}):`
+                            : 'ملاحظة المعلم الصوتية:'}
+                        </span>
                       </div>
-                      <audio controls src={audioSrc} className="w-full h-9" />
+                      <div className="space-y-1.5">
+                        {allAudios.map((audUrl, idx) => {
+                          const candidates = getAlternativeAudioUrls(audUrl);
+                          const src = candidates[0] || audUrl;
+                          return (
+                            <div key={`${audUrl}-${idx}`} className="flex items-center gap-2">
+                              {allAudios.length > 1 && (
+                                <span className="text-[11px] font-mono font-bold text-indigo-800 shrink-0">
+                                  #{idx + 1}
+                                </span>
+                              )}
+                              <audio controls src={src} className="w-full h-9" />
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
-                  {/* Cloudinary MP4 Correction Video */}
-                  {c.teacherVideoUrl && (
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
-                        <span className="inline-flex items-center gap-1">
-                          <Video className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>فيديو الشرح والتصحيح:</span>
+                  {/* Cloudinary MP4 / Drive Correction Videos (1 or more) */}
+                  {allVideos.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                        <Video className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>
+                          {allVideos.length > 1
+                            ? `فيديوهات الشرح والتصحيح (${allVideos.length}):`
+                            : 'فيديو الشرح والتصحيح:'}
                         </span>
-                        <a
-                          href={toCloudinaryMp4Url(c.teacherVideoUrl)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-indigo-700 underline inline-flex items-center gap-1"
-                        >
-                          <span>فتح الفيديو</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
                       </div>
-                      <video
-                        src={toCloudinaryMp4Url(c.teacherVideoUrl)}
-                        controls
-                        playsInline
-                        className="w-full max-h-72 rounded-xl bg-slate-950"
-                      />
+                      <div className="space-y-2.5">
+                        {allVideos.map((vidUrl, idx) => {
+                          const mp4Url = toCloudinaryMp4Url(vidUrl);
+                          return (
+                            <div
+                              key={`${vidUrl}-${idx}`}
+                              className="rounded-xl overflow-hidden border border-slate-200 bg-slate-950"
+                            >
+                              <video
+                                src={mp4Url}
+                                controls
+                                playsInline
+                                className="w-full max-h-72"
+                              />
+                              <div className="px-3 py-1.5 bg-white border-t border-slate-100 flex items-center justify-between text-[11px]">
+                                <span className="font-bold text-slate-600">
+                                  {allVideos.length > 1 ? `فيديو #${idx + 1}` : 'فيديو التصحيح'}
+                                </span>
+                                <a
+                                  href={mp4Url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-700 font-bold underline inline-flex items-center gap-1"
+                                >
+                                  <span>فتح الفيديو</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </article>

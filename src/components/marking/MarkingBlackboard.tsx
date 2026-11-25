@@ -20,8 +20,12 @@ import {
   Grid,
   Check,
   Image as ImageIcon,
+  Sticker,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
-import { toProxiedCanvasImageUrl } from '../../utils/markingSheets';
+import { MarkingSticker } from '../../types';
+import { DEFAULT_MARKING_STICKERS, toProxiedCanvasImageUrl } from '../../utils/markingSheets';
 
 export interface MarkingBlackboardHandle {
   exportCompositeDataUrl: () => string;
@@ -35,6 +39,7 @@ interface MarkingBlackboardProps {
   studentImageUrl?: string;
   referenceImageUrl?: string;
   lessonTitle?: string;
+  stickers?: MarkingSticker[];
   compact?: boolean;
   onAnnotationChange?: (hasMarks: boolean) => void;
 }
@@ -44,15 +49,27 @@ interface StrokePoint {
   y: number;
 }
 
-interface BoardStroke {
-  tool: 'pen' | 'highlighter' | 'eraser';
-  color: string;
-  size: number;
-  points: StrokePoint[];
-}
+type BoardAction =
+  | {
+      kind: 'stroke';
+      tool: 'pen' | 'highlighter' | 'eraser';
+      color: string;
+      size: number;
+      points: StrokePoint[];
+    }
+  | {
+      kind: 'sticker';
+      x: number;
+      y: number;
+      symbol: string;
+      label: string;
+      color: string;
+      stickerKind?: MarkingSticker['kind'];
+      scale: number;
+    };
 
-const BOARD_WIDTH = 960;
-const BOARD_HEIGHT = 540;
+const BOARD_WIDTH = 1280;
+const BOARD_HEIGHT = 720;
 
 const PEN_COLORS = [
   { color: '#dc2626', label: 'أحمر تصحيح' },
@@ -64,7 +81,20 @@ const PEN_COLORS = [
 ];
 
 export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlackboardProps>(
-  ({ studentImageUrl, referenceImageUrl, lessonTitle, compact = false, onAnnotationChange }, ref) => {
+  (
+    {
+      studentImageUrl,
+      referenceImageUrl,
+      lessonTitle,
+      stickers,
+      compact = false,
+      onAnnotationChange,
+    },
+    ref
+  ) => {
+    const availableStickers =
+      stickers && stickers.length > 0 ? stickers : DEFAULT_MARKING_STICKERS;
+
     const displayCanvasRef = useRef<HTMLCanvasElement>(null);
     const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -73,18 +103,30 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
     const [refImage, setRefImage] = useState<HTMLImageElement | null>(null);
     const [bgLoadError, setBgLoadError] = useState(false);
 
-    const [tool, setTool] = useState<'pen' | 'highlighter' | 'eraser'>('pen');
+    const [tool, setTool] = useState<'pen' | 'highlighter' | 'eraser' | 'sticker'>('pen');
     const [penColor, setPenColor] = useState<string>('#dc2626');
-    const [penSize, setPenSize] = useState<number>(5);
+    const [penSize, setPenSize] = useState<number>(6);
+    const [selectedSticker, setSelectedSticker] = useState<MarkingSticker>(
+      availableStickers[0]
+    );
+    const [stickerScale, setStickerScale] = useState<number>(1);
     const [boardTheme, setBoardTheme] = useState<'paper' | 'chalkboard'>('paper');
     const [showRuledLines, setShowRuledLines] = useState<boolean>(true);
     const [showReferenceOverlay, setShowReferenceOverlay] = useState<boolean>(false);
     const [zoom, setZoom] = useState<number>(1);
+    const [expanded, setExpanded] = useState<boolean>(false);
 
-    const [strokes, setStrokes] = useState<BoardStroke[]>([]);
-    const [redoStack, setRedoStack] = useState<BoardStroke[]>([]);
-    const activeStrokeRef = useRef<BoardStroke | null>(null);
+    const [actions, setActions] = useState<BoardAction[]>([]);
+    const [redoStack, setRedoStack] = useState<BoardAction[]>([]);
+    const activeStrokeRef = useRef<Extract<BoardAction, { kind: 'stroke' }> | null>(null);
     const isDrawingRef = useRef(false);
+
+    useEffect(() => {
+      if (availableStickers.length > 0) {
+        const stillExists = availableStickers.some((s) => s.id === selectedSticker?.id);
+        if (!stillExists) setSelectedSticker(availableStickers[0]);
+      }
+    }, [availableStickers, selectedSticker?.id]);
 
     // Ensure offscreen annotation canvas exists
     useEffect(() => {
@@ -145,61 +187,107 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       };
     }, [referenceImageUrl]);
 
-    // Reset strokes when switching to a different submission image/lesson
+    // Reset annotations when switching to a different submission image/lesson
     useEffect(() => {
-      setStrokes([]);
+      setActions([]);
       setRedoStack([]);
       setZoom(1);
     }, [studentImageUrl, lessonTitle]);
 
     useEffect(() => {
-      onAnnotationChange?.(strokes.length > 0);
-    }, [strokes.length, onAnnotationChange]);
+      onAnnotationChange?.(actions.length > 0);
+    }, [actions.length, onAnnotationChange]);
 
     const redrawAnnotationLayer = useCallback(
-      (allStrokes: BoardStroke[], liveStroke: BoardStroke | null) => {
+      (allActions: BoardAction[], liveStroke: Extract<BoardAction, { kind: 'stroke' }> | null) => {
         const annCanvas = annotationCanvasRef.current;
         if (!annCanvas) return;
         const actx = annCanvas.getContext('2d');
         if (!actx) return;
 
         actx.clearRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
-        const list = liveStroke ? [...allStrokes, liveStroke] : allStrokes;
+        const list: BoardAction[] = liveStroke ? [...allActions, liveStroke] : allActions;
 
-        for (const s of list) {
-          if (s.points.length === 0) continue;
+        for (const item of list) {
+          if (item.kind === 'sticker') {
+            actx.save();
+            const baseScale = item.scale || 1;
+            const symbolSize = Math.round(44 * baseScale);
+            const showBadgeLabel = item.label && item.label !== item.symbol;
+
+            actx.font = `bold ${Math.round(18 * baseScale)}px Cairo, sans-serif`;
+            const textMetrics = showBadgeLabel ? actx.measureText(item.label) : { width: 0 };
+            const pillW = showBadgeLabel
+              ? Math.max(symbolSize + 24, textMetrics.width + symbolSize + 36)
+              : symbolSize + 24;
+            const pillH = Math.round(54 * baseScale);
+            const bx = item.x - pillW / 2;
+            const by = item.y - pillH / 2;
+
+            // Shadow + crisp sticker stamp pill
+            actx.shadowColor = 'rgba(15, 23, 42, 0.18)';
+            actx.shadowBlur = 10;
+            actx.shadowOffsetY = 3;
+            actx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+            actx.beginPath();
+            actx.roundRect(bx, by, pillW, pillH, 16 * baseScale);
+            actx.fill();
+
+            actx.shadowColor = 'transparent';
+            actx.lineWidth = Math.max(2, 2.5 * baseScale);
+            actx.strokeStyle = item.color || '#059669';
+            actx.stroke();
+
+            // Symbol
+            actx.font = `${Math.round(28 * baseScale)}px sans-serif`;
+            actx.textBaseline = 'middle';
+            actx.textAlign = 'center';
+            if (showBadgeLabel) {
+              actx.fillText(item.symbol, item.x + pillW / 2 - 24 * baseScale, item.y + 1);
+              actx.fillStyle = item.stickerKind === 'correction' ? '#991b1b' : '#0f172a';
+              actx.font = `800 ${Math.round(17 * baseScale)}px Cairo, sans-serif`;
+              actx.textAlign = 'right';
+              actx.fillText(item.label, item.x + pillW / 2 - 48 * baseScale, item.y + 1);
+            } else {
+              actx.fillText(item.symbol, item.x, item.y + 2);
+            }
+            actx.restore();
+            continue;
+          }
+
+          if (item.points.length === 0) continue;
           actx.save();
           actx.lineCap = 'round';
           actx.lineJoin = 'round';
-          if (s.tool === 'eraser') {
+          if (item.tool === 'eraser') {
             actx.globalCompositeOperation = 'destination-out';
             actx.strokeStyle = 'rgba(0,0,0,1)';
-            actx.lineWidth = s.size * 2.6;
-          } else if (s.tool === 'highlighter') {
+            actx.lineWidth = item.size * 3.0;
+          } else if (item.tool === 'highlighter') {
             actx.globalCompositeOperation = 'source-over';
             actx.globalAlpha = 0.34;
-            actx.strokeStyle = s.color;
-            actx.lineWidth = s.size * 3.2;
+            actx.strokeStyle = item.color;
+            actx.lineWidth = item.size * 3.6;
           } else {
             actx.globalCompositeOperation = 'source-over';
             actx.globalAlpha = 1;
-            actx.strokeStyle = s.color;
-            actx.lineWidth = s.size;
+            actx.strokeStyle = item.color;
+            actx.lineWidth = item.size;
           }
 
           actx.beginPath();
-          actx.moveTo(s.points[0].x, s.points[0].y);
-          if (s.points.length === 1) {
-            actx.lineTo(s.points[0].x + 0.1, s.points[0].y + 0.1);
+          actx.moveTo(item.points[0].x, item.points[0].y);
+          if (item.points.length === 1) {
+            actx.lineTo(item.points[0].x + 0.1, item.points[0].y + 0.1);
           } else {
-            for (let i = 1; i < s.points.length; i++) {
-              const prev = s.points[i - 1];
-              const curr = s.points[i];
+            for (let i = 1; i < item.points.length; i++) {
+              const prev = item.points[i - 1];
+              const curr = item.points[i];
               const midX = (prev.x + curr.x) / 2;
               const midY = (prev.y + curr.y) / 2;
               actx.quadraticCurveTo(prev.x, prev.y, midX, midY);
             }
-            const last = s.points[s.points.length - 1];
+            const last = item.points[item.points.length - 1];
             actx.lineTo(last.x, last.y);
           }
           actx.stroke();
@@ -215,17 +303,15 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // 1. Background fill
       ctx.save();
       ctx.fillStyle = boardTheme === 'chalkboard' ? '#0f2922' : '#ffffff';
       ctx.fillRect(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
 
-      // 2. Ruled calligraphy lines (when no photo or subtle guide)
       if (showRuledLines) {
         ctx.strokeStyle =
           boardTheme === 'chalkboard' ? 'rgba(255,255,255,0.08)' : 'rgba(148,163,184,0.22)';
         ctx.lineWidth = 1;
-        const step = 45;
+        const step = 52;
         for (let y = step; y < BOARD_HEIGHT; y += step) {
           ctx.beginPath();
           ctx.moveTo(0, y);
@@ -234,9 +320,8 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         }
       }
 
-      // 3. Student submitted writing image
       if (bgImage) {
-        const padding = 20;
+        const padding = 16;
         const availW = BOARD_WIDTH - padding * 2;
         const availH = BOARD_HEIGHT - padding * 2;
         const ratio = Math.min(availW / bgImage.width, availH / bgImage.height);
@@ -247,7 +332,6 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         ctx.drawImage(bgImage, drawX, drawY, drawW, drawH);
       }
 
-      // 4. Optional Reference Template Ghost Overlay
       if (showReferenceOverlay && refImage) {
         ctx.save();
         ctx.globalAlpha = 0.28;
@@ -263,65 +347,27 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         ctx.restore();
       }
 
-      // 5. Teacher Annotations Layer
       if (annotationCanvasRef.current) {
         ctx.drawImage(annotationCanvasRef.current, 0, 0);
       }
 
-      // 6. Live Webcam PiP (only when active during recording)
-      const camVid = webcamVideoRef.current;
-      if (camVid && camVid.readyState >= 2 && camVid.videoWidth > 0) {
-        const pipW = 160;
-        const pipH = 112;
-        const pipX = 18;
-        const pipY = BOARD_HEIGHT - pipH - 18;
-        ctx.save();
-        ctx.beginPath();
-        ctx.roundRect(pipX, pipY, pipW, pipH, 14);
-        ctx.clip();
-        ctx.drawImage(camVid, pipX, pipY, pipW, pipH);
-        ctx.restore();
-
-        ctx.save();
-        ctx.strokeStyle = '#10b981';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.roundRect(pipX, pipY, pipW, pipH, 14);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // 7. Lesson Title Watermark on empty chalkboard/whiteboard
       if (!bgImage && lessonTitle) {
         ctx.save();
         ctx.fillStyle =
           boardTheme === 'chalkboard' ? 'rgba(255,255,255,0.45)' : 'rgba(15,23,42,0.22)';
-        ctx.font = 'bold 18px Cairo, sans-serif';
+        ctx.font = 'bold 22px Cairo, sans-serif';
         ctx.textAlign = 'right';
-        ctx.fillText(lessonTitle, BOARD_WIDTH - 24, 34);
+        ctx.fillText(lessonTitle, BOARD_WIDTH - 28, 40);
         ctx.restore();
       }
 
       ctx.restore();
     }, [bgImage, refImage, boardTheme, showRuledLines, showReferenceOverlay, lessonTitle]);
 
-    // Continuous redraw loop when strokes/images change or webcam PiP is active
     useEffect(() => {
-      redrawAnnotationLayer(strokes, activeStrokeRef.current);
+      redrawAnnotationLayer(actions, activeStrokeRef.current);
       drawCompositeFrame();
-    }, [strokes, redrawAnnotationLayer, drawCompositeFrame]);
-
-    useEffect(() => {
-      let rafId = 0;
-      const tick = () => {
-        if (webcamVideoRef.current && webcamVideoRef.current.readyState >= 2) {
-          drawCompositeFrame();
-        }
-        rafId = requestAnimationFrame(tick);
-      };
-      rafId = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(rafId);
-    }, [drawCompositeFrame]);
+    }, [actions, redrawAnnotationLayer, drawCompositeFrame]);
 
     useImperativeHandle(ref, () => ({
       exportCompositeDataUrl: () => {
@@ -333,9 +379,9 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         }
       },
       getCompositeCanvas: () => displayCanvasRef.current,
-      hasAnnotations: () => strokes.length > 0,
+      hasAnnotations: () => actions.length > 0,
       clearAnnotations: () => {
-        setStrokes([]);
+        setActions([]);
         setRedoStack([]);
       },
       setWebcamVideo: (videoEl) => {
@@ -357,16 +403,36 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
 
     const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
       e.preventDefault();
+      const pt = mapPointerToCanvas(e);
+
+      if (tool === 'sticker') {
+        if (selectedSticker) {
+          const stamp: BoardAction = {
+            kind: 'sticker',
+            x: pt.x,
+            y: pt.y,
+            symbol: selectedSticker.symbol,
+            label: selectedSticker.label,
+            color: selectedSticker.color || '#059669',
+            stickerKind: selectedSticker.kind,
+            scale: stickerScale,
+          };
+          setActions((prev) => [...prev, stamp]);
+          setRedoStack([]);
+        }
+        return;
+      }
+
       e.currentTarget.setPointerCapture(e.pointerId);
       isDrawingRef.current = true;
-      const pt = mapPointerToCanvas(e);
       activeStrokeRef.current = {
+        kind: 'stroke',
         tool,
         color: penColor,
         size: penSize,
         points: [pt],
       };
-      redrawAnnotationLayer(strokes, activeStrokeRef.current);
+      redrawAnnotationLayer(actions, activeStrokeRef.current);
       drawCompositeFrame();
     };
 
@@ -374,7 +440,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       if (!isDrawingRef.current || !activeStrokeRef.current) return;
       const pt = mapPointerToCanvas(e);
       activeStrokeRef.current.points.push(pt);
-      redrawAnnotationLayer(strokes, activeStrokeRef.current);
+      redrawAnnotationLayer(actions, activeStrokeRef.current);
       drawCompositeFrame();
     };
 
@@ -384,13 +450,13 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       const finished = activeStrokeRef.current;
       activeStrokeRef.current = null;
       if (finished.points.length > 0) {
-        setStrokes((prev) => [...prev, finished]);
+        setActions((prev) => [...prev, finished]);
         setRedoStack([]);
       }
     };
 
     const handleUndo = () => {
-      setStrokes((prev) => {
+      setActions((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
         setRedoStack((r) => [...r, last]);
@@ -402,21 +468,25 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       setRedoStack((prev) => {
         if (prev.length === 0) return prev;
         const last = prev[prev.length - 1];
-        setStrokes((s) => [...s, last]);
+        setActions((s) => [...s, last]);
         return prev.slice(0, -1);
       });
     };
 
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden flex flex-col">
-        {/* Blackboard Toolbar */}
-        <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-          {/* Tools */}
+      <div
+        className={`bg-white border border-slate-200 overflow-hidden flex flex-col ${
+          expanded ? 'fixed inset-2 sm:inset-4 z-50 rounded-2xl shadow-2xl' : 'rounded-2xl'
+        }`}
+      >
+        {/* Main Toolbar */}
+        <div className="px-3 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          {/* Drawing + Sticker Tools */}
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
               onClick={() => setTool('pen')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 tool === 'pen'
                   ? 'bg-slate-900 text-white'
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
@@ -429,7 +499,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
             <button
               type="button"
               onClick={() => setTool('highlighter')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 tool === 'highlighter'
                   ? 'bg-amber-500 text-slate-950'
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
@@ -441,8 +511,21 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
 
             <button
               type="button"
+              onClick={() => setTool('sticker')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                tool === 'sticker'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <Sticker className="w-3.5 h-3.5" />
+              <span>استيكر / علامة</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setTool('eraser')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
                 tool === 'eraser'
                   ? 'bg-rose-600 text-white'
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
@@ -463,17 +546,17 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
                   type="button"
                   onClick={() => {
                     setPenColor(c.color);
-                    if (tool === 'eraser') setTool('pen');
+                    if (tool === 'eraser' || tool === 'sticker') setTool('pen');
                   }}
                   title={c.label}
                   className={`w-6 h-6 rounded-full border cursor-pointer flex items-center justify-center transition-transform ${
-                    penColor === c.color && tool !== 'eraser'
+                    penColor === c.color && tool !== 'eraser' && tool !== 'sticker'
                       ? 'ring-2 ring-slate-900 ring-offset-1 scale-110'
                       : 'border-slate-300'
                   }`}
                   style={{ backgroundColor: c.color }}
                 >
-                  {penColor === c.color && tool !== 'eraser' && (
+                  {penColor === c.color && tool !== 'eraser' && tool !== 'sticker' && (
                     <Check
                       className={`w-3 h-3 ${
                         c.color === '#ffffff' ? 'text-slate-900' : 'text-white'
@@ -486,27 +569,42 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
 
             <span className="h-5 w-px bg-slate-200 mx-0.5" />
 
-            {/* Size */}
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
-              <span>السُمك:</span>
-              <input
-                type="range"
-                min={2}
-                max={18}
-                value={penSize}
-                onChange={(e) => setPenSize(Number(e.target.value))}
-                className="w-16 accent-slate-900 cursor-pointer"
-              />
-              <span className="w-4 text-center tabular-nums">{penSize}</span>
-            </div>
+            {tool === 'sticker' ? (
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                <span>الحجم:</span>
+                <input
+                  type="range"
+                  min={0.7}
+                  max={1.8}
+                  step={0.1}
+                  value={stickerScale}
+                  onChange={(e) => setStickerScale(Number(e.target.value))}
+                  className="w-16 accent-emerald-600 cursor-pointer"
+                />
+                <span className="w-6 text-center tabular-nums">{stickerScale.toFixed(1)}x</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                <span>السُمك:</span>
+                <input
+                  type="range"
+                  min={2}
+                  max={18}
+                  value={penSize}
+                  onChange={(e) => setPenSize(Number(e.target.value))}
+                  className="w-16 accent-slate-900 cursor-pointer"
+                />
+                <span className="w-4 text-center tabular-nums">{penSize}</span>
+              </div>
+            )}
           </div>
 
-          {/* Right Controls: Undo / Redo / Layers / Zoom / Clear */}
+          {/* Right Controls */}
           <div className="flex flex-wrap items-center gap-1">
             <button
               type="button"
               onClick={handleUndo}
-              disabled={strokes.length === 0}
+              disabled={actions.length === 0}
               className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
               title="تراجع"
             >
@@ -525,12 +623,12 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
             <button
               type="button"
               onClick={() => setBoardTheme((p) => (p === 'paper' ? 'chalkboard' : 'paper'))}
-              className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer ${
+              className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border whitespace-nowrap shrink-0 cursor-pointer ${
                 boardTheme === 'chalkboard'
                   ? 'bg-emerald-900 text-white border-emerald-900'
                   : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
               }`}
-              title="تبديل خلفية السبورة (ورق أبيض / سبورة خضراء)"
+              title="تبديل خلفية السبورة"
             >
               {boardTheme === 'chalkboard' ? 'سبورة خضراء' : 'ورق أبيض'}
             </button>
@@ -552,7 +650,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
               <button
                 type="button"
                 onClick={() => setShowReferenceOverlay((p) => !p)}
-                className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border flex items-center gap-1 cursor-pointer ${
+                className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
                   showReferenceOverlay
                     ? 'bg-indigo-600 text-white border-indigo-600'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -589,26 +687,70 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
 
+            {!compact && (
+              <button
+                type="button"
+                onClick={() => setExpanded((e) => !e)}
+                className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+                title={expanded ? 'تصغير السبورة' : 'تكبير السبورة ملء الشاشة'}
+              >
+                {expanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => {
-                setStrokes([]);
+                setActions([]);
                 setRedoStack([]);
               }}
-              disabled={strokes.length === 0}
-              className="px-2 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-40 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+              disabled={actions.length === 0}
+              className="px-2 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-40 text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
               title="مسح كافة علامات التصحيح"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>مسح التصحيح</span>
+              <span>مسح</span>
             </button>
           </div>
         </div>
 
-        {/* Canvas Viewport */}
+        {/* Sticker Quick Bar (always visible so teacher can stamp immediately) */}
+        <div className="px-3 py-1.5 bg-slate-50/70 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto shrink-0">
+          <span className="text-[11px] font-extrabold text-slate-500 whitespace-nowrap shrink-0 pl-1">
+            ختم على الصورة:
+          </span>
+          {availableStickers.map((st) => {
+            const isSelected = tool === 'sticker' && selectedSticker?.id === st.id;
+            return (
+              <button
+                key={st.id}
+                type="button"
+                onClick={() => {
+                  setSelectedSticker(st);
+                  setTool('sticker');
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
+                  isSelected
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                    : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                }`}
+                title="اختر ثم انقر على السبورة لوضع الاستيكر"
+              >
+                <span className="text-sm leading-none">{st.symbol}</span>
+                <span>{st.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Canvas Viewport (Large Primary Canvas) */}
         <div
-          className={`relative bg-slate-100 overflow-auto flex items-center justify-center p-2 ${
-            compact ? 'max-h-[340px]' : 'max-h-[480px]'
+          className={`relative bg-slate-100 overflow-auto flex items-center justify-center p-2 sm:p-3 flex-1 ${
+            expanded
+              ? 'min-h-0'
+              : compact
+              ? 'min-h-[360px] max-h-[440px]'
+              : 'min-h-[480px] sm:min-h-[560px] lg:min-h-[620px]'
           }`}
         >
           {bgLoadError && studentImageUrl && (
@@ -626,12 +768,19 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
             </div>
           )}
 
+          {tool === 'sticker' && selectedSticker && (
+            <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded-lg bg-slate-900/85 text-white text-[11px] font-bold pointer-events-none flex items-center gap-1.5">
+              <span>{selectedSticker.symbol}</span>
+              <span>انقر في أي مكان على الصورة لوضع «{selectedSticker.label}»</span>
+            </div>
+          )}
+
           <div
-            className="relative shadow-md rounded-xl overflow-hidden border border-slate-300 transition-transform origin-center"
+            className="relative shadow-md rounded-xl overflow-hidden border border-slate-300 transition-transform origin-center bg-white"
             style={{
               transform: `scale(${zoom})`,
               width: '100%',
-              maxWidth: compact ? '680px' : '860px',
+              maxWidth: expanded ? '1260px' : compact ? '820px' : '1180px',
               aspectRatio: '16 / 9',
             }}
           >
@@ -643,7 +792,9 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
               onPointerMove={handlePointerMove}
               onPointerUp={finishStroke}
               onPointerCancel={finishStroke}
-              className="w-full h-full block touch-none cursor-crosshair select-none"
+              className={`w-full h-full block touch-none select-none ${
+                tool === 'sticker' ? 'cursor-copy' : 'cursor-crosshair'
+              }`}
             />
           </div>
 
@@ -664,3 +815,4 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
 );
 
 MarkingBlackboard.displayName = 'MarkingBlackboard';
+

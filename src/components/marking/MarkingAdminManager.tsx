@@ -13,13 +13,26 @@ import {
   PenTool,
   ShieldCheck,
   HelpCircle,
+  Plus,
+  Trash2,
+  Sticker,
+  MessageSquareText,
+  RotateCcw,
 } from 'lucide-react';
-import { AdminUserRecord, MarkingConfig, WordItem } from '../../types';
+import {
+  AdminUserRecord,
+  MarkingConfig,
+  MarkingPresetText,
+  MarkingSticker,
+  WordItem,
+} from '../../types';
 import { DrawingTemplate } from '../../arWriting/types/drawing';
 import { VideoLesson } from '../../video/videoSheets';
 import { CourseScheduleData } from '../../utils/courseSchedule';
 import {
   buildMarkingShareUrl,
+  DEFAULT_MARKING_PRESETS,
+  DEFAULT_MARKING_STICKERS,
   fetchMarkingWorkspaceData,
   getLocalMarkingConfig,
   saveMarkingConfigToSheets,
@@ -54,6 +67,14 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showCloudinaryHelp, setShowCloudinaryHelp] = useState(false);
 
+  // New Preset Text / Sticker Inputs
+  const [newPresetText, setNewPresetText] = useState('');
+  const [newPresetCat, setNewPresetCat] = useState<MarkingPresetText['category']>('positive');
+  const [newStickerSymbol, setNewStickerSymbol] = useState('🌟');
+  const [newStickerLabel, setNewStickerLabel] = useState('');
+  const [newStickerKind, setNewStickerKind] = useState<MarkingSticker['kind']>('positive');
+  const [newStickerColor, setNewStickerColor] = useState('#059669');
+
   const shareUrl = buildMarkingShareUrl();
 
   useEffect(() => {
@@ -65,16 +86,75 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
       .catch(() => {});
   }, [webhookUrl]);
 
+  const presetTexts =
+    config.presetTexts && config.presetTexts.length > 0
+      ? config.presetTexts
+      : DEFAULT_MARKING_PRESETS;
+  const stickers =
+    config.stickers && config.stickers.length > 0 ? config.stickers : DEFAULT_MARKING_STICKERS;
+
+  const handleAddPreset = () => {
+    const clean = newPresetText.trim();
+    if (!clean) return;
+    const item: MarkingPresetText = {
+      id: `pr-${Date.now()}`,
+      text: clean,
+      category: newPresetCat,
+    };
+    setConfig((prev) => ({
+      ...prev,
+      presetTexts: [...(prev.presetTexts || DEFAULT_MARKING_PRESETS), item],
+    }));
+    setNewPresetText('');
+  };
+
+  const handleDeletePreset = (id: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      presetTexts: (prev.presetTexts || DEFAULT_MARKING_PRESETS).filter((p) => p.id !== id),
+    }));
+  };
+
+  const handleAddSticker = () => {
+    const sym = newStickerSymbol.trim();
+    const lbl = newStickerLabel.trim();
+    if (!sym && !lbl) return;
+    const item: MarkingSticker = {
+      id: `st-${Date.now()}`,
+      symbol: sym || '✨',
+      label: lbl || sym || 'ملصق',
+      kind: newStickerKind,
+      color: newStickerColor,
+    };
+    setConfig((prev) => ({
+      ...prev,
+      stickers: [...(prev.stickers || DEFAULT_MARKING_STICKERS), item],
+    }));
+    setNewStickerLabel('');
+  };
+
+  const handleDeleteSticker = (id: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      stickers: (prev.stickers || DEFAULT_MARKING_STICKERS).filter((s) => s.id !== id),
+    }));
+  };
+
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setSaveMsg(null);
     try {
-      const res = await saveMarkingConfigToSheets(webhookUrl, config);
+      const payloadToSave: MarkingConfig = {
+        ...config,
+        presetTexts,
+        stickers,
+      };
+      const res = await saveMarkingConfigToSheets(webhookUrl, payloadToSave);
       if (res.success) {
         setSaveMsg({
           type: 'ok',
-          text: res.message || 'تم حفظ إعدادات Cloudinary وتيليغرام في Google Sheets بنجاح.',
+          text: res.message || 'تم حفظ إعدادات Cloudinary وتيليغرام والنصوص والاستيكرات في Google Sheets بنجاح.',
         });
       } else {
         setSaveMsg({
@@ -107,7 +187,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                 قسم التصحيح والمتابعة والمعلمين
               </h2>
               <p className="text-xs text-slate-500">
-                تصحيح الواجبات (الكتابة، النطق، الإملاء، الفيديو)، التسجيل المباشر لـ Cloudinary، وإشعارات تيليغرام ثنائية الاتجاه
+                تصحيح واجبات الفيديو التفاعلي (الصورة والصوت)، كاميرا OBS المباشرة، النصوص والاستيكرات المخصصة، وإشعارات تيليغرام
               </p>
             </div>
           </div>
@@ -116,7 +196,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('workspace')}
-              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                 subTab === 'workspace'
                   ? 'bg-slate-900 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
@@ -129,14 +209,14 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
             <button
               type="button"
               onClick={() => setSubTab('settings')}
-              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
                 subTab === 'settings'
                   ? 'bg-emerald-600 text-white'
                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               <Sliders className="w-3.5 h-3.5" />
-              <span>إعدادات Cloudinary وتيليغرام</span>
+              <span>الإعدادات والنصوص والاستيكرات</span>
             </button>
           </div>
         </div>
@@ -163,7 +243,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
             <button
               type="button"
               onClick={handleCopyPortalLink}
-              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               {copiedLink ? (
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
@@ -178,7 +258,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
               onClick={() => {
                 window.location.href = shareUrl;
               }}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <span>فتح صفحة التصحيح المستقلة</span>
               <ExternalLink className="w-3.5 h-3.5" />
@@ -203,13 +283,13 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
         />
       )}
 
-      {/* SUBTAB 2: CLOUDINARY & TELEGRAM SETTINGS */}
+      {/* SUBTAB 2: SETTINGS (CLOUDINARY, TELEGRAM, PRESET TEXTS, STICKERS) */}
       {subTab === 'settings' && (
         <form
           onSubmit={handleSaveConfig}
           className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-6"
         >
-          {/* Cloudinary Credentials from marking3 */}
+          {/* Cloudinary Credentials */}
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -219,7 +299,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                     بيانات حساب Cloudinary (لتخزين وبث فيديوهات التصحيح MP4)
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    الصق نفس قيم حساب Cloudinary الخاصة بك من مشروع marking3 ليتم رفع الفيديو مباشرة وتشغيله في تيليغرام والجوال
+                    الصق نفس قيم حساب Cloudinary الخاصة بك من مشروع marking3 ليتم رفع فيديو الكاميرا / OBS وتشغيله في تيليغرام والجوال
                   </p>
                 </div>
               </div>
@@ -227,7 +307,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setShowCloudinaryHelp((p) => !p)}
-                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <HelpCircle className="w-3.5 h-3.5" />
                 <span>ملاحظة الإعداد</span>
@@ -293,8 +373,196 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
             </div>
           </div>
 
+          {/* Preset Texts & Stickers Management */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2 border-t border-slate-100">
+            {/* Custom Preset Texts */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <MessageSquareText className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    النصوص والعبارات الجاهزة ({presetTexts.length})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConfig((prev) => ({ ...prev, presetTexts: DEFAULT_MARKING_PRESETS }))
+                  }
+                  className="text-[11px] font-bold text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>استعادة الافتراضي</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  value={newPresetText}
+                  onChange={(e) => setNewPresetText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddPreset();
+                    }
+                  }}
+                  placeholder="أضف عبارة تقييم أو توجيه جاهزة..."
+                  className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900 focus:outline-hidden focus:border-emerald-500"
+                />
+                <select
+                  value={newPresetCat}
+                  onChange={(e) => setNewPresetCat(e.target.value as MarkingPresetText['category'])}
+                  className="px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                >
+                  <option value="positive">تشجيعي</option>
+                  <option value="correction">تصحيحي</option>
+                  <option value="general">عام</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={handleAddPreset}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إضافة نص</span>
+                </button>
+              </div>
+
+              <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5">
+                {presetTexts.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                  >
+                    <div className="min-w-0 flex items-center gap-2">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          p.category === 'correction'
+                            ? 'bg-rose-500'
+                            : p.category === 'general'
+                            ? 'bg-sky-500'
+                            : 'bg-emerald-500'
+                        }`}
+                      />
+                      <span className="font-semibold text-slate-800 truncate">{p.text}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePreset(p.id)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0 cursor-pointer"
+                      title="حذف النص"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Stickers */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Sticker className="w-4 h-4 text-amber-600" />
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    الاستيكرات وعلامات التصحيح ({stickers.length})
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConfig((prev) => ({ ...prev, stickers: DEFAULT_MARKING_STICKERS }))
+                  }
+                  className="text-[11px] font-bold text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>استعادة الافتراضي</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  value={newStickerSymbol}
+                  onChange={(e) => setNewStickerSymbol(e.target.value)}
+                  placeholder="الرمز ⭐"
+                  className="w-16 text-center px-2 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold"
+                />
+                <input
+                  type="text"
+                  value={newStickerLabel}
+                  onChange={(e) => setNewStickerLabel(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddSticker();
+                    }
+                  }}
+                  placeholder="اسم الاستيكر (مثال: أحسنت! أو خطأ هنا)"
+                  className="flex-1 min-w-[140px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900 focus:outline-hidden focus:border-emerald-500"
+                />
+                <select
+                  value={newStickerKind}
+                  onChange={(e) => setNewStickerKind(e.target.value as MarkingSticker['kind'])}
+                  className="px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                >
+                  <option value="positive">تشجيعي</option>
+                  <option value="correction">توضيح خطأ</option>
+                  <option value="stamp">ختم</option>
+                </select>
+                <input
+                  type="color"
+                  value={newStickerColor}
+                  onChange={(e) => setNewStickerColor(e.target.value)}
+                  className="w-9 h-9 rounded-xl border border-slate-200 cursor-pointer p-0.5 bg-white"
+                  title="لون خلفية الختم"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddSticker}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>إضافة</span>
+                </button>
+              </div>
+
+              <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-0.5">
+                {stickers.map((st) => (
+                  <div
+                    key={st.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg leading-none shrink-0">{st.symbol}</span>
+                      <div className="min-w-0">
+                        <div className="font-extrabold text-slate-900 truncate">{st.label}</div>
+                        <div className="text-[10px] text-slate-500">
+                          {st.kind === 'correction'
+                            ? 'توضيح خطأ'
+                            : st.kind === 'stamp'
+                            ? 'ختم سريع'
+                            : 'تشجيعي'}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSticker(st.id)}
+                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0 cursor-pointer"
+                      title="حذف الاستيكر"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Two-Way Telegram Sync Settings */}
-          <div className="space-y-4">
+          <div className="space-y-4 pt-2 border-t border-slate-100">
             <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
               <Send className="w-5 h-5 text-emerald-600" />
               <div>
@@ -369,14 +637,14 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-extrabold flex items-center gap-2 cursor-pointer"
+              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-extrabold flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
             >
               {saving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              <span>حفظ إعدادات التصحيح وCloudinary</span>
+              <span>حفظ جميع إعدادات التصحيح</span>
             </button>
           </div>
 
@@ -401,3 +669,4 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
     </div>
   );
 };
+

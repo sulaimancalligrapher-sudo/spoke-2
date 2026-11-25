@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxLfJGClj_dXG8ZEqtM_Yd--Dy0HzFvkSN5BD34xuTVYUow2WuEGS05_Y-_xJgIP0R02A/exec';
+  'https://script.google.com/macros/s/AKfycbwZpNq5WGaopDPOHmdZJV3QYDIJoLpuiJCbygmLJOp9CJ0cJlNpg4gWxoH0BLaxbyzy8A/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4671,7 +4671,9 @@ function readMarkingConfigGS(ss) {
     teacherTelegramChatId: "",
     notifyTeacherOnSubmission: true,
     notifyStudentOnCorrection: true,
-    portalBaseUrl: ""
+    portalBaseUrl: "",
+    presetTexts: [],
+    stickers: []
   };
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0] || "").trim();
@@ -4683,6 +4685,12 @@ function readMarkingConfigGS(ss) {
     else if (k === "notifyTeacherOnSubmission") cfg.notifyTeacherOnSubmission = (v.toLowerCase() !== "false" && v !== "0");
     else if (k === "notifyStudentOnCorrection") cfg.notifyStudentOnCorrection = (v.toLowerCase() !== "false" && v !== "0");
     else if (k === "portalBaseUrl") cfg.portalBaseUrl = v;
+    else if (k === "presetTextsJson" && v) {
+      try { var pt = JSON.parse(v); if (Array.isArray(pt)) cfg.presetTexts = pt; } catch (e1) {}
+    }
+    else if (k === "stickersJson" && v) {
+      try { var st = JSON.parse(v); if (Array.isArray(st)) cfg.stickers = st; } catch (e2) {}
+    }
   }
   return cfg;
 }
@@ -4699,26 +4707,49 @@ function writeMarkingConfigGS(ss, cfg) {
     ["teacherTelegramChatId", String(cfg.teacherTelegramChatId || "").trim()],
     ["notifyTeacherOnSubmission", cfg.notifyTeacherOnSubmission === false ? "false" : "true"],
     ["notifyStudentOnCorrection", cfg.notifyStudentOnCorrection === false ? "false" : "true"],
-    ["portalBaseUrl", String(cfg.portalBaseUrl || "").trim()]
+    ["portalBaseUrl", String(cfg.portalBaseUrl || "").trim()],
+    ["presetTextsJson", JSON.stringify(Array.isArray(cfg.presetTexts) ? cfg.presetTexts : [])],
+    ["stickersJson", JSON.stringify(Array.isArray(cfg.stickers) ? cfg.stickers : [])]
   ];
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
 }
 
 function getMarkingCorrectionsSheet(ss) {
   var sheet = ss.getSheetByName(MARKING_CORRECTIONS_SHEET_NAME);
+  var fullHeaders = [
+    "مفتاح التسليم", "نوع التمرين", "ID المشترك", "اسم المشترك",
+    "الدرس/الموضوع", "العنصر", "الحالة", "الدرجة", "التقييم",
+    "ملاحظة المعلم", "الصورة المصححة", "صوت المعلم", "فيديو التصحيح",
+    "اسم المعلم", "تاريخ التصحيح", "إشعار تيليغرام",
+    "صور إضافية JSON", "أصوات إضافية JSON", "فيديوهات إضافية JSON",
+    "رمز الاستيكر", "نص الاستيكر"
+  ];
   if (!sheet) {
     sheet = ss.insertSheet(MARKING_CORRECTIONS_SHEET_NAME);
-    var headers = [
-      "مفتاح التسليم", "نوع التمرين", "ID المشترك", "اسم المشترك",
-      "الدرس/الموضوع", "العنصر", "الحالة", "الدرجة", "التقييم",
-      "ملاحظة المعلم", "الصورة المصححة", "صوت المعلم", "فيديو التصحيح",
-      "اسم المعلم", "تاريخ التصحيح", "إشعار تيليغرام"
-    ];
-    sheet.appendRow(headers);
-    sheet.getRange(1, 1, 1, headers.length).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.appendRow(fullHeaders);
+    sheet.getRange(1, 1, 1, fullHeaders.length).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastColumn() < fullHeaders.length) {
+    var existingColCount = Math.max(16, sheet.getLastColumn());
+    for (var hc = existingColCount + 1; hc <= fullHeaders.length; hc++) {
+      sheet.getRange(1, hc).setValue(fullHeaders[hc - 1]).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
+    }
   }
   return sheet;
+}
+
+function parseJsonStrArrayGS(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(function(x) { return Boolean(String(x || "").trim()); });
+  var s = String(raw || "").trim();
+  if (!s) return [];
+  if (s.charAt(0) === "[") {
+    try {
+      var parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed.filter(function(x) { return Boolean(String(x || "").trim()); });
+    } catch (e) {}
+  }
+  return [s];
 }
 
 function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
@@ -4726,7 +4757,8 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var rows = sheet.getRange(2, 1, lastR - 1, 16).getValues();
+  var colCount = Math.max(16, Math.min(21, sheet.getLastColumn()));
+  var rows = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
   var cleanId = normRegDigitsGS(filterStudentId || "");
   var cleanName = String(filterStudentName || "").trim();
   for (var r = 0; r < rows.length; r++) {
@@ -4740,6 +4772,15 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
       var nameOk = (!cleanId || !sId) && cleanName && sName === cleanName;
       if (!idOk && !nameOk) continue;
     }
+    var corrImg = String(row[10] || "").trim();
+    var tAud = String(row[11] || "").trim();
+    var tVid = String(row[12] || "").trim();
+    var addImgs = colCount >= 17 ? parseJsonStrArrayGS(row[16]) : [];
+    var addAuds = colCount >= 18 ? parseJsonStrArrayGS(row[17]) : [];
+    var addVids = colCount >= 19 ? parseJsonStrArrayGS(row[18]) : [];
+    if (tAud && addAuds.indexOf(tAud) === -1) addAuds.unshift(tAud);
+    if (tVid && addVids.indexOf(tVid) === -1) addVids.unshift(tVid);
+
     list.push({
       id: "mc-" + (r + 2),
       submissionKey: sKey,
@@ -4752,9 +4793,14 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
       score: row[7] !== "" && row[7] !== null && row[7] !== undefined ? Number(row[7]) : undefined,
       ratingLabel: String(row[8] || "").trim(),
       notes: String(row[9] || "").trim(),
-      correctedImageUrl: String(row[10] || "").trim(),
-      teacherAudioUrl: String(row[11] || "").trim(),
-      teacherVideoUrl: String(row[12] || "").trim(),
+      correctedImageUrl: corrImg || addImgs[0] || "",
+      additionalImages: addImgs,
+      teacherAudioUrl: tAud || addAuds[0] || "",
+      teacherAudios: addAuds,
+      teacherVideoUrl: tVid || addVids[0] || "",
+      teacherVideos: addVids,
+      stickerSymbol: colCount >= 20 ? String(row[19] || "").trim() : "",
+      stickerLabel: colCount >= 21 ? String(row[20] || "").trim() : "",
       teacherName: String(row[13] || "").trim(),
       updatedAt: String(row[14] || "").trim(),
       telegramNotified: String(row[15] || "").trim() === "true"
@@ -4763,26 +4809,32 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
   return list;
 }
 
-function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrl, photoUrl, audioUrl) {
+function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrlsInput, photoUrlsInput, audioUrlsInput) {
   var cfg = readTelegramConfigGS(ss);
   var token = String(cfg.botToken || "").trim();
   if (!token || !chatId) return { ok: false, error: "missing token or chatId" };
   var apiBase = "https://api.telegram.org/bot" + token;
-  var sent = false;
 
-  if (videoUrl) {
+  var videoList = Array.isArray(videoUrlsInput) ? videoUrlsInput.slice() : (videoUrlsInput ? [String(videoUrlsInput)] : []);
+  var photoList = Array.isArray(photoUrlsInput) ? photoUrlsInput.slice() : (photoUrlsInput ? [String(photoUrlsInput)] : []);
+  var audioList = Array.isArray(audioUrlsInput) ? audioUrlsInput.slice() : (audioUrlsInput ? [String(audioUrlsInput)] : []);
+  var sentAny = false;
+  var captionUsed = false;
+
+  for (var vi = 0; vi < videoList.length; vi++) {
+    var vUrlToSend = String(videoList[vi] || "").trim();
+    if (!vUrlToSend) continue;
+    if (vUrlToSend.indexOf("res.cloudinary.com") !== -1 && vUrlToSend.indexOf("/video/upload/") !== -1 && vUrlToSend.indexOf("/f_mp4") === -1) {
+      vUrlToSend = vUrlToSend.replace("/video/upload/", "/video/upload/f_mp4,vc_h264/");
+    }
     try {
-      var vUrlToSend = String(videoUrl).trim();
-      if (vUrlToSend.indexOf("res.cloudinary.com") !== -1 && vUrlToSend.indexOf("/video/upload/") !== -1 && vUrlToSend.indexOf("/f_mp4") === -1) {
-        vUrlToSend = vUrlToSend.replace("/video/upload/", "/video/upload/f_mp4,vc_h264/");
-      }
       var vResp = UrlFetchApp.fetch(apiBase + "/sendVideo", {
         method: "post",
         contentType: "application/json",
         payload: JSON.stringify({
           chat_id: String(chatId),
           video: vUrlToSend,
-          caption: String(captionText || "").slice(0, 1020),
+          caption: !captionUsed ? String(captionText || "").slice(0, 1020) : ("🎬 فيديو توضيحي (" + (vi + 1) + ")"),
           parse_mode: "HTML",
           supports_streaming: true
         }),
@@ -4791,44 +4843,62 @@ function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrl, photoUr
       var vJson = null;
       try { vJson = JSON.parse(vResp.getContentText()); } catch (e) {}
       if (vResp.getResponseCode() >= 200 && vResp.getResponseCode() < 300 && vJson && vJson.ok) {
-        sent = true;
+        sentAny = true;
+        captionUsed = true;
+      } else {
+        var linkRes = sendTelegramBotMessageGS(ss, chatId, (!captionUsed ? String(captionText || "") + "\\n\\n" : "") + "🎬 <b>فيديو التصحيح:</b> " + vUrlToSend, "");
+        if (linkRes.ok) { sentAny = true; captionUsed = true; }
       }
     } catch (vErr) {}
   }
 
-  if (!sent && photoUrl) {
-    var pRes = sendTelegramBotMessageGS(ss, chatId, String(captionText || "").slice(0, 1020), photoUrl);
-    if (pRes.ok) sent = true;
+  for (var pi = 0; pi < photoList.length; pi++) {
+    var pUrlToSend = String(photoList[pi] || "").trim();
+    if (!pUrlToSend) continue;
+    var pCaption = !captionUsed ? String(captionText || "").slice(0, 1020) : ("🖼️ صورة مرفقة (" + (pi + 1) + ")");
+    var pRes = sendTelegramBotMessageGS(ss, chatId, pCaption, pUrlToSend);
+    if (pRes.ok) {
+      sentAny = true;
+      captionUsed = true;
+    } else {
+      var pLinkRes = sendTelegramBotMessageGS(ss, chatId, (!captionUsed ? String(captionText || "") + "\\n\\n" : "") + "🖼️ <b>صورة التصحيح:</b> " + pUrlToSend, "");
+      if (pLinkRes.ok) { sentAny = true; captionUsed = true; }
+    }
   }
 
-  if (!sent) {
-    var fullTxt = String(captionText || "");
-    if (videoUrl) fullTxt += "\\n\\n🎬 <b>رابط فيديو التصحيح:</b> " + videoUrl;
-    if (photoUrl) fullTxt += "\\n🖼️ <b>رابط الصورة المصححة:</b> " + photoUrl;
-    var mRes = sendTelegramBotMessageGS(ss, chatId, fullTxt, "");
-    sent = Boolean(mRes.ok);
+  if (!captionUsed && String(captionText || "").trim()) {
+    var mRes = sendTelegramBotMessageGS(ss, chatId, String(captionText || ""), "");
+    if (mRes.ok) {
+      sentAny = true;
+      captionUsed = true;
+    }
   }
 
-  if (audioUrl) {
+  for (var ai = 0; ai < audioList.length; ai++) {
+    var aUrlToSend = String(audioList[ai] || "").trim();
+    if (!aUrlToSend) continue;
     try {
       var aResp = UrlFetchApp.fetch(apiBase + "/sendAudio", {
         method: "post",
         contentType: "application/json",
         payload: JSON.stringify({
           chat_id: String(chatId),
-          audio: String(audioUrl).trim(),
-          caption: "🎙️ تسجيل الملاحظة الصوتية من المعلم"
+          audio: aUrlToSend,
+          caption: "🎙️ ملاحظة صوتية من المعلم" + (audioList.length > 1 ? (" (" + (ai + 1) + ")") : "")
         }),
         muteHttpExceptions: true
       });
       var aJson = null;
       try { aJson = JSON.parse(aResp.getContentText()); } catch (e) {}
-      if (!(aResp.getResponseCode() >= 200 && aResp.getResponseCode() < 300 && aJson && aJson.ok)) {
-        sendTelegramBotMessageGS(ss, chatId, "🎙️ <b>ملاحظة المعلم الصوتية:</b> " + audioUrl, "");
+      if (aResp.getResponseCode() >= 200 && aResp.getResponseCode() < 300 && aJson && aJson.ok) {
+        sentAny = true;
+      } else {
+        var aLinkRes = sendTelegramBotMessageGS(ss, chatId, "🎙️ <b>ملاحظة المعلم الصوتية:</b> " + aUrlToSend, "");
+        if (aLinkRes.ok) sentAny = true;
       }
     } catch (aErr) {}
   }
-  return { ok: sent };
+  return { ok: sentAny };
 }
 
 function notifyTeacherOnSubmissionGS(ss, info) {
@@ -4865,11 +4935,60 @@ function notifyTeacherOnSubmissionGS(ss, info) {
   }
 }
 
+function mirrorCorrectionToVideoSheetGS(ss, opts) {
+  try {
+    var vcSheet = getVideoCorrectionsSheet(ss);
+    var lTitle = String(opts.lessonTitle || "").trim();
+    var sId = String(opts.studentId || "").trim();
+    var sName = String(opts.studentName || "").trim();
+    if (!lTitle) return;
+    var lastR = vcSheet.getLastRow();
+    var targetR = -1;
+    if (lastR > 1) {
+      var rows = vcSheet.getRange(2, 1, lastR - 1, 3).getValues();
+      for (var r = 0; r < rows.length; r++) {
+        var rTitle = String(rows[r][0] || "").trim();
+        var rId = normRegDigitsGS(rows[r][1] || "");
+        var rName = String(rows[r][2] || "").trim();
+        var stMatch = (sId && rId === normRegDigitsGS(sId)) || ((!sId || !rId) && sName && rName === sName);
+        if (stMatch && rTitle === lTitle) {
+          targetR = r + 2;
+          break;
+        }
+      }
+    }
+    var stBadge = opts.status === "retry" ? "يحتاج إعادة" : (opts.ratingLabel || "ممتاز");
+    var imgNotesFull = (opts.stickerText ? (opts.stickerText + "\\n") : "") + String(opts.notes || "");
+    var rowData = [
+      lTitle,
+      sId,
+      sName,
+      opts.correctedImageUrl || (opts.additionalImages && opts.additionalImages.length > 0) ? stBadge : "",
+      opts.score !== "" && opts.score !== undefined ? String(opts.score) : "",
+      opts.correctedImageUrl || "",
+      JSON.stringify(opts.additionalImages || []),
+      opts.nowStr || "",
+      imgNotesFull,
+      (opts.teacherAudios && opts.teacherAudios.length > 0) || (opts.teacherVideos && opts.teacherVideos.length > 0) ? stBadge : stBadge,
+      opts.score !== "" && opts.score !== undefined ? String(opts.score) : "",
+      JSON.stringify(opts.teacherAudios || []),
+      JSON.stringify(opts.teacherVideos || []),
+      opts.nowStr || "",
+      imgNotesFull
+    ];
+    if (targetR !== -1) {
+      vcSheet.getRange(targetR, 1, 1, 15).setValues([rowData]);
+    } else {
+      vcSheet.appendRow(rowData);
+    }
+  } catch (mirErr) {}
+}
+
 function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   var mcSheet = getMarkingCorrectionsSheet(ss);
   var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Asia/Bangkok", "yyyy/MM/dd HH:mm");
   var sKey = String(item.submissionKey || "").trim();
-  var exType = String(item.exerciseType || "writing").trim();
+  var exType = String(item.exerciseType || "video").trim();
   var sId = String(item.studentId || "").trim();
   var sName = String(item.studentName || "").trim();
   var lSubj = String(item.lessonSubject || "").trim();
@@ -4879,8 +4998,23 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   var ratLabel = String(item.ratingLabel || "").trim();
   var notesStr = String(item.notes || "").trim();
   var corrImg = String(item.correctedImageUrl || "").trim();
+  var addImgs = parseJsonStrArrayGS(item.additionalImages);
+  if (corrImg && addImgs.indexOf(corrImg) === -1) addImgs.unshift(corrImg);
+  if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
+
+  var tAudios = parseJsonStrArrayGS(item.teacherAudios);
   var tAudio = String(item.teacherAudioUrl || "").trim();
+  if (tAudio && tAudios.indexOf(tAudio) === -1) tAudios.unshift(tAudio);
+  if (!tAudio && tAudios.length > 0) tAudio = tAudios[0];
+
+  var tVideos = parseJsonStrArrayGS(item.teacherVideos);
   var tVideo = String(item.teacherVideoUrl || "").trim();
+  if (tVideo && tVideos.indexOf(tVideo) === -1) tVideos.unshift(tVideo);
+  if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+
+  var stSym = String(item.stickerSymbol || "").trim();
+  var stLbl = String(item.stickerLabel || "").trim();
+  var stickerHeader = (stSym || stLbl) ? ((stSym ? stSym + " " : "") + stLbl).trim() : "";
   var tName = String(item.teacherName || defaultTeacherName || "المعلم").trim();
 
   var tgSent = false;
@@ -4890,16 +5024,16 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     if (stuChatId) {
       var statusBadge = stStatus === "retry" ? "🔄 مطلوب إعادة المحاولة" : "✅ تم التصحيح والاعتماد";
       var msgLines = [
-        "<b>" + statusBadge + "</b>",
+        "<b>" + statusBadge + "</b>" + (stickerHeader ? ("   " + stickerHeader) : ""),
         "الطالب: <b>" + (sName || "طالبنا الكريم") + "</b>",
         "الدرس: <b>" + (lSubj || "—") + "</b>" + (iTitle ? (" — " + iTitle) : "")
       ];
-      if (scVal !== "") msgLines.push("التقييم: <b>" + scVal + "%</b>" + (ratLabel ? (" (" + ratLabel + ")") : ""));
-      else if (ratLabel) msgLines.push("التقييم: <b>" + ratLabel + "</b>");
+      if (scVal !== "") msgLines.push("الدرجة: <b>" + scVal + "</b>" + (ratLabel ? (" (" + ratLabel + ")") : ""));
+      else if (ratLabel) msgLines.push("التقدير: <b>" + ratLabel + "</b>");
       if (notesStr) msgLines.push("📝 ملاحظة المعلم: " + notesStr);
       if (item.allowRetry) msgLines.push("🔓 تم فتح محاولة إضافية لك في المنصة.");
       msgLines.push("👨‍🏫 المعلم: " + tName);
-      tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tVideo, corrImg, tAudio).ok;
+      tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tVideos, addImgs, tAudios).ok;
     }
   }
 
@@ -4923,6 +5057,24 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     } catch (retErr) {}
   }
 
+  if (exType === "video") {
+    mirrorCorrectionToVideoSheetGS(ss, {
+      lessonTitle: iTitle || lSubj,
+      studentId: sId,
+      studentName: sName,
+      status: stStatus,
+      score: scVal,
+      ratingLabel: ratLabel,
+      notes: notesStr,
+      stickerText: stickerHeader,
+      correctedImageUrl: corrImg,
+      additionalImages: addImgs,
+      teacherAudios: tAudios,
+      teacherVideos: tVideos,
+      nowStr: nowStr
+    });
+  }
+
   var lastR = mcSheet.getLastRow();
   var targetRow = -1;
   if (lastR > 1 && sKey) {
@@ -4937,10 +5089,12 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   var rowArr = [
     sKey, exType, sId, sName, lSubj, iTitle,
     stStatus, scVal, ratLabel, notesStr,
-    corrImg, tAudio, tVideo, tName, nowStr, tgSent ? "true" : "false"
+    corrImg, tAudio, tVideo, tName, nowStr, tgSent ? "true" : "false",
+    JSON.stringify(addImgs), JSON.stringify(tAudios), JSON.stringify(tVideos),
+    stSym, stLbl
   ];
   if (targetRow !== -1) {
-    mcSheet.getRange(targetRow, 1, 1, 16).setValues([rowArr]);
+    mcSheet.getRange(targetRow, 1, 1, 21).setValues([rowArr]);
   } else {
     mcSheet.appendRow(rowArr);
   }
@@ -4957,11 +5111,200 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     ratingLabel: ratLabel,
     notes: notesStr,
     correctedImageUrl: corrImg,
+    additionalImages: addImgs,
     teacherAudioUrl: tAudio,
+    teacherAudios: tAudios,
     teacherVideoUrl: tVideo,
+    teacherVideos: tVideos,
+    stickerSymbol: stSym,
+    stickerLabel: stLbl,
     teacherName: tName,
     updatedAt: nowStr,
     telegramNotified: tgSent
+  };
+}
+
+function buildStudentAchievementSummaryGS(ss, studentId, studentName) {
+  var cleanId = normRegDigitsGS(studentId || "");
+  var cleanName = String(studentName || "").trim();
+  var matchesStudent = function(rowIdRaw, rowNameRaw) {
+    var rId = normRegDigitsGS(rowIdRaw || "");
+    var rNm = String(rowNameRaw || "").trim();
+    if (cleanId && rId) return rId === cleanId;
+    if (cleanName && rNm) return rNm === cleanName || normRegArabicGS(rNm) === normRegArabicGS(cleanName);
+    return false;
+  };
+  var nowFormatted = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Asia/Bangkok", "yyyy/MM/dd HH:mm");
+
+  // 1) Interactive Video
+  var allVideoLessons = readVideoLessonsListGS(ss);
+  var vaSh = getVideoAnswersSheet(ss);
+  var vaRows = vaSh.getLastRow() > 1 ? vaSh.getRange(2, 1, vaSh.getLastRow() - 1, Math.max(13, vaSh.getLastColumn())).getValues() : [];
+  var stuVideoMap = {};
+  for (var vri = 0; vri < vaRows.length; vri++) {
+    var vRow = vaRows[vri];
+    if (!matchesStudent(vRow[1], vRow[2])) continue;
+    var vLid = String(vRow[3] || "").trim();
+    var vTitle = String(vRow[5] || "").trim();
+    var pAns = {};
+    try { if (vRow[9]) pAns = JSON.parse(String(vRow[9])); } catch (e) {}
+    var ansCount = 0;
+    for (var ak in pAns) { if (Object.prototype.hasOwnProperty.call(pAns, ak)) ansCount++; }
+    var recObj = {
+      lessonId: vLid,
+      lessonTitle: vTitle,
+      topic: String(vRow[4] || "").trim(),
+      completed: String(vRow[6] || "").trim(),
+      videoScore: Number(vRow[7] || 0),
+      answeredCount: ansCount,
+      hasImage: Boolean(String(vRow[11] || "").trim()),
+      hasAudio: Boolean(String(vRow[12] || "").trim()),
+      updatedAt: String(vRow[0] || "").trim()
+    };
+    if (vLid) stuVideoMap[vLid] = recObj;
+    if (vTitle) stuVideoMap[normRegArabicGS(vTitle)] = recObj;
+  }
+
+  var videoQuizDetails = [];
+  var vidCompletedItems = [];
+  var vidPendingItems = [];
+  var vidScoreSum = 0;
+  var vidScoreCount = 0;
+  for (var vl = 0; vl < allVideoLessons.length; vl++) {
+    var vLess = allVideoLessons[vl];
+    var foundV = stuVideoMap[vLess.id] || stuVideoMap[normRegArabicGS(vLess.title)];
+    var totQ = Array.isArray(vLess.questions) ? vLess.questions.length : 0;
+    if (foundV) {
+      vidCompletedItems.push({ title: vLess.title, score: foundV.videoScore, status: foundV.completed || "منجز" });
+      vidScoreSum += foundV.videoScore;
+      vidScoreCount++;
+      videoQuizDetails.push({
+        lessonId: vLess.id,
+        lessonTitle: vLess.title,
+        topic: vLess.topic,
+        completed: foundV.completed || "مكتمل",
+        videoScore: foundV.videoScore,
+        answeredCount: foundV.answeredCount,
+        totalQuestions: totQ,
+        hasImage: foundV.hasImage,
+        hasAudio: foundV.hasAudio,
+        updatedAt: foundV.updatedAt
+      });
+    } else {
+      vidPendingItems.push(vLess.title);
+      videoQuizDetails.push({
+        lessonId: vLess.id,
+        lessonTitle: vLess.title,
+        topic: vLess.topic,
+        completed: "لم يبدأ",
+        videoScore: 0,
+        answeredCount: 0,
+        totalQuestions: totQ,
+        hasImage: false,
+        hasAudio: false,
+        updatedAt: ""
+      });
+    }
+  }
+
+  // Helper to compare Topic-based Curriculum vs Answers Sheet
+  var buildTopicModule = function(modKey, modLabel, qSheet, aSheet, scoreColMode) {
+    var topics = [];
+    var seenT = {};
+    if (qSheet && qSheet.getLastRow() > 1) {
+      var qVals = qSheet.getRange(2, 1, qSheet.getLastRow() - 1, 1).getValues();
+      for (var qi = 0; qi < qVals.length; qi++) {
+        var tName = String(qVals[qi][0] || "").trim();
+        if (tName && !seenT[tName]) {
+          seenT[tName] = true;
+          topics.push(tName);
+        }
+      }
+    }
+    var doneMap = {};
+    if (aSheet && aSheet.getLastRow() > 1) {
+      var aLastC = Math.max(6, aSheet.getLastColumn());
+      var aVals = aSheet.getRange(2, 1, aSheet.getLastRow() - 1, aLastC).getValues();
+      for (var ai = 0; ai < aVals.length; ai++) {
+        var ar = aVals[ai];
+        if (!matchesStudent(ar[1], ar[2])) continue;
+        var aSubj = String(ar[3] || "").trim();
+        if (!aSubj) continue;
+        if (!seenT[aSubj]) { seenT[aSubj] = true; topics.push(aSubj); }
+        var avgPct = undefined;
+        var pctSum = 0; var pctCnt = 0;
+        if (scoreColMode === "pron") {
+          for (var pc = 5; pc < ar.length; pc += 5) {
+            if (!String(ar[pc] || "").trim()) continue;
+            var pNum = Number(String(ar[pc + 3] || "").replace(/[^0-9.]/g, ""));
+            if (!isNaN(pNum)) { pctSum += pNum; pctCnt++; }
+          }
+        } else if (scoreColMode === "writ") {
+          for (var wc = 5; wc < ar.length; wc += 5) {
+            if (!String(ar[wc + 1] || "").trim() && !String(ar[wc + 2] || "").trim()) continue;
+            var wNum = Number(String(ar[wc + 3] || "").replace(/[^0-9.]/g, ""));
+            if (!isNaN(wNum)) { pctSum += wNum; pctCnt++; }
+          }
+        } else {
+          for (var fc = 5; fc < ar.length; fc++) {
+            var fTxt = String(ar[fc] || "").trim();
+            if (!fTxt) continue;
+            var eqM = fTxt.match(/=\s*(\d+)/);
+            if (eqM && eqM[1]) { pctSum += Number(eqM[1]); pctCnt++; }
+          }
+        }
+        if (pctCnt > 0) avgPct = Math.round(pctSum / pctCnt);
+        doneMap[aSubj] = { status: String(ar[4] || "منجز").trim(), score: avgPct };
+      }
+    }
+    var completedItems = [];
+    var pendingItems = [];
+    var sumS = 0; var cntS = 0;
+    for (var ti = 0; ti < topics.length; ti++) {
+      var tn = topics[ti];
+      if (doneMap[tn]) {
+        completedItems.push({ title: tn, score: doneMap[tn].score, status: doneMap[tn].status });
+        if (typeof doneMap[tn].score === "number") { sumS += doneMap[tn].score; cntS++; }
+      } else {
+        pendingItems.push(tn);
+      }
+    }
+    return {
+      key: modKey,
+      label: modLabel,
+      totalLessons: topics.length,
+      completedLessons: completedItems.length,
+      pendingLessons: pendingItems.length,
+      averageScore: cntS > 0 ? Math.round(sumS / cntS) : null,
+      completedItems: completedItems,
+      pendingItems: pendingItems
+    };
+  };
+
+  var modules = [
+    {
+      key: "video",
+      label: "الفيديو التفاعلي",
+      totalLessons: allVideoLessons.length,
+      completedLessons: vidCompletedItems.length,
+      pendingLessons: vidPendingItems.length,
+      averageScore: vidScoreCount > 0 ? Math.round(vidScoreSum / vidScoreCount) : null,
+      completedItems: vidCompletedItems,
+      pendingItems: vidPendingItems
+    },
+    buildTopicModule("pronunciation", "النطق والتلاوة", getLessonsSheet(ss), getAnswers1Sheet(ss), "pron"),
+    buildTopicModule("matching", "تمرين الوصل", getMatchingSheet(ss), getAnswers2Sheet(ss), "formula"),
+    buildTopicModule("dictation", "الإملاء", getWordsSheet(ss), getAnswers3Sheet(ss), "formula"),
+    buildTopicModule("writing", "الكتابة والخط", getWritingLessonsSheet(ss), getAnswers4Sheet(ss), "writ"),
+    buildTopicModule("catch", "تحدي الصيد", getCatchSheet(ss), getCatchAnswersSheet(ss), "formula")
+  ];
+
+  return {
+    studentId: cleanId,
+    studentName: cleanName,
+    generatedAt: nowFormatted,
+    videoQuizDetails: videoQuizDetails,
+    modules: modules
   };
 }
 
@@ -7431,9 +7774,24 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (e && e.parameter && e.parameter.action === "get_student_achievement_summary") {
+      var achSummaryGet = buildStudentAchievementSummaryGS(
+        ss,
+        String(e.parameter.studentId || "").trim(),
+        String(e.parameter.studentName || "").trim()
+      );
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        summary: achSummaryGet
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (e && e.parameter && e.parameter.action === "get_marking_workspace_data") {
       var mCfgGet = readMarkingConfigGS(ss);
       var allCorrsGet = readMarkingCorrectionsGS(ss, "", "");
+      var allVidCorrsGet = [];
+      try { allVidCorrsGet = readVideoCorrectionsListGS(ss, "", ""); } catch (vcErr) {}
 
       // 1) الكتابة والخط (answers 4)
       var writingListGet = [];
@@ -7544,7 +7902,7 @@ function doGet(e) {
         }
       } catch (pGetErr) {}
 
-      // 4) الفيديو التفاعلي (فيديو_الإجابات)
+      // 4) الفيديو التفاعلي (فيديو_الإجابات) — المصدر الأساسي للاستوديو
       var vidListGet = [];
       try {
         var vaSh = getVideoAnswersSheet(ss);
@@ -7557,14 +7915,19 @@ function doGet(e) {
             var vNm = String(rva[2] || "").trim();
             var vTitle = String(rva[5] || "").trim();
             if (!vId && !vNm && !vTitle) continue;
+            var parsedVAns = {};
+            try { if (rva[9]) parsedVAns = JSON.parse(String(rva[9])); } catch (paErr) {}
             vidListGet.push({
               timestamp: String(rva[0] || "").trim(),
               studentId: vId,
               studentName: vNm,
+              lessonId: String(rva[3] || "").trim(),
               lessonSubject: String(rva[4] || "").trim(),
               itemTitle: vTitle,
               completed: String(rva[6] || "").trim(),
               score: Number(rva[7] || 0),
+              videoScore: Number(rva[7] || 0),
+              answeredQuestions: parsedVAns,
               imageUrl: String(rva[11] || "").trim(),
               audioUrl: String(rva[12] || "").trim()
             });
@@ -7585,6 +7948,7 @@ function doGet(e) {
         markingHandled: true,
         config: mCfgGet,
         corrections: allCorrsGet,
+        videoCorrections: allVidCorrsGet,
         writingSubmissions: writingListGet,
         dictationSubmissions: dictListGet,
         pronunciationSubmissions: pronListGet,
@@ -8448,6 +8812,19 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (data.action === "get_student_achievement_summary") {
+      var achSummaryPost = buildStudentAchievementSummaryGS(
+        ss,
+        String(data.studentId || "").trim(),
+        String(data.studentName || "").trim()
+      );
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        summary: achSummaryPost
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (data.action === "save_marking_correction" && data.correction) {
       var corrInput = data.correction;
       if (corrInput.correctedImageBase64) {
@@ -8458,6 +8835,17 @@ function doPost(e) {
           "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
         );
       }
+      var addImgsArr = parseJsonStrArrayGS(corrInput.additionalImages);
+      if (Array.isArray(corrInput.additionalImagesBase64)) {
+        for (var aii = 0; aii < corrInput.additionalImagesBase64.length; aii++) {
+          var b64Img = String(corrInput.additionalImagesBase64[aii] || "").trim();
+          if (!b64Img) continue;
+          var upImgUrl = uploadVideoBase64ToDriveGS(b64Img, "corr_add_img_" + (aii + 1), "image/png", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+          if (upImgUrl) addImgsArr.push(upImgUrl);
+        }
+      }
+      corrInput.additionalImages = addImgsArr;
+
       if (corrInput.teacherAudioBase64) {
         corrInput.teacherAudioUrl = uploadVideoBase64ToDriveGS(
           corrInput.teacherAudioBase64,
@@ -8466,6 +8854,17 @@ function doPost(e) {
           "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
         );
       }
+      var tAudsArr = parseJsonStrArrayGS(corrInput.teacherAudios);
+      if (Array.isArray(corrInput.teacherAudiosBase64)) {
+        for (var aai = 0; aai < corrInput.teacherAudiosBase64.length; aai++) {
+          var b64Aud = String(corrInput.teacherAudiosBase64[aai] || "").trim();
+          if (!b64Aud) continue;
+          var upAudUrl = uploadVideoBase64ToDriveGS(b64Aud, "corr_add_aud_" + (aai + 1), "audio/mp3", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+          if (upAudUrl) tAudsArr.push(upAudUrl);
+        }
+      }
+      corrInput.teacherAudios = tAudsArr;
+
       var savedCorr = upsertMarkingCorrectionGS(ss, corrInput, data.teacherName || "المعلم");
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
@@ -8480,19 +8879,60 @@ function doPost(e) {
       var sharedImgUrl = String(data.sharedCorrectedImageUrl || "").trim();
       var sharedAudUrl = String(data.sharedTeacherAudioUrl || "").trim();
       var sharedVidUrl = String(data.sharedTeacherVideoUrl || "").trim();
+      var sharedAddImgs = parseJsonStrArrayGS(data.sharedAdditionalImages);
+      var sharedAddAuds = parseJsonStrArrayGS(data.sharedTeacherAudios);
+      var sharedAddVids = parseJsonStrArrayGS(data.sharedTeacherVideos);
+
       if (data.sharedCorrectedImageBase64) {
         sharedImgUrl = uploadVideoBase64ToDriveGS(data.sharedCorrectedImageBase64, "batch_img", "image/png", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
       }
+      if (Array.isArray(data.sharedAdditionalImagesBase64)) {
+        for (var biImg = 0; biImg < data.sharedAdditionalImagesBase64.length; biImg++) {
+          var bImgRaw = String(data.sharedAdditionalImagesBase64[biImg] || "").trim();
+          if (!bImgRaw) continue;
+          var upBImg = uploadVideoBase64ToDriveGS(bImgRaw, "batch_add_img_" + (biImg + 1), "image/png", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+          if (upBImg) sharedAddImgs.push(upBImg);
+        }
+      }
+      if (sharedImgUrl && sharedAddImgs.indexOf(sharedImgUrl) === -1) sharedAddImgs.unshift(sharedImgUrl);
+      if (!sharedImgUrl && sharedAddImgs.length > 0) sharedImgUrl = sharedAddImgs[0];
+
       if (data.sharedTeacherAudioBase64) {
         sharedAudUrl = uploadVideoBase64ToDriveGS(data.sharedTeacherAudioBase64, "batch_voice", "audio/mp3", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
       }
+      if (Array.isArray(data.sharedTeacherAudiosBase64)) {
+        for (var biAud = 0; biAud < data.sharedTeacherAudiosBase64.length; biAud++) {
+          var bAudRaw = String(data.sharedTeacherAudiosBase64[biAud] || "").trim();
+          if (!bAudRaw) continue;
+          var upBAud = uploadVideoBase64ToDriveGS(bAudRaw, "batch_add_aud_" + (biAud + 1), "audio/mp3", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+          if (upBAud) sharedAddAuds.push(upBAud);
+        }
+      }
+      if (sharedAudUrl && sharedAddAuds.indexOf(sharedAudUrl) === -1) sharedAddAuds.unshift(sharedAudUrl);
+      if (!sharedAudUrl && sharedAddAuds.length > 0) sharedAudUrl = sharedAddAuds[0];
+
+      if (sharedVidUrl && sharedAddVids.indexOf(sharedVidUrl) === -1) sharedAddVids.unshift(sharedVidUrl);
+      if (!sharedVidUrl && sharedAddVids.length > 0) sharedVidUrl = sharedAddVids[0];
+
       var batchResults = [];
       var tgSentCount = 0;
       for (var bi = 0; bi < data.items.length; bi++) {
         var bItem = data.items[bi] || {};
         if (!bItem.correctedImageUrl && sharedImgUrl) bItem.correctedImageUrl = sharedImgUrl;
+        if ((!bItem.additionalImages || bItem.additionalImages.length === 0) && sharedAddImgs.length > 0) {
+          bItem.additionalImages = sharedAddImgs.slice();
+        }
         if (!bItem.teacherAudioUrl && sharedAudUrl) bItem.teacherAudioUrl = sharedAudUrl;
+        if ((!bItem.teacherAudios || bItem.teacherAudios.length === 0) && sharedAddAuds.length > 0) {
+          bItem.teacherAudios = sharedAddAuds.slice();
+        }
         if (!bItem.teacherVideoUrl && sharedVidUrl) bItem.teacherVideoUrl = sharedVidUrl;
+        if ((!bItem.teacherVideos || bItem.teacherVideos.length === 0) && sharedAddVids.length > 0) {
+          bItem.teacherVideos = sharedAddVids.slice();
+        }
+        if (!bItem.stickerSymbol && data.sharedStickerSymbol) bItem.stickerSymbol = data.sharedStickerSymbol;
+        if (!bItem.stickerLabel && data.sharedStickerLabel) bItem.stickerLabel = data.sharedStickerLabel;
+
         var bSaved = upsertMarkingCorrectionGS(ss, bItem, data.teacherName || "المعلم");
         if (bSaved.telegramNotified) tgSentCount++;
         batchResults.push(bSaved);

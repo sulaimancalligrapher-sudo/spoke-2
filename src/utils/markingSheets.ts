@@ -1,5 +1,8 @@
 import {
   MarkingConfig,
+  MarkingPresetText,
+  MarkingSticker,
+  StudentAchievementSummary,
   TeacherCorrectionRecord,
   UnifiedMarkingSubmission,
   WordItem,
@@ -13,6 +16,25 @@ import { getDirectImageUrl } from './mediaUrl';
 const STORAGE_KEY_MARKING_CONFIG = 'faseeh_marking_config_v1';
 const STORAGE_KEY_MARKING_CORRECTIONS_PREFIX = 'faseeh_marking_corrs_v1_';
 
+export const DEFAULT_MARKING_PRESETS: MarkingPresetText[] = [
+  { id: 'pr-1', text: 'أحسنت! نطق واضح وإتقان رائع.', category: 'positive' },
+  { id: 'pr-2', text: 'ممتاز، استمر على هذا المستوى المتألق.', category: 'positive' },
+  { id: 'pr-3', text: 'كتابة متقنة وخط جميل واضح.', category: 'positive' },
+  { id: 'pr-4', text: 'يرجى الانتباه لمخرج الحرف وإعادة التسجيل.', category: 'correction' },
+  { id: 'pr-5', text: 'انتبه لرسم الحرف على السطر وأعد المحاولة.', category: 'correction' },
+];
+
+export const DEFAULT_MARKING_STICKERS: MarkingSticker[] = [
+  { id: 'st-star', label: 'ممتاز!', symbol: '⭐', color: '#eab308', kind: 'positive' },
+  { id: 'st-clap', label: 'أحسنت', symbol: '👏', color: '#059669', kind: 'positive' },
+  { id: 'st-gem', label: 'متقن', symbol: '💎', color: '#0284c7', kind: 'positive' },
+  { id: 'st-trophy', label: 'بطل الدرس', symbol: '🏆', color: '#d97706', kind: 'positive' },
+  { id: 'st-check', label: 'صحيح', symbol: '✔️', color: '#16a34a', kind: 'stamp' },
+  { id: 'st-cross', label: 'خطأ', symbol: '❌', color: '#dc2626', kind: 'correction' },
+  { id: 'st-warn', label: 'انتبه هنا', symbol: '⚠️', color: '#ea580c', kind: 'correction' },
+  { id: 'st-retry', label: 'أعد المحاولة', symbol: '🔄', color: '#7c3aed', kind: 'correction' },
+];
+
 export const DEFAULT_MARKING_CONFIG: MarkingConfig = {
   cloudinaryCloudName: '',
   cloudinaryUploadPreset: '',
@@ -21,6 +43,8 @@ export const DEFAULT_MARKING_CONFIG: MarkingConfig = {
   notifyTeacherOnSubmission: true,
   notifyStudentOnCorrection: true,
   portalBaseUrl: '',
+  presetTexts: DEFAULT_MARKING_PRESETS,
+  stickers: DEFAULT_MARKING_STICKERS,
 };
 
 export function getLocalMarkingConfig(): MarkingConfig {
@@ -31,6 +55,14 @@ export function getLocalMarkingConfig(): MarkingConfig {
       return {
         ...DEFAULT_MARKING_CONFIG,
         ...parsed,
+        presetTexts:
+          Array.isArray(parsed?.presetTexts) && parsed.presetTexts.length > 0
+            ? parsed.presetTexts
+            : DEFAULT_MARKING_PRESETS,
+        stickers:
+          Array.isArray(parsed?.stickers) && parsed.stickers.length > 0
+            ? parsed.stickers
+            : DEFAULT_MARKING_STICKERS,
       };
     }
   } catch {}
@@ -296,6 +328,18 @@ export async function fetchMarkingWorkspaceData(
     ...(data.config || {}),
     cloudinaryCloudName: data.config?.cloudinaryCloudName ?? localCfg.cloudinaryCloudName,
     cloudinaryUploadPreset: data.config?.cloudinaryUploadPreset ?? localCfg.cloudinaryUploadPreset,
+    presetTexts:
+      Array.isArray(data.config?.presetTexts) && data.config.presetTexts.length > 0
+        ? data.config.presetTexts
+        : localCfg.presetTexts && localCfg.presetTexts.length > 0
+        ? localCfg.presetTexts
+        : DEFAULT_MARKING_PRESETS,
+    stickers:
+      Array.isArray(data.config?.stickers) && data.config.stickers.length > 0
+        ? data.config.stickers
+        : localCfg.stickers && localCfg.stickers.length > 0
+        ? localCfg.stickers
+        : DEFAULT_MARKING_STICKERS,
   };
   saveLocalMarkingConfig(remoteCfg);
 
@@ -306,6 +350,62 @@ export async function fetchMarkingWorkspaceData(
   corrections.forEach((c) => {
     if (c.submissionKey) corrMap.set(c.submissionKey, c);
   });
+
+  // Also merge existing video corrections from فيديو_التصحيح if not already in تصحيح_الواجبات
+  if (Array.isArray(data.videoCorrections)) {
+    data.videoCorrections.forEach((vc: any) => {
+      const sId = normId(vc.studentId);
+      const sName = normStr(vc.studentName);
+      const title = normStr(vc.lessonTitle);
+      const vKey = `video::${sId || sName}::${title}`;
+      if (!corrMap.has(vKey)) {
+        const imgs = Array.isArray(vc.additionalImages) ? vc.additionalImages.filter(Boolean) : [];
+        const auds = Array.isArray(vc.teacherAudios) ? vc.teacherAudios.filter(Boolean) : [];
+        const vids = Array.isArray(vc.teacherVideos) ? vc.teacherVideos.filter(Boolean) : [];
+        const hasDone =
+          vc.imageStatus === 'ممتاز' ||
+          vc.audioStatus === 'ممتاز' ||
+          Boolean(vc.correctedImage) ||
+          auds.length > 0 ||
+          vids.length > 0 ||
+          Boolean(vc.imageNotes) ||
+          Boolean(vc.audioNotes);
+        if (hasDone) {
+          corrMap.set(vKey, {
+            id: `vc-${vKey}`,
+            submissionKey: vKey,
+            exerciseType: 'video',
+            studentId: String(vc.studentId || '').trim(),
+            studentName: String(vc.studentName || '').trim(),
+            lessonSubject: 'فيديو تفاعلي',
+            itemTitle: String(vc.lessonTitle || '').trim(),
+            status:
+              vc.imageStatus === 'يحتاج إعادة' || vc.audioStatus === 'يحتاج إعادة'
+                ? 'retry'
+                : 'corrected',
+            score:
+              vc.imageScore !== '' && vc.imageScore !== undefined
+                ? Number(vc.imageScore)
+                : vc.audioScore !== '' && vc.audioScore !== undefined
+                ? Number(vc.audioScore)
+                : undefined,
+            notes: [vc.imageNotes, vc.audioNotes].filter(Boolean).join('\n'),
+            correctedImageUrl: vc.correctedImage || imgs[0] || undefined,
+            additionalImages: imgs,
+            teacherAudioUrl: auds[0] || undefined,
+            teacherAudios: auds,
+            teacherVideoUrl: vids[0] || undefined,
+            teacherVideos: vids,
+            imageScore: vc.imageScore,
+            imageNotes: vc.imageNotes,
+            audioScore: vc.audioScore,
+            audioNotes: vc.audioNotes,
+            updatedAt: vc.audioDate || vc.imageDate || '',
+          });
+        }
+      }
+    });
+  }
 
   const progMap = new Map<string, CourseProgram>();
   (ctx.programs || []).forEach((p) => progMap.set(p.id, p));
@@ -422,8 +522,24 @@ export async function fetchMarkingWorkspaceData(
     const cohort = resolveStudentCohort(sId, sName);
 
     const vRef = (ctx.videoLessons || []).find(
-      (vl) => normStr(vl.title) === normStr(title)
+      (vl) => (v.lessonId && vl.id === v.lessonId) || normStr(vl.title) === normStr(title)
     );
+
+    let parsedAns: Record<string, unknown> = {};
+    if (v.answeredQuestions && typeof v.answeredQuestions === 'object') {
+      parsedAns = v.answeredQuestions;
+    } else if (typeof v.answeredQuestions === 'string' && v.answeredQuestions.trim()) {
+      try {
+        parsedAns = JSON.parse(v.answeredQuestions);
+      } catch {}
+    }
+
+    const vScoreNum =
+      v.videoScore !== undefined && v.videoScore !== null
+        ? Number(v.videoScore)
+        : typeof v.score === 'number'
+        ? v.score
+        : undefined;
 
     unified.push({
       submissionKey,
@@ -431,10 +547,13 @@ export async function fetchMarkingWorkspaceData(
       studentId: sId,
       studentName: sName,
       ...cohort,
+      lessonId: String(v.lessonId || vRef?.id || '').trim() || undefined,
       lessonSubject: subj,
       itemTitle: title,
       timestamp: String(v.timestamp || ''),
-      studentScore: typeof v.score === 'number' ? v.score : undefined,
+      studentScore: vScoreNum,
+      videoScore: vScoreNum,
+      answeredQuestions: parsedAns,
       studentGrade: String(v.completed || ''),
       studentImageUrl: String(v.imageUrl || '').trim() || undefined,
       studentAudioUrl: String(v.audioUrl || '').trim() || undefined,
@@ -500,9 +619,20 @@ export async function saveMarkingCorrectionToSheets(
     notes: string;
     correctedImageUrl?: string;
     correctedImageBase64?: string;
+    additionalImages?: string[];
+    additionalImagesBase64?: string[];
     teacherAudioUrl?: string;
     teacherAudioBase64?: string;
+    teacherAudios?: string[];
+    teacherAudiosBase64?: string[];
     teacherVideoUrl?: string;
+    teacherVideos?: string[];
+    stickerSymbol?: string;
+    stickerLabel?: string;
+    imageScore?: number | string;
+    imageNotes?: string;
+    audioScore?: number | string;
+    audioNotes?: string;
     allowRetry?: boolean;
     sendTelegram?: boolean;
     teacherName?: string;
@@ -540,9 +670,16 @@ export async function saveMarkingBatchToSheets(
     teacherName?: string;
     sharedCorrectedImageUrl?: string;
     sharedCorrectedImageBase64?: string;
+    sharedAdditionalImages?: string[];
+    sharedAdditionalImagesBase64?: string[];
     sharedTeacherAudioUrl?: string;
     sharedTeacherAudioBase64?: string;
+    sharedTeacherAudios?: string[];
+    sharedTeacherAudiosBase64?: string[];
     sharedTeacherVideoUrl?: string;
+    sharedTeacherVideos?: string[];
+    sharedStickerSymbol?: string;
+    sharedStickerLabel?: string;
     items: Array<{
       submissionKey: string;
       exerciseType: UnifiedMarkingSubmission['exerciseType'];
@@ -555,8 +692,13 @@ export async function saveMarkingBatchToSheets(
       ratingLabel?: string;
       notes: string;
       correctedImageUrl?: string;
+      additionalImages?: string[];
       teacherAudioUrl?: string;
+      teacherAudios?: string[];
       teacherVideoUrl?: string;
+      teacherVideos?: string[];
+      stickerSymbol?: string;
+      stickerLabel?: string;
       allowRetry?: boolean;
       sendTelegram?: boolean;
     }>;
@@ -586,6 +728,46 @@ export async function saveMarkingBatchToSheets(
   return {
     success: false,
     error: d?.error || res.error || 'تعذر حفظ التصحيح الجماعي.',
+  };
+}
+
+export async function fetchStudentAchievementSummary(
+  webhookUrl: string,
+  studentId: string,
+  studentName: string
+): Promise<{ success: boolean; summary?: StudentAchievementSummary; error?: string }> {
+  const cleanId = normId(studentId);
+  const cleanName = (studentName || '').trim();
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  if (!url.startsWith('http')) {
+    return { success: false, error: 'رابط Google Apps Script غير مضبوط.' };
+  }
+  const sep = url.includes('?') ? '&' : '?';
+  const targetUrl = `${url}${sep}action=get_student_achievement_summary&studentId=${encodeURIComponent(
+    cleanId
+  )}&studentName=${encodeURIComponent(cleanName)}&_t=${Date.now()}`;
+
+  let data: any = null;
+  try {
+    const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+    if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+  } catch {}
+  if (!data || !data.success) {
+    try {
+      const directRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (directRes.ok) data = await directRes.json().catch(() => null);
+    } catch {}
+  }
+
+  if (data?.success && data?.summary) {
+    return { success: true, summary: data.summary as StudentAchievementSummary };
+  }
+  return {
+    success: false,
+    error: data?.error || 'تعذر جلب تقرير إنجاز الطالب. تأكد من تحديث كود Apps Script.',
   };
 }
 
