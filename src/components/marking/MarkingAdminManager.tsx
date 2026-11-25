@@ -18,12 +18,14 @@ import {
   Sticker,
   MessageSquareText,
   RotateCcw,
+  Stamp,
 } from 'lucide-react';
 import {
   AdminUserRecord,
   MarkingConfig,
   MarkingPresetText,
   MarkingSticker,
+  WatermarkSettings,
   WordItem,
 } from '../../types';
 import { DrawingTemplate } from '../../arWriting/types/drawing';
@@ -37,6 +39,7 @@ import {
   getLocalMarkingConfig,
   saveMarkingConfigToSheets,
 } from '../../utils/markingSheets';
+import { DEFAULT_WATERMARK_SETTINGS } from '../../utils/markingCanvasUtils';
 import { MarkingWorkspace } from './MarkingWorkspace';
 
 interface MarkingAdminManagerProps {
@@ -92,6 +95,21 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
       : DEFAULT_MARKING_PRESETS;
   const stickers =
     config.stickers && config.stickers.length > 0 ? config.stickers : DEFAULT_MARKING_STICKERS;
+  const watermark: WatermarkSettings = {
+    ...DEFAULT_WATERMARK_SETTINGS,
+    ...(config.watermark || {}),
+  };
+
+  const updateWatermark = (patch: Partial<WatermarkSettings>) => {
+    setConfig((prev) => ({
+      ...prev,
+      watermark: {
+        ...DEFAULT_WATERMARK_SETTINGS,
+        ...(prev.watermark || {}),
+        ...patch,
+      },
+    }));
+  };
 
   const handleAddPreset = () => {
     const clean = newPresetText.trim();
@@ -149,6 +167,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
         ...config,
         presetTexts,
         stickers,
+        watermark,
       };
       const res = await saveMarkingConfigToSheets(webhookUrl, payloadToSave);
       if (res.success) {
@@ -559,6 +578,175 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Watermark Settings for Teaching Images & Board Exports */}
+          <div className="space-y-4 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Stamp className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    إعدادات العلامة المائية لصور التدريس والتصحيح
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    تُدمج تلقائياً على صور السبورة المصحّحة والصور الملتقطة بالكاميرا (الشعار، اسم الطالب، الدرس والتاريخ)
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={watermark.enabled}
+                    onChange={(e) => updateWatermark({ enabled: e.target.checked })}
+                    className="accent-indigo-600 w-4 h-4"
+                  />
+                  <span>تفعيل العلامة المائية</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => updateWatermark({ ...DEFAULT_WATERMARK_SETTINGS })}
+                  className="text-[11px] font-bold text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>استعادة الافتراضي</span>
+                </button>
+              </div>
+            </div>
+
+            {watermark.enabled && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    بادئة نص العلامة المائية:
+                  </label>
+                  <input
+                    type="text"
+                    value={watermark.textPrefix}
+                    onChange={(e) => updateWatermark({ textPrefix: e.target.value })}
+                    placeholder="تقييم الخط والكتابة:"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900 focus:outline-hidden focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    رابط شعار العلامة المائية (اختياري — يستخدم شعار المنصة إذا تُرك فارغاً):
+                  </label>
+                  <input
+                    type="url"
+                    dir="ltr"
+                    value={watermark.logoUrl}
+                    onChange={(e) => updateWatermark({ logoUrl: e.target.value })}
+                    placeholder={homeLogoUrl || 'https://...'}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-900 text-left focus:outline-hidden focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    موقع الشعار:
+                  </label>
+                  <select
+                    value={watermark.logoPosition}
+                    onChange={(e) =>
+                      updateWatermark({
+                        logoPosition: e.target.value as WatermarkSettings['logoPosition'],
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    <option value="bottom-right">أسفل اليمين</option>
+                    <option value="bottom-left">أسفل اليسار</option>
+                    <option value="top-right">أعلى اليمين</option>
+                    <option value="top-left">أعلى اليسار</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    موقع النص:
+                  </label>
+                  <select
+                    value={watermark.textPosition}
+                    onChange={(e) =>
+                      updateWatermark({
+                        textPosition: e.target.value as WatermarkSettings['textPosition'],
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    <option value="bottom-left">أسفل اليسار</option>
+                    <option value="bottom-right">أسفل اليمين</option>
+                    <option value="top-left">أعلى اليسار</option>
+                    <option value="top-right">أعلى اليمين</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    حجم الخط ({watermark.fontSize}px):
+                  </label>
+                  <input
+                    type="range"
+                    min={12}
+                    max={34}
+                    step={1}
+                    value={watermark.fontSize}
+                    onChange={(e) => updateWatermark({ fontSize: Number(e.target.value) })}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    نسبة الشفافية ({Math.round(watermark.opacity * 100)}%):
+                  </label>
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={1}
+                    step={0.05}
+                    value={watermark.opacity}
+                    onChange={(e) => updateWatermark({ opacity: Number(e.target.value) })}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    نسبة حجم الشعار ({Math.round(watermark.sizeFactor * 100)}%):
+                  </label>
+                  <input
+                    type="range"
+                    min={0.05}
+                    max={0.25}
+                    step={0.01}
+                    value={watermark.sizeFactor}
+                    onChange={(e) => updateWatermark({ sizeFactor: Number(e.target.value) })}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    شفافية خلفية النص ({Math.round(watermark.textBgOpacity * 100)}%):
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={0.95}
+                    step={0.05}
+                    value={watermark.textBgOpacity}
+                    onChange={(e) => updateWatermark({ textBgOpacity: Number(e.target.value) })}
+                    className="w-full accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Two-Way Telegram Sync Settings */}

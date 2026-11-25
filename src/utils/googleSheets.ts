@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwZpNq5WGaopDPOHmdZJV3QYDIJoLpuiJCbygmLJOp9CJ0cJlNpg4gWxoH0BLaxbyzy8A/exec';
+  'https://script.google.com/macros/s/AKfycbxwk4zIcBWjF4AX4bokBXKrMnbkUyeTHI86pTEnANlYWSnBVfQATBM-6gm2VOOR9QO42g/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4673,7 +4673,8 @@ function readMarkingConfigGS(ss) {
     notifyStudentOnCorrection: true,
     portalBaseUrl: "",
     presetTexts: [],
-    stickers: []
+    stickers: [],
+    watermark: null
   };
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0] || "").trim();
@@ -4690,6 +4691,9 @@ function readMarkingConfigGS(ss) {
     }
     else if (k === "stickersJson" && v) {
       try { var st = JSON.parse(v); if (Array.isArray(st)) cfg.stickers = st; } catch (e2) {}
+    }
+    else if (k === "watermarkJson" && v) {
+      try { var wm = JSON.parse(v); if (wm && typeof wm === "object") cfg.watermark = wm; } catch (e3) {}
     }
   }
   return cfg;
@@ -4709,7 +4713,8 @@ function writeMarkingConfigGS(ss, cfg) {
     ["notifyStudentOnCorrection", cfg.notifyStudentOnCorrection === false ? "false" : "true"],
     ["portalBaseUrl", String(cfg.portalBaseUrl || "").trim()],
     ["presetTextsJson", JSON.stringify(Array.isArray(cfg.presetTexts) ? cfg.presetTexts : [])],
-    ["stickersJson", JSON.stringify(Array.isArray(cfg.stickers) ? cfg.stickers : [])]
+    ["stickersJson", JSON.stringify(Array.isArray(cfg.stickers) ? cfg.stickers : [])],
+    ["watermarkJson", JSON.stringify(cfg.watermark && typeof cfg.watermark === "object" ? cfg.watermark : {})]
   ];
   sheet.getRange(2, 1, rows.length, 2).setValues(rows);
 }
@@ -8944,6 +8949,52 @@ function doPost(e) {
         telegramSentCount: tgSentCount,
         corrections: batchResults,
         message: "تم حفظ التصحيح الجماعي لـ " + batchResults.length + " تسليم بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "clear_marking_correction" && data.submissionKey) {
+      var mcDelSheet = getMarkingCorrectionsSheet(ss);
+      var targetDelKey = String(data.submissionKey || "").trim();
+      var delLast = mcDelSheet.getLastRow();
+      var deletedRows = 0;
+      if (delLast > 1 && targetDelKey) {
+        var delKeys = mcDelSheet.getRange(2, 1, delLast - 1, 1).getValues();
+        for (var dIdx = delKeys.length - 1; dIdx >= 0; dIdx--) {
+          if (String(delKeys[dIdx][0] || "").trim() === targetDelKey) {
+            mcDelSheet.deleteRow(dIdx + 2);
+            deletedRows++;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        deleted: deletedRows
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "clear_marking_batch" && Array.isArray(data.submissionKeys)) {
+      var mcBatchDel = getMarkingCorrectionsSheet(ss);
+      var keySet = {};
+      for (var kbi = 0; kbi < data.submissionKeys.length; kbi++) {
+        var kVal = String(data.submissionKeys[kbi] || "").trim();
+        if (kVal) keySet[kVal] = true;
+      }
+      var bDelLast = mcBatchDel.getLastRow();
+      var bDelCount = 0;
+      if (bDelLast > 1) {
+        var bDelKeys = mcBatchDel.getRange(2, 1, bDelLast - 1, 1).getValues();
+        for (var bIdx = bDelKeys.length - 1; bIdx >= 0; bIdx--) {
+          if (keySet[String(bDelKeys[bIdx][0] || "").trim()]) {
+            mcBatchDel.deleteRow(bIdx + 2);
+            bDelCount++;
+          }
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        count: bDelCount
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

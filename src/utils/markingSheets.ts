@@ -12,6 +12,7 @@ import { VideoLesson } from '../video/videoSheets';
 import { CourseClassroom, CourseProgram } from './courseSchedule';
 import { DEFAULT_WEBHOOK_URL, callGoogleSheetsPost } from './googleSheets';
 import { getDirectImageUrl } from './mediaUrl';
+import { DEFAULT_WATERMARK_SETTINGS } from './markingCanvasUtils';
 
 const STORAGE_KEY_MARKING_CONFIG = 'faseeh_marking_config_v1';
 const STORAGE_KEY_MARKING_CORRECTIONS_PREFIX = 'faseeh_marking_corrs_v1_';
@@ -45,6 +46,7 @@ export const DEFAULT_MARKING_CONFIG: MarkingConfig = {
   portalBaseUrl: '',
   presetTexts: DEFAULT_MARKING_PRESETS,
   stickers: DEFAULT_MARKING_STICKERS,
+  watermark: DEFAULT_WATERMARK_SETTINGS,
 };
 
 export function getLocalMarkingConfig(): MarkingConfig {
@@ -63,6 +65,10 @@ export function getLocalMarkingConfig(): MarkingConfig {
           Array.isArray(parsed?.stickers) && parsed.stickers.length > 0
             ? parsed.stickers
             : DEFAULT_MARKING_STICKERS,
+        watermark: {
+          ...DEFAULT_WATERMARK_SETTINGS,
+          ...(parsed?.watermark || {}),
+        },
       };
     }
   } catch {}
@@ -340,6 +346,11 @@ export async function fetchMarkingWorkspaceData(
         : localCfg.stickers && localCfg.stickers.length > 0
         ? localCfg.stickers
         : DEFAULT_MARKING_STICKERS,
+    watermark: {
+      ...DEFAULT_WATERMARK_SETTINGS,
+      ...(localCfg.watermark || {}),
+      ...(data.config?.watermark || {}),
+    },
   };
   saveLocalMarkingConfig(remoteCfg);
 
@@ -728,6 +739,46 @@ export async function saveMarkingBatchToSheets(
   return {
     success: false,
     error: d?.error || res.error || 'تعذر حفظ التصحيح الجماعي.',
+  };
+}
+
+export async function clearMarkingCorrectionToSheets(
+  webhookUrl: string,
+  submissionKey: string
+): Promise<{ success: boolean; error?: string }> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  const res = await callGoogleSheetsPost(url, {
+    action: 'clear_marking_correction',
+    submissionKey,
+  });
+  const raw: any = res;
+  const d: any = res.data || raw;
+  if (d?.markingHandled && d?.success) {
+    return { success: true };
+  }
+  return {
+    success: false,
+    error: d?.error || res.error || 'تعذر مسح التصحيح من الشيت.',
+  };
+}
+
+export async function clearMarkingBatchToSheets(
+  webhookUrl: string,
+  submissionKeys: string[]
+): Promise<{ success: boolean; count?: number; error?: string }> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  const res = await callGoogleSheetsPost(url, {
+    action: 'clear_marking_batch',
+    submissionKeys,
+  });
+  const raw: any = res;
+  const d: any = res.data || raw;
+  if (d?.markingHandled && d?.success) {
+    return { success: true, count: Number(d.count || 0) };
+  }
+  return {
+    success: false,
+    error: d?.error || res.error || 'تعذر مسح التصحيحات المحددة.',
   };
 }
 

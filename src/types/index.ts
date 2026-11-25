@@ -844,6 +844,18 @@ export interface MarkingSticker {
   kind?: 'positive' | 'correction' | 'stamp';
 }
 
+export interface WatermarkSettings {
+  enabled: boolean;
+  logoUrl: string;
+  opacity: number;
+  sizeFactor: number;
+  logoPosition: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+  textPrefix: string;
+  fontSize: number;
+  textPosition: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+  textBgOpacity: number;
+}
+
 export interface MarkingConfig {
   cloudinaryCloudName: string;
   cloudinaryUploadPreset: string;
@@ -856,6 +868,7 @@ export interface MarkingConfig {
   studentCorrectionTemplate?: string;
   presetTexts?: MarkingPresetText[];
   stickers?: MarkingSticker[];
+  watermark?: WatermarkSettings;
 }
 
 export interface TeacherCorrectionRecord {

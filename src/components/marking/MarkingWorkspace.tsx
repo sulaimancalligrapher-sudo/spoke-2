@@ -32,6 +32,7 @@ import {
   Trash2,
   Square,
   Sticker,
+  ClipboardList,
 } from 'lucide-react';
 import {
   AdminUserRecord,
@@ -53,9 +54,11 @@ import {
   getLocalMarkingConfig,
   saveMarkingCorrectionToSheets,
 } from '../../utils/markingSheets';
+import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
 import { getDirectImageUrl } from '../../utils/mediaUrl';
 import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
 import { MarkingAudioStudio } from './MarkingAudioStudio';
+import { MarkingPhotoCapture } from './MarkingPhotoCapture';
 import { MarkingVideoRecorder } from './MarkingVideoRecorder';
 import { BatchCorrectionModal } from './BatchCorrectionModal';
 import { StudentAchievementModal } from './StudentAchievementModal';
@@ -155,6 +158,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   const extraAudChunksRef = useRef<Blob[]>([]);
 
   const [fExtraImagesB64, setFExtraImagesB64] = useState<string[]>([]);
+  const [stitchExtraImages, setStitchExtraImages] = useState<boolean>(true);
   const [fTeacherVideoUrl, setFTeacherVideoUrl] = useState<string>('');
   const [fExtraVideoUrls, setFExtraVideoUrls] = useState<string[]>([]);
 
@@ -166,7 +170,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   // Modals & Share Link
   const [batchModalState, setBatchModalState] = useState<{
     open: boolean;
-    mode: 'queue' | 'bulk';
+    mode: 'queue' | 'bulk' | 'sheet';
   }>({ open: false, mode: 'bulk' });
   const [achievementModalOpen, setAchievementModalOpen] = useState(false);
   const [copiedPortalUrl, setCopiedPortalUrl] = useState(false);
@@ -443,17 +447,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     );
   };
 
-  const handleAddExtraImages = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setFExtraImagesB64((prev) => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+  const applyClearedCorrections = (keys: string[]) => {
+    if (!keys || keys.length === 0) return;
+    const keySet = new Set(keys);
+    setSubmissions((prev) =>
+      prev.map((sub) => (keySet.has(sub.submissionKey) ? { ...sub, correction: null } : sub))
+    );
   };
 
   const startExtraAudioRecord = async () => {
@@ -501,10 +500,26 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     try {
       let annotatedBase64: string | undefined;
       if (shouldShowBlackboard && blackboardRef.current?.hasAnnotations()) {
-        const exported = blackboardRef.current.exportCompositeDataUrl();
+        const exported = await blackboardRef.current.exportWatermarkedDataUrl(
+          markingConfig.watermark,
+          {
+            studentId: activeSubmission.studentId,
+            studentName: activeSubmission.studentName,
+            lessonTitle: activeSubmission.itemTitle,
+          },
+          homeLogoUrl
+        );
         if (exported && exported.startsWith('data:image/')) {
           annotatedBase64 = exported;
         }
+      }
+
+      let preparedExtraImages: string[] | undefined;
+      if (fExtraImagesB64.length > 1 && stitchExtraImages) {
+        const stitched = await combineImagesToSingleBase64(fExtraImagesB64);
+        preparedExtraImages = stitched ? [stitched] : fExtraImagesB64;
+      } else if (fExtraImagesB64.length > 0) {
+        preparedExtraImages = fExtraImagesB64;
       }
 
       const allVideos = [fTeacherVideoUrl.trim(), ...fExtraVideoUrls.map((v) => v.trim())].filter(
@@ -528,7 +543,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           : undefined,
         correctedImageBase64: annotatedBase64,
         additionalImages: activeSubmission.correction?.additionalImages,
-        additionalImagesBase64: fExtraImagesB64.length > 0 ? fExtraImagesB64 : undefined,
+        additionalImagesBase64: preparedExtraImages,
         teacherAudioUrl: !fTeacherAudioB64
           ? activeSubmission.correction?.teacherAudioUrl
           : undefined,
@@ -777,6 +792,16 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
             >
               <Layers className="w-4 h-4 text-emerald-400" />
               <span>طابور التصحيح السريع</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBatchModalState({ open: true, mode: 'sheet' })}
+              disabled={submissions.length === 0}
+              className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-900 border border-indigo-200 text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <ClipboardList className="w-4 h-4 text-indigo-600" />
+              <span>جدول التصحيحات</span>
             </button>
 
             <button
@@ -1141,9 +1166,13 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 <MarkingBlackboard
                   ref={blackboardRef}
                   studentImageUrl={activeSubmission.studentImageUrl}
+                  previousCorrectedImageUrl={activeSubmission.correction?.correctedImageUrl}
+                  studentAudioUrl={activeSubmission.studentAudioUrl}
+                  studentName={activeSubmission.studentName}
                   referenceImageUrl={activeSubmission.referenceImageUrl}
                   lessonTitle={activeSubmission.itemTitle}
                   stickers={stickersList}
+                  presetTexts={presetTexts}
                 />
               </div>
             ) : (
@@ -1174,28 +1203,31 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               onTeacherAudioRecorded={setFTeacherAudioB64}
             />
 
-            {/* Optional Extra Media Strip (Multiple Images & Extra Voice Clips) */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-extrabold text-slate-900">
-                  مرفقات إضافية اختيارية للطالب (صور توضيحية أو تسجيلات صوتية إضافية)
-                </div>
+            {/* Camera Photo Capture + Extra Media Strip */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+              <div className="lg:col-span-7">
+                <MarkingPhotoCapture
+                  images={fExtraImagesB64}
+                  onChangeImages={setFExtraImagesB64}
+                  watermarkSettings={markingConfig.watermark}
+                  studentInfo={{
+                    studentId: activeSubmission.studentId,
+                    studentName: activeSubmission.studentName,
+                    lessonTitle: activeSubmission.itemTitle,
+                  }}
+                  fallbackLogoUrl={homeLogoUrl}
+                  stitchOnSave={stitchExtraImages}
+                  onChangeStitchOnSave={setStitchExtraImages}
+                  title="صور التدريس والتقاط الكاميرا (مرفقات إضافية)"
+                />
+              </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
-                    <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>+ إرفاق صور ({fExtraImagesB64.length})</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        handleAddExtraImages(e.target.files);
-                        e.target.value = '';
-                      }}
-                    />
-                  </label>
+              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <Mic className="w-4 h-4 text-rose-600" />
+                    <span>مقاطع صوتية إضافية ({fExtraAudioClips.length})</span>
+                  </div>
 
                   {!extraAudRecording ? (
                     <button
@@ -1204,7 +1236,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                       className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
                       <Plus className="w-3.5 h-3.5 text-rose-600" />
-                      <span>+ تسجيل صوت إضافي ({fExtraAudioClips.length})</span>
+                      <span>+ تسجيل صوت إضافي</span>
                     </button>
                   ) : (
                     <button
@@ -1213,59 +1245,40 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                       className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                     >
                       <Square className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-                      <span>إيقاف وحفظ المقطع الإضافي</span>
+                      <span>إيقاف وحفظ المقطع</span>
                     </button>
                   )}
                 </div>
+
+                {fExtraAudioClips.length === 0 ? (
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    يمكنك تسجيل تعليقات صوتية إضافية سريعة لتصل مع التصحيح الرئيسي.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {fExtraAudioClips.map((clip, idx) => (
+                      <div
+                        key={clip.id}
+                        className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200"
+                      >
+                        <span className="text-[11px] font-bold text-slate-600 shrink-0 tabular-nums">
+                          #{idx + 1}
+                        </span>
+                        <audio controls src={clip.blobUrl} className="flex-1 h-8 min-w-0" />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFExtraAudioClips((prev) => prev.filter((c) => c.id !== clip.id))
+                          }
+                          className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-
-              {fExtraImagesB64.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {fExtraImagesB64.map((src, idx) => (
-                    <div
-                      key={idx}
-                      className="relative w-20 h-20 rounded-xl border border-slate-200 overflow-hidden bg-slate-50"
-                    >
-                      <img src={src} alt={`صورة ${idx + 1}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFExtraImagesB64((prev) => prev.filter((_, i) => i !== idx))
-                        }
-                        className="absolute top-1 left-1 p-1 rounded-lg bg-rose-600 text-white cursor-pointer"
-                        title="حذف"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {fExtraAudioClips.length > 0 && (
-                <div className="space-y-1.5">
-                  {fExtraAudioClips.map((clip, idx) => (
-                    <div
-                      key={clip.id}
-                      className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200"
-                    >
-                      <span className="text-[11px] font-bold text-slate-600 shrink-0">
-                        صوت إضافي {idx + 1}:
-                      </span>
-                      <audio controls src={clip.blobUrl} className="flex-1 h-8" />
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFExtraAudioClips((prev) => prev.filter((c) => c.id !== clip.id))
-                        }
-                        className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Direct OBS / Device Camera Recorder -> Cloudinary MP4 */}
@@ -1274,6 +1287,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 markingConfig={markingConfig}
                 webhookUrl={webhookUrl}
                 existingVideoUrl={fTeacherVideoUrl}
+                onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
                 onVideoUploaded={(url) => {
                   if (!fTeacherVideoUrl) {
                     setFTeacherVideoUrl(url);
@@ -1557,8 +1571,10 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         markingConfig={markingConfig}
         webhookUrl={webhookUrl}
         teacherName={teacherName}
+        homeLogoUrl={homeLogoUrl}
         initialMode={batchModalState.mode}
         onCorrectionsUpdated={applyUpdatedCorrections}
+        onCorrectionsCleared={applyClearedCorrections}
       />
     </div>
   );

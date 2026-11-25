@@ -21,6 +21,10 @@ import {
   Plus,
   Sticker,
   ShieldCheck,
+  ClipboardList,
+  Search,
+  Edit3,
+  ExternalLink,
 } from 'lucide-react';
 import {
   MarkingConfig,
@@ -30,14 +34,18 @@ import {
 } from '../../types';
 import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
 import { MarkingAudioStudio } from './MarkingAudioStudio';
+import { MarkingPhotoCapture } from './MarkingPhotoCapture';
 import { MarkingVideoRecorder } from './MarkingVideoRecorder';
 import {
+  clearMarkingBatchToSheets,
+  clearMarkingCorrectionToSheets,
   DEFAULT_MARKING_PRESETS,
   DEFAULT_MARKING_STICKERS,
   saveMarkingBatchToSheets,
   saveMarkingCorrectionToSheets,
   toCloudinaryMp4Url,
 } from '../../utils/markingSheets';
+import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
 
 interface BatchCorrectionModalProps {
   isOpen: boolean;
@@ -46,11 +54,14 @@ interface BatchCorrectionModalProps {
   markingConfig: MarkingConfig;
   webhookUrl: string;
   teacherName: string;
-  initialMode?: 'bulk' | 'queue';
+  homeLogoUrl?: string;
+  initialMode?: 'bulk' | 'queue' | 'sheet';
   onCorrectionsUpdated: (updated: TeacherCorrectionRecord[]) => void;
+  onCorrectionsCleared?: (keys: string[]) => void;
 }
 
 type BulkAudienceMode = 'corrected_only' | 'all_submitters' | 'custom';
+type BulkMediaFilter = 'all' | 'has_image' | 'has_audio';
 
 const RATING_LABELS = ['ممتاز', 'جيد جداً', 'جيد', 'يحتاج تحسين', 'إعادة المحاولة'];
 
@@ -61,10 +72,12 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   markingConfig,
   webhookUrl,
   teacherName,
+  homeLogoUrl,
   initialMode = 'bulk',
   onCorrectionsUpdated,
+  onCorrectionsCleared,
 }) => {
-  const [workspaceMode, setWorkspaceMode] = useState<'queue' | 'bulk'>(initialMode);
+  const [workspaceMode, setWorkspaceMode] = useState<'queue' | 'bulk' | 'sheet'>(initialMode);
   const [onlyPendingQueue, setOnlyPendingQueue] = useState(false);
 
   const videoScopedSubmissions = useMemo(() => {
@@ -126,6 +139,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
 
   const [selectedLesson, setSelectedLesson] = useState<string>('');
   const [audienceMode, setAudienceMode] = useState<BulkAudienceMode>('corrected_only');
+  const [bulkMediaFilter, setBulkMediaFilter] = useState<BulkMediaFilter>('all');
   const [customSelectedKeys, setCustomSelectedKeys] = useState<Set<string>>(() => new Set());
 
   const [bStatus, setBStatus] = useState<MarkingStatus>('corrected');
@@ -139,6 +153,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
 
   // Multi-media attachments (1 or MORE of each)
   const [batchImageBase64s, setBatchImageBase64s] = useState<string[]>([]);
+  const [batchStitchImages, setBatchStitchImages] = useState<boolean>(true);
   const [batchImageUrls, setBatchImageUrls] = useState<string[]>([]);
   const [newImageUrlInput, setNewImageUrlInput] = useState('');
 
@@ -158,6 +173,30 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
 
   const [bSaving, setBSaving] = useState(false);
   const [bFeedback, setBFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // ====== SHEET MANAGEMENT TAB STATE ======
+  const [sheetSearch, setSheetSearch] = useState('');
+  const [sheetLesson, setSheetLesson] = useState<string>('all');
+  const [sheetStatus, setSheetStatus] = useState<'all' | MarkingStatus>('all');
+  const [sheetMedia, setSheetMedia] = useState<BulkMediaFilter>('all');
+  const [sheetSelectedKeys, setSheetSelectedKeys] = useState<Set<string>>(() => new Set());
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const [sheetFeedback, setSheetFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // Quick Inline Edit Modal State
+  const [editingItem, setEditingItem] = useState<UnifiedMarkingSubmission | null>(null);
+  const [eStatus, setEStatus] = useState<MarkingStatus>('corrected');
+  const [eScore, setEScore] = useState<string>('');
+  const [eRating, setERating] = useState<string>('ممتاز');
+  const [eNotes, setENotes] = useState<string>('');
+  const [eStickerSymbol, setEStickerSymbol] = useState<string>('');
+  const [eStickerLabel, setEStickerLabel] = useState<string>('');
+  const [eClearImage, setEClearImage] = useState(false);
+  const [eClearAudio, setEClearAudio] = useState(false);
+  const [eClearVideo, setEClearVideo] = useState(false);
+  const [eAllowRetry, setEAllowRetry] = useState(false);
+  const [eSendTelegram, setESendTelegram] = useState(false);
+  const [eSaving, setESaving] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -192,9 +231,17 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   }, [currentItem?.submissionKey]);
 
   const lessonSubmissions = useMemo(() => {
-    if (!selectedLesson) return videoScopedSubmissions;
-    return videoScopedSubmissions.filter((s) => s.itemTitle === selectedLesson);
-  }, [videoScopedSubmissions, selectedLesson]);
+    const byLesson = !selectedLesson
+      ? videoScopedSubmissions
+      : videoScopedSubmissions.filter((s) => s.itemTitle === selectedLesson);
+    if (bulkMediaFilter === 'has_image') {
+      return byLesson.filter((s) => Boolean(s.studentImageUrl?.trim()));
+    }
+    if (bulkMediaFilter === 'has_audio') {
+      return byLesson.filter((s) => Boolean(s.studentAudioUrl?.trim()));
+    }
+    return byLesson;
+  }, [videoScopedSubmissions, selectedLesson, bulkMediaFilter]);
 
   const correctedInLesson = useMemo(
     () => lessonSubmissions.filter((s) => s.correction?.status === 'corrected'),
@@ -207,7 +254,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     if (isOpen) {
       setCustomSelectedKeys(new Set(lessonSubmissions.map((s) => s.submissionKey)));
     }
-  }, [isOpen, selectedLesson, lessonSubmissions.length]);
+  }, [isOpen, selectedLesson, bulkMediaFilter, lessonSubmissions.length]);
 
   const targetRecipients = useMemo(() => {
     if (audienceMode === 'corrected_only') {
@@ -220,6 +267,22 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     return lessonSubmissions.filter((s) => customSelectedKeys.has(s.submissionKey));
   }, [audienceMode, correctedInLesson, lessonSubmissions, customSelectedKeys]);
 
+  const sheetFilteredSubmissions = useMemo(() => {
+    const q = sheetSearch.trim().toLowerCase();
+    return videoScopedSubmissions.filter((s) => {
+      if (sheetLesson !== 'all' && s.itemTitle !== sheetLesson) return false;
+      const st: MarkingStatus = s.correction?.status || 'pending';
+      if (sheetStatus !== 'all' && st !== sheetStatus) return false;
+      if (sheetMedia === 'has_image' && !s.studentImageUrl?.trim()) return false;
+      if (sheetMedia === 'has_audio' && !s.studentAudioUrl?.trim()) return false;
+      if (q) {
+        const hay = `${s.studentName} ${s.studentId} ${s.itemTitle} ${s.correction?.notes || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [videoScopedSubmissions, sheetLesson, sheetStatus, sheetMedia, sheetSearch]);
+
   if (!isOpen) return null;
 
   const handleSaveQueueItem = async (advanceNext: boolean) => {
@@ -230,7 +293,15 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
       let annotatedBase64: string | undefined;
       const showBoard = Boolean(currentItem.studentImageUrl?.trim()) || qForceShowBoard;
       if (showBoard && queueBlackboardRef.current?.hasAnnotations()) {
-        const exported = queueBlackboardRef.current.exportCompositeDataUrl();
+        const exported = await queueBlackboardRef.current.exportWatermarkedDataUrl(
+          markingConfig.watermark,
+          {
+            studentId: currentItem.studentId,
+            studentName: currentItem.studentName,
+            lessonTitle: currentItem.itemTitle,
+          },
+          homeLogoUrl
+        );
         if (exported && exported.startsWith('data:image/')) {
           annotatedBase64 = exported;
         }
@@ -281,19 +352,6 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     } finally {
       setQSaving(false);
     }
-  };
-
-  const handleBatchImageFiles = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setBatchImageBase64s((prev) => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
   };
 
   const startBatchAudioRecording = async () => {
@@ -354,11 +412,18 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     setBSaving(true);
     setBFeedback(null);
     try {
+      let preparedImages: string[] | undefined;
+      if (batchImageBase64s.length > 1 && batchStitchImages) {
+        const stitched = await combineImagesToSingleBase64(batchImageBase64s);
+        preparedImages = stitched ? [stitched] : batchImageBase64s;
+      } else if (batchImageBase64s.length > 0) {
+        preparedImages = batchImageBase64s;
+      }
+
       const res = await saveMarkingBatchToSheets(webhookUrl, {
         teacherName,
         sharedAdditionalImages: batchImageUrls.length > 0 ? batchImageUrls : undefined,
-        sharedAdditionalImagesBase64:
-          batchImageBase64s.length > 0 ? batchImageBase64s : undefined,
+        sharedAdditionalImagesBase64: preparedImages,
         sharedTeacherAudios: batchAudioUrls.length > 0 ? batchAudioUrls : undefined,
         sharedTeacherAudiosBase64:
           batchAudioClips.length > 0 ? batchAudioClips.map((c) => c.base64) : undefined,
@@ -414,6 +479,129 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     }
   };
 
+  const openQuickEditModal = (item: UnifiedMarkingSubmission) => {
+    const c = item.correction;
+    setEditingItem(item);
+    setEStatus(c?.status || 'corrected');
+    setEScore(
+      c?.score !== undefined
+        ? String(c.score)
+        : item.videoScore !== undefined
+        ? String(item.videoScore)
+        : ''
+    );
+    setERating(c?.ratingLabel || 'ممتاز');
+    setENotes(c?.notes || '');
+    setEStickerSymbol(c?.stickerSymbol || '');
+    setEStickerLabel(c?.stickerLabel || '');
+    setEClearImage(false);
+    setEClearAudio(false);
+    setEClearVideo(false);
+    setEAllowRetry(Boolean(c?.allowRetry));
+    setESendTelegram(false);
+  };
+
+  const handleSaveQuickEdit = async () => {
+    if (!editingItem || eSaving) return;
+    setESaving(true);
+    setSheetFeedback(null);
+    try {
+      const c = editingItem.correction;
+      const res = await saveMarkingCorrectionToSheets(webhookUrl, {
+        submissionKey: editingItem.submissionKey,
+        exerciseType: editingItem.exerciseType,
+        studentId: editingItem.studentId,
+        studentName: editingItem.studentName,
+        lessonSubject: editingItem.lessonSubject,
+        itemTitle: editingItem.itemTitle,
+        status: eStatus,
+        score: eScore.trim() !== '' ? Number(eScore) : undefined,
+        ratingLabel: eRating,
+        notes: eNotes.trim(),
+        correctedImageUrl: eClearImage ? '' : c?.correctedImageUrl,
+        additionalImages: eClearImage ? [] : c?.additionalImages,
+        teacherAudioUrl: eClearAudio ? '' : c?.teacherAudioUrl,
+        teacherAudios: eClearAudio ? [] : c?.teacherAudios,
+        teacherVideoUrl: eClearVideo ? '' : c?.teacherVideoUrl,
+        teacherVideos: eClearVideo ? [] : c?.teacherVideos,
+        stickerSymbol: eStickerSymbol || undefined,
+        stickerLabel: eStickerLabel || undefined,
+        allowRetry: eAllowRetry || eStatus === 'retry',
+        sendTelegram: eSendTelegram,
+        teacherName,
+      });
+
+      if (res.success && res.correction) {
+        onCorrectionsUpdated([res.correction]);
+        setSheetFeedback({
+          type: 'ok',
+          text: `تم تحديث تصحيح الطالب ${editingItem.studentName} بنجاح.`,
+        });
+        setEditingItem(null);
+      } else {
+        setSheetFeedback({
+          type: 'err',
+          text: res.error || 'تعذر تحديث بيانات التصحيح.',
+        });
+      }
+    } finally {
+      setESaving(false);
+    }
+  };
+
+  const handleClearSingleRow = async (item: UnifiedMarkingSubmission) => {
+    if (sheetBusy) return;
+    setSheetBusy(true);
+    setSheetFeedback(null);
+    try {
+      const res = await clearMarkingCorrectionToSheets(webhookUrl, item.submissionKey);
+      if (res.success) {
+        onCorrectionsCleared?.([item.submissionKey]);
+        setSheetSelectedKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(item.submissionKey);
+          return next;
+        });
+        setSheetFeedback({
+          type: 'ok',
+          text: `تم تصفير وحذف سجل التصحيح لـ ${item.studentName} من الشيت.`,
+        });
+      } else {
+        setSheetFeedback({
+          type: 'err',
+          text: res.error || 'تعذر مسح التصحيح من الشيت.',
+        });
+      }
+    } finally {
+      setSheetBusy(false);
+    }
+  };
+
+  const handleClearSelectedRows = async () => {
+    const keys = Array.from(sheetSelectedKeys);
+    if (keys.length === 0 || sheetBusy) return;
+    setSheetBusy(true);
+    setSheetFeedback(null);
+    try {
+      const res = await clearMarkingBatchToSheets(webhookUrl, keys);
+      if (res.success) {
+        onCorrectionsCleared?.(keys);
+        setSheetSelectedKeys(new Set());
+        setSheetFeedback({
+          type: 'ok',
+          text: `تم مسح وتصفير ${res.count || keys.length} تصحيحاً من جدول التصحيحات بنجاح.`,
+        });
+      } else {
+        setSheetFeedback({
+          type: 'err',
+          text: res.error || 'تعذر مسح التصحيحات المحددة.',
+        });
+      }
+    } finally {
+      setSheetBusy(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 font-cairo">
       <div className="bg-slate-50 rounded-3xl w-full max-w-7xl h-[94vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden text-right">
@@ -436,11 +624,11 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
+            <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => setWorkspaceMode('bulk')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                   workspaceMode === 'bulk'
                     ? 'bg-emerald-600 text-white shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -452,13 +640,25 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
               <button
                 type="button"
                 onClick={() => setWorkspaceMode('queue')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors whitespace-nowrap shrink-0 ${
                   workspaceMode === 'queue'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 طابور التصحيح المتسلسل
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceMode('sheet')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  workspaceMode === 'sheet'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                <span>جدول إدارة التصحيحات</span>
               </button>
             </div>
 
@@ -593,9 +793,13 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   <MarkingBlackboard
                     ref={queueBlackboardRef}
                     studentImageUrl={currentItem.studentImageUrl}
+                    previousCorrectedImageUrl={currentItem.correction?.correctedImageUrl}
+                    studentAudioUrl={currentItem.studentAudioUrl}
+                    studentName={currentItem.studentName}
                     referenceImageUrl={currentItem.referenceImageUrl}
                     lessonTitle={currentItem.itemTitle}
                     stickers={stickersList}
+                    presetTexts={presetTexts}
                     compact
                   />
                 ) : (
@@ -626,6 +830,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   markingConfig={markingConfig}
                   webhookUrl={webhookUrl}
                   existingVideoUrl={qTeacherVideoUrl}
+                  onRemoveExistingVideo={() => setQTeacherVideoUrl('')}
                   onVideoUploaded={setQTeacherVideoUrl}
                 />
 
@@ -799,22 +1004,22 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
               </div>
             )}
           </div>
-        ) : (
+        ) : workspaceMode === 'bulk' ? (
           /* ================================================================
              MODE 2: LESSON-SCOPED BULK MULTI-MEDIA CORRECTION & BROADCAST
              ================================================================ */
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
-            {/* Step 1: Select Lesson & Strict Audience Targeting */}
+            {/* Step 1: Select Lesson, Media Filter & Strict Audience Targeting */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
+                <div className="md:col-span-4">
                   <label className="block text-xs font-extrabold text-slate-900 mb-1.5">
                     1. اختر درس الفيديو التفاعلي المستهدف:
                   </label>
                   <select
                     value={selectedLesson}
                     onChange={(e) => setSelectedLesson(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-extrabold text-slate-900"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-extrabold text-slate-900"
                   >
                     {lessonOptions.map((l) => (
                       <option key={l} value={l}>
@@ -824,7 +1029,22 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   </select>
                 </div>
 
-                <div>
+                <div className="md:col-span-3">
+                  <label className="block text-xs font-extrabold text-slate-900 mb-1.5">
+                    نوع وسائط الواجب:
+                  </label>
+                  <select
+                    value={bulkMediaFilter}
+                    onChange={(e) => setBulkMediaFilter(e.target.value as BulkMediaFilter)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    <option value="all">الكل (صورة وصوت)</option>
+                    <option value="has_image">لديهم واجب صورة</option>
+                    <option value="has_audio">لديهم واجب صوتي</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-5">
                   <label className="block text-xs font-extrabold text-slate-900 mb-1.5">
                     2. حدد المستلمين بدقة:
                   </label>
@@ -832,35 +1052,35 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setAudienceMode('corrected_only')}
-                      className={`px-3 py-2 rounded-xl border text-xs font-extrabold cursor-pointer text-center ${
+                      className={`px-2.5 py-2 rounded-xl border text-xs font-extrabold cursor-pointer text-center whitespace-nowrap ${
                         audienceMode === 'corrected_only'
                           ? 'bg-emerald-600 text-white border-emerald-600'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      المصحّح لهم فقط ({correctedInLesson.length})
+                      المصحّح لهم ({correctedInLesson.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setAudienceMode('all_submitters')}
-                      className={`px-3 py-2 rounded-xl border text-xs font-extrabold cursor-pointer text-center ${
+                      className={`px-2.5 py-2 rounded-xl border text-xs font-extrabold cursor-pointer text-center whitespace-nowrap ${
                         audienceMode === 'all_submitters'
                           ? 'bg-slate-900 text-white border-slate-900'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      كل طلاب الدرس ({lessonSubmissions.length})
+                      كل الدرس ({lessonSubmissions.length})
                     </button>
                     <button
                       type="button"
                       onClick={() => setAudienceMode('custom')}
-                      className={`px-3 py-2 rounded-xl border text-xs font-extrabold cursor-pointer text-center ${
+                      className={`px-2.5 py-2 rounded-xl border text-xs font-extrabold cursor-pointer text-center whitespace-nowrap ${
                         audienceMode === 'custom'
                           ? 'bg-indigo-600 text-white border-indigo-600'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      تخصيص طلاب ({customSelectedKeys.size})
+                      تخصيص ({customSelectedKeys.size})
                     </button>
                   </div>
                 </div>
@@ -979,90 +1199,71 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
 
             {/* Step 2: Multi-Media Attachments (1 or MORE Images, Audios, Videos) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* A. Multiple Images */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-emerald-600" />
-                    <span>صور الشرح ({batchImageBase64s.length + batchImageUrls.length})</span>
-                  </div>
-                  <label className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold cursor-pointer inline-flex items-center gap-1">
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>رفع صور</span>
+              {/* A. Camera Capture & Multiple Images (with Auto Watermark + Vertical Stitch) */}
+              <div className="space-y-2">
+                <MarkingPhotoCapture
+                  images={batchImageBase64s}
+                  onChangeImages={setBatchImageBase64s}
+                  watermarkSettings={markingConfig.watermark}
+                  studentInfo={{ lessonTitle: selectedLesson || 'تصحيح جماعي' }}
+                  fallbackLogoUrl={homeLogoUrl}
+                  stitchOnSave={batchStitchImages}
+                  onChangeStitchOnSave={setBatchStitchImages}
+                  compact
+                  title={`صور الشرح والكاميرا (${batchImageBase64s.length + batchImageUrls.length})`}
+                />
+
+                <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
+                  <div className="flex gap-1.5">
                     <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        handleBatchImageFiles(e.target.files);
-                        e.target.value = '';
-                      }}
+                      type="url"
+                      dir="ltr"
+                      value={newImageUrlInput}
+                      onChange={(e) => setNewImageUrlInput(e.target.value)}
+                      placeholder="أو أضف رابط صورة خارجية..."
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono text-left"
                     />
-                  </label>
-                </div>
-
-                <div className="flex gap-1.5">
-                  <input
-                    type="url"
-                    dir="ltr"
-                    value={newImageUrlInput}
-                    onChange={(e) => setNewImageUrlInput(e.target.value)}
-                    placeholder="أو أضف رابط صورة..."
-                    className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono text-left"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const clean = newImageUrlInput.trim();
-                      if (!clean) return;
-                      setBatchImageUrls((p) => [...p, clean]);
-                      setNewImageUrlInput('');
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-bold cursor-pointer shrink-0"
-                  >
-                    إضافة
-                  </button>
-                </div>
-
-                {(batchImageBase64s.length > 0 || batchImageUrls.length > 0) && (
-                  <div className="grid grid-cols-3 gap-2">
-                    {batchImageBase64s.map((src, idx) => (
-                      <div
-                        key={`b64-${idx}`}
-                        className="relative aspect-square rounded-xl border border-slate-200 overflow-hidden bg-slate-50"
-                      >
-                        <img src={src} alt={`صورة ${idx + 1}`} className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setBatchImageBase64s((p) => p.filter((_, i) => i !== idx))
-                          }
-                          className="absolute top-1 left-1 p-1 rounded bg-rose-600 text-white cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                    {batchImageUrls.map((url, idx) => (
-                      <div
-                        key={`url-${idx}`}
-                        className="relative aspect-square rounded-xl border border-slate-200 overflow-hidden bg-slate-50"
-                      >
-                        <img src={url} alt={`رابط ${idx + 1}`} className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setBatchImageUrls((p) => p.filter((_, i) => i !== idx))
-                          }
-                          className="absolute top-1 left-1 p-1 rounded bg-rose-600 text-white cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = newImageUrlInput.trim();
+                        if (!clean) return;
+                        setBatchImageUrls((p) => [...p, clean]);
+                        setNewImageUrlInput('');
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                    >
+                      إضافة
+                    </button>
                   </div>
-                )}
+
+                  {batchImageUrls.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2">
+                      {batchImageUrls.map((url, idx) => (
+                        <div
+                          key={`url-${idx}`}
+                          className="relative aspect-square rounded-xl border border-slate-200 overflow-hidden bg-slate-50"
+                        >
+                          <img
+                            src={url}
+                            alt={`رابط ${idx + 1}`}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setBatchImageUrls((p) => p.filter((_, i) => i !== idx))
+                            }
+                            className="absolute top-1 left-1 p-1 rounded bg-rose-600 text-white cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* B. Multiple Teacher Audios */}
@@ -1404,8 +1605,480 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
               )}
             </div>
           </div>
+        ) : (
+          /* ================================================================
+             MODE 3: CORRECTIONS MANAGEMENT TABLE (FILTER, QUICK EDIT, RESET)
+             ================================================================ */
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+            {/* Filters & Bulk Actions Toolbar */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
+                <div className="lg:col-span-4 relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={sheetSearch}
+                    onChange={(e) => setSheetSearch(e.target.value)}
+                    placeholder="ابحث باسم الطالب أو رقمه أو الملاحظات..."
+                    className="w-full pr-8 pl-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="lg:col-span-3">
+                  <select
+                    value={sheetLesson}
+                    onChange={(e) => setSheetLesson(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                  >
+                    <option value="all">كل دروس الفيديو</option>
+                    {lessonOptions.map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <select
+                    value={sheetStatus}
+                    onChange={(e) => setSheetStatus(e.target.value as 'all' | MarkingStatus)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                  >
+                    <option value="all">كل الحالات</option>
+                    <option value="corrected">مصحّح</option>
+                    <option value="retry">إعادة</option>
+                    <option value="pending">بانتظار التصحيح</option>
+                  </select>
+                </div>
+
+                <div className="lg:col-span-3">
+                  <select
+                    value={sheetMedia}
+                    onChange={(e) => setSheetMedia(e.target.value as BulkMediaFilter)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                  >
+                    <option value="all">كل الوسائط ({videoScopedSubmissions.length})</option>
+                    <option value="has_image">واجب بصورة</option>
+                    <option value="has_audio">واجب بصوت</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                <div className="flex items-center gap-3 text-slate-600 font-bold">
+                  <span>المعروض: {sheetFilteredSubmissions.length} سجل</span>
+                  <span>·</span>
+                  <span className="text-indigo-700">المحدد: {sheetSelectedKeys.size}</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const correctedVisible = sheetFilteredSubmissions
+                        .filter((s) => Boolean(s.correction))
+                        .map((s) => s.submissionKey);
+                      if (
+                        correctedVisible.length > 0 &&
+                        correctedVisible.every((k) => sheetSelectedKeys.has(k))
+                      ) {
+                        setSheetSelectedKeys(new Set());
+                      } else {
+                        setSheetSelectedKeys(new Set(correctedVisible));
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    تحديد المصحّحين المعروضين
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={sheetSelectedKeys.size === 0 || sheetBusy}
+                    onClick={handleClearSelectedRows}
+                    className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-45 text-white text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  >
+                    {sheetBusy ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>مسح تصحيحات المحددة ({sheetSelectedKeys.size})</span>
+                  </button>
+                </div>
+              </div>
+
+              {sheetFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                    sheetFeedback.type === 'ok'
+                      ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-900 border border-rose-200'
+                  }`}
+                >
+                  {sheetFeedback.type === 'ok' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{sheetFeedback.text}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Table */}
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-right border-collapse text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold">
+                    <tr>
+                      <th className="py-3 px-3 w-10 text-center">تحديد</th>
+                      <th className="py-3 px-3">الطالب</th>
+                      <th className="py-3 px-3">الدرس</th>
+                      <th className="py-3 px-3">تسليم الطالب</th>
+                      <th className="py-3 px-3">الحالة والدرجة</th>
+                      <th className="py-3 px-3">مرفقات التصحيح</th>
+                      <th className="py-3 px-3 text-left">إجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {sheetFilteredSubmissions.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-500 font-bold">
+                          لا توجد صفوف مطابقة لخيارات البحث والفلترة.
+                        </td>
+                      </tr>
+                    ) : (
+                      sheetFilteredSubmissions.map((row) => {
+                        const c = row.correction;
+                        const st: MarkingStatus = c?.status || 'pending';
+                        const isChecked = sheetSelectedKeys.has(row.submissionKey);
+                        return (
+                          <tr key={row.submissionKey} className="hover:bg-slate-50/70">
+                            <td className="py-2.5 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {
+                                  setSheetSelectedKeys((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(row.submissionKey)) next.delete(row.submissionKey);
+                                    else next.add(row.submissionKey);
+                                    return next;
+                                  });
+                                }}
+                                className="accent-indigo-600 w-4 h-4 cursor-pointer"
+                              />
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-extrabold text-slate-900">
+                                {row.studentName || row.studentId}
+                              </div>
+                              {row.studentId && (
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  #{row.studentId}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-slate-700 max-w-[180px] truncate">
+                              {row.itemTitle}
+                            </td>
+                            <td className="py-2.5 px-3 text-[11px] font-bold text-slate-600">
+                              <div className="flex items-center gap-2">
+                                {row.studentImageUrl && (
+                                  <a
+                                    href={row.studentImageUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-emerald-700 hover:underline inline-flex items-center gap-0.5"
+                                  >
+                                    <ImageIcon className="w-3 h-3" />
+                                    <span>صورة</span>
+                                  </a>
+                                )}
+                                {row.studentAudioUrl && (
+                                  <a
+                                    href={row.studentAudioUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-indigo-700 hover:underline inline-flex items-center gap-0.5"
+                                  >
+                                    <Mic className="w-3 h-3" />
+                                    <span>صوت</span>
+                                  </a>
+                                )}
+                                {!row.studentImageUrl && !row.studentAudioUrl && (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center gap-1.5 font-extrabold">
+                                <span
+                                  className={
+                                    st === 'corrected'
+                                      ? 'text-emerald-700'
+                                      : st === 'retry'
+                                      ? 'text-amber-700'
+                                      : 'text-slate-400'
+                                  }
+                                >
+                                  {st === 'corrected'
+                                    ? 'مصحّح ✓'
+                                    : st === 'retry'
+                                    ? 'إعادة'
+                                    : 'جديد'}
+                                </span>
+                                {c?.score !== undefined && (
+                                  <>
+                                    <span className="text-slate-300">·</span>
+                                    <span className="font-mono text-slate-800 tabular-nums">
+                                      {c.score}/100
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              {c?.notes && (
+                                <div className="text-[10px] text-slate-500 max-w-[200px] truncate">
+                                  {c.notes}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {c ? (
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                  {c.correctedImageUrl && (
+                                    <a
+                                      href={c.correctedImageUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-emerald-700 hover:underline inline-flex items-center gap-0.5"
+                                    >
+                                      <span>لوحة</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  )}
+                                  {c.teacherAudioUrl && (
+                                    <a
+                                      href={c.teacherAudioUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-rose-700 hover:underline inline-flex items-center gap-0.5"
+                                    >
+                                      <span>صوت</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  )}
+                                  {c.teacherVideoUrl && (
+                                    <a
+                                      href={c.teacherVideoUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-indigo-700 hover:underline inline-flex items-center gap-0.5"
+                                    >
+                                      <span>فيديو</span>
+                                      <ExternalLink className="w-2.5 h-2.5" />
+                                    </a>
+                                  )}
+                                  {!c.correctedImageUrl &&
+                                    !c.teacherAudioUrl &&
+                                    !c.teacherVideoUrl && <span className="text-slate-400">نص فقط</span>}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-left">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => openQuickEditModal(row)}
+                                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 text-slate-800 hover:text-indigo-800 font-bold inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                                  title="تعديل سريع"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                  <span>تعديل</span>
+                                </button>
+                                {c && (
+                                  <button
+                                    type="button"
+                                    disabled={sheetBusy}
+                                    onClick={() => handleClearSingleRow(row)}
+                                    className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                                    title="مسح وتصفير التصحيح من الشيت"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>مسح</span>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Quick Inline Edit Modal for Sheet Tab */}
+      {editingItem && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/70 flex items-center justify-center p-4 font-cairo text-right">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  تعديل سريع للتصحيح · {editingItem.studentName}
+                </h3>
+                <div className="text-[11px] text-slate-500 font-semibold">
+                  {editingItem.itemTitle}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingItem(null)}
+                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الحالة:</label>
+                <select
+                  value={eStatus}
+                  onChange={(e) => setEStatus(e.target.value as MarkingStatus)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                >
+                  <option value="corrected">مصحّح ومعتمد</option>
+                  <option value="retry">إعادة المحاولة</option>
+                  <option value="pending">قيد الانتظار</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">الدرجة:</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={eScore}
+                  onChange={(e) => setEScore(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">التقدير:</label>
+                <select
+                  value={eRating}
+                  onChange={(e) => setERating(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                >
+                  {RATING_LABELS.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">الملاحظات:</label>
+              <textarea
+                rows={3}
+                value={eNotes}
+                onChange={(e) => setENotes(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
+              />
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-bold text-slate-700">
+              <div className="text-[11px] text-slate-500">تنظيف المرفقات الحالية (اختياري):</div>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eClearImage}
+                    onChange={(e) => setEClearImage(e.target.checked)}
+                    className="accent-rose-600"
+                  />
+                  <span>حذف الصور المصححة</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eClearAudio}
+                    onChange={(e) => setEClearAudio(e.target.checked)}
+                    className="accent-rose-600"
+                  />
+                  <span>حذف صوت المعلم</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eClearVideo}
+                    onChange={(e) => setEClearVideo(e.target.checked)}
+                    className="accent-rose-600"
+                  />
+                  <span>حذف فيديو المعلم</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="flex items-center gap-3 text-xs font-bold text-slate-700">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eAllowRetry}
+                    onChange={(e) => setEAllowRetry(e.target.checked)}
+                    className="accent-amber-600"
+                  />
+                  <span>محاولة جديدة</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={eSendTelegram}
+                    onChange={(e) => setESendTelegram(e.target.checked)}
+                    className="accent-sky-600"
+                  />
+                  <span>إشعار تيليغرام</span>
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={eSaving}
+                  onClick={handleSaveQuickEdit}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  {eSaving ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>حفظ التعديلات</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

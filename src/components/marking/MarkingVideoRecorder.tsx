@@ -12,6 +12,9 @@ import {
   ExternalLink,
   RefreshCw,
   Mic,
+  Smartphone,
+  Monitor,
+  RotateCw,
 } from 'lucide-react';
 import { MarkingConfig } from '../../types';
 import {
@@ -25,15 +28,20 @@ interface MarkingVideoRecorderProps {
   webhookUrl: string;
   existingVideoUrl?: string;
   onVideoUploaded: (url: string) => void;
+  onRemoveExistingVideo?: () => void;
   title?: string;
   autoClearAfterUpload?: boolean;
 }
+
+const MAX_VIDEO_SECONDS = 240; // 4 Minutes max per clip
+const MAX_VIDEO_BYTES = 80 * 1024 * 1024; // 80 MB safety cap
 
 export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
   markingConfig,
   webhookUrl,
   existingVideoUrl,
   onVideoUploaded,
+  onRemoveExistingVideo,
   title = 'تسجيل فيديو بالكاميرا أو OBS Virtual Camera',
   autoClearAfterUpload = false,
 }) => {
@@ -41,9 +49,12 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [selectedMicId, setSelectedMicId] = useState<string>('');
+  const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+
   const [previewOpen, setPreviewOpen] = useState<boolean>(false);
   const [isRecording, setIsRecording] = useState<boolean>(false);
-  const [seconds, setSeconds] = useState<number>(0);
+  const [countdown, setCountdown] = useState<number>(MAX_VIDEO_SECONDS);
 
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -61,6 +72,27 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
   useEffect(() => {
     setUploadedUrl(existingVideoUrl || '');
   }, [existingVideoUrl]);
+
+  const playTimerBeep = (freq = 800, duration = 0.14, count = 1) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      for (let i = 0; i < count; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        const startAt = ctx.currentTime + i * (duration + 0.08);
+        osc.frequency.setValueAtTime(freq, startAt);
+        gain.gain.setValueAtTime(0.18, startAt);
+        gain.gain.exponentialRampToValueAtTime(0.001, startAt + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startAt);
+        osc.stop(startAt + duration);
+      }
+    } catch {}
+  };
 
   const stopCameraStream = useCallback(() => {
     if (activeStreamRef.current) {
@@ -84,7 +116,6 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
 
       setSelectedCameraId((prev) => {
         if (prev && cams.some((c) => c.deviceId === prev)) return prev;
-        // Prefer OBS Virtual Camera automatically if detected
         const obsCam = cams.find((c) => /obs/i.test(c.label));
         return obsCam?.deviceId || cams[0]?.deviceId || '';
       });
@@ -103,40 +134,89 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
     };
   }, [refreshDevices, stopCameraStream]);
 
-  const openCameraPreview = async (overrideCamId?: string, overrideMicId?: string) => {
+  const openCameraPreview = async (
+    overrideCamId?: string,
+    overrideMicId?: string,
+    overrideOrientation?: 'horizontal' | 'vertical',
+    overrideFacing?: 'user' | 'environment'
+  ) => {
     setErrorMsg(null);
     stopCameraStream();
-    try {
-      const camId = overrideCamId !== undefined ? overrideCamId : selectedCameraId;
-      const micId = overrideMicId !== undefined ? overrideMicId : selectedMicId;
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+    const camId = overrideCamId !== undefined ? overrideCamId : selectedCameraId;
+    const micId = overrideMicId !== undefined ? overrideMicId : selectedMicId;
+    const targetOrient = overrideOrientation ?? orientation;
+    const targetFacing = overrideFacing ?? facingMode;
+    const isVert = targetOrient === 'vertical';
+
+    const videoConstraintPrimary: MediaTrackConstraints = camId
+      ? {
+          deviceId: { exact: camId },
+          width: { ideal: isVert ? 1080 : 1920 },
+          height: { ideal: isVert ? 1920 : 1080 },
+          aspectRatio: { ideal: isVert ? 9 / 16 : 16 / 9 },
+        }
+      : {
+          facingMode: { ideal: targetFacing },
+          width: { ideal: isVert ? 1080 : 1920 },
+          height: { ideal: isVert ? 1920 : 1080 },
+          aspectRatio: { ideal: isVert ? 9 / 16 : 16 / 9 },
+        };
+
+    const attempts: MediaStreamConstraints[] = [
+      { video: videoConstraintPrimary, audio: micId ? { deviceId: { exact: micId } } : true },
+      {
         video: camId
           ? { deviceId: { exact: camId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-          : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-        audio: micId ? { deviceId: { exact: micId } } : true,
-      });
+          : { facingMode: { ideal: targetFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: true,
+      },
+      { video: true, audio: true },
+    ];
 
-      activeStreamRef.current = stream;
-      setPreviewOpen(true);
-      await refreshDevices();
+    let stream: MediaStream | null = null;
+    let lastErr: any = null;
+    for (const constraint of attempts) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraint);
+        if (stream) break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
 
-      window.setTimeout(() => {
-        if (liveVideoRef.current) {
-          liveVideoRef.current.srcObject = stream;
-          liveVideoRef.current.play().catch(() => {});
-        }
-      }, 40);
-
-      return stream;
-    } catch (err: any) {
+    if (!stream) {
       setErrorMsg(
-        err?.message ||
+        lastErr?.message ||
           'تعذر تشغيل الكاميرا أو الميكروفون. تأكد من تشغيل كاميرا OBS أو منح صلاحية الكاميرا للمتصفح.'
       );
       return null;
     }
+
+    activeStreamRef.current = stream;
+    setPreviewOpen(true);
+    await refreshDevices();
+
+    window.setTimeout(() => {
+      if (liveVideoRef.current) {
+        liveVideoRef.current.srcObject = stream;
+        liveVideoRef.current.play().catch(() => {});
+      }
+    }, 40);
+
+    return stream;
   };
+
+  const stopRecording = useCallback(() => {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+  }, []);
 
   const startRecording = async () => {
     setErrorMsg(null);
@@ -153,7 +233,9 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
     if (!stream) return;
 
     try {
-      const preferredMime = MediaRecorder.isTypeSupported('video/mp4')
+      const preferredMime = MediaRecorder.isTypeSupported('video/mp4;codecs=avc1,mp4a')
+        ? 'video/mp4;codecs=avc1,mp4a'
+        : MediaRecorder.isTypeSupported('video/mp4')
         ? 'video/mp4'
         : MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
         ? 'video/webm;codecs=vp9,opus'
@@ -163,37 +245,55 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
 
       const mr = new MediaRecorder(stream, {
         mimeType: preferredMime,
-        videoBitsPerSecond: 1_800_000,
+        videoBitsPerSecond: 2_500_000,
       });
+
       chunksRef.current = [];
+      let totalBytes = 0;
+
       mr.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
+        if (ev.data && ev.data.size > 0) {
+          chunksRef.current.push(ev.data);
+          totalBytes += ev.data.size;
+          if (totalBytes >= MAX_VIDEO_BYTES && mr.state === 'recording') {
+            playTimerBeep(1100, 0.35, 2);
+            stopRecording();
+            setErrorMsg('تم إيقاف التسجيل تلقائياً عند الحد الأقصى الحجمي (80 MB) لضمان سرعة الرفع.');
+          }
+        }
       };
+
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'video/webm' });
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'video/mp4' });
         setRecordedBlob(blob);
         setPreviewUrl(URL.createObjectURL(blob));
       };
+
       mediaRecorderRef.current = mr;
-      mr.start(1000);
+      mr.start(350);
       setIsRecording(true);
-      setSeconds(0);
-      timerRef.current = window.setInterval(() => setSeconds((s) => s + 1), 1000);
+      setCountdown(MAX_VIDEO_SECONDS);
+
+      if (timerRef.current) window.clearInterval(timerRef.current);
+      let rem = MAX_VIDEO_SECONDS;
+      timerRef.current = window.setInterval(() => {
+        rem -= 1;
+        setCountdown(rem);
+
+        if (rem === 30) playTimerBeep(650, 0.22, 1);
+        else if (rem === 20) playTimerBeep(750, 0.18, 2);
+        else if (rem === 10) playTimerBeep(900, 0.16, 2);
+        else if (rem <= 5 && rem > 0) playTimerBeep(1050, 0.12, 1);
+
+        if (rem <= 0) {
+          playTimerBeep(1200, 0.35, 1);
+          stopRecording();
+        }
+      }, 1000);
     } catch (err: any) {
       setIsRecording(false);
       setErrorMsg(err?.message || 'تعذر بدء تسجيل الفيديو من الكاميرا.');
     }
-  };
-
-  const stopRecording = () => {
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
   };
 
   const handleUploadRecordedVideo = async () => {
@@ -286,7 +386,7 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
           </div>
           <div className="text-[11px] text-slate-500 font-semibold">
             {hasCloudinary
-              ? `التخزين المباشر: Cloudinary (${markingConfig.cloudinaryCloudName}) — مناسب لـ OBS وكاميرا الجوال`
+              ? `Cloudinary (${markingConfig.cloudinaryCloudName}) · حد أقصى 4 دقائق / 80 MB مع تنبيهات صوتية`
               : 'ملاحظة: Cloudinary غير مضبوط (سيتم حفظ المقاطع الصغيرة عبر Google Drive)'}
           </div>
         </div>
@@ -321,7 +421,7 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
               className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Video className="w-3.5 h-3.5" />
-              <span>{recordedBlob ? 'تسجيل جديد' : 'بدء تسجيل الكاميرا'}</span>
+              <span>{recordedBlob ? 'تسجيل جديد' : 'بدء تسجيل الفيديو'}</span>
             </button>
           ) : (
             <button
@@ -330,13 +430,66 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
               className="px-3.5 py-1.5 rounded-xl bg-slate-950 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Square className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-              <span className="font-mono tabular-nums">إيقاف ({fmtTime(seconds)})</span>
+              <span className="font-mono tabular-nums">إيقاف (متبقي {fmtTime(countdown)})</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Camera & Microphone Selector (OBS Virtual Camera / Webcam / Mobile Camera) */}
+      {/* Orientation Switcher (16:9 / 9:16) + Flip + Device Selectors */}
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-2 rounded-xl border border-slate-200">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={isRecording}
+            onClick={() => {
+              setOrientation('horizontal');
+              if (previewOpen) openCameraPreview(selectedCameraId, selectedMicId, 'horizontal');
+            }}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer ${
+              orientation === 'horizontal'
+                ? 'bg-slate-900 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Monitor className="w-3.5 h-3.5" />
+            <span>أفقي 16:9</span>
+          </button>
+          <button
+            type="button"
+            disabled={isRecording}
+            onClick={() => {
+              setOrientation('vertical');
+              if (previewOpen) openCameraPreview(selectedCameraId, selectedMicId, 'vertical');
+            }}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer ${
+              orientation === 'vertical'
+                ? 'bg-slate-900 text-white'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5" />
+            <span>عمودي 9:16</span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          disabled={isRecording}
+          onClick={() => {
+            const nextF = facingMode === 'user' ? 'environment' : 'user';
+            setFacingMode(nextF);
+            setSelectedCameraId('');
+            if (previewOpen) openCameraPreview('', selectedMicId, orientation, nextF);
+          }}
+          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+        >
+          <RotateCw className="w-3 h-3 text-indigo-600" />
+          <span>{facingMode === 'user' ? 'تبديل للخلفية' : 'تبديل للأمامية'}</span>
+        </button>
+      </div>
+
+      {/* Camera & Microphone Device Dropdowns (OBS Virtual Camera / Webcam) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div className="flex items-center gap-1.5">
           <Camera className="w-3.5 h-3.5 text-slate-500 shrink-0" />
@@ -398,17 +551,29 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
 
       {/* Live Camera Preview Feed */}
       {previewOpen && (
-        <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
-          <video
-            ref={liveVideoRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full max-h-64 object-contain mx-auto"
-          />
+        <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-slate-800 flex justify-center">
+          <div
+            className={
+              orientation === 'horizontal'
+                ? 'w-full aspect-video max-h-64'
+                : 'w-44 aspect-[9/16] max-h-72'
+            }
+          >
+            <video
+              ref={liveVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+            />
+          </div>
           {isRecording && (
-            <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-rose-600 text-white text-[11px] font-mono font-extrabold">
-              REC · {fmtTime(seconds)}
+            <div
+              className={`absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg text-white text-[11px] font-mono font-extrabold tabular-nums ${
+                countdown <= 10 ? 'bg-amber-600' : 'bg-rose-600'
+              }`}
+            >
+              REC · {fmtTime(countdown)}
             </div>
           )}
         </div>
@@ -458,7 +623,7 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
                 {uploading ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>جاري الرفع ({uploadProgress}%)</span>
+                    <span className="tabular-nums">جاري الرفع ({uploadProgress}%)</span>
                   </>
                 ) : (
                   <>
@@ -479,15 +644,30 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <span>تم رفع فيديو الكاميرا وإرفاقه</span>
             </span>
-            <a
-              href={toCloudinaryMp4Url(uploadedUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-emerald-800 underline"
-            >
-              <span>معاينة</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href={toCloudinaryMp4Url(uploadedUrl)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-emerald-800 underline"
+              >
+                <span>معاينة</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              {onRemoveExistingVideo && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadedUrl('');
+                    onRemoveExistingVideo();
+                  }}
+                  className="text-rose-700 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>إزالة</span>
+                </button>
+              )}
+            </div>
           </div>
           {!previewUrl && (
             <video
@@ -502,4 +682,3 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
     </div>
   );
 };
-
