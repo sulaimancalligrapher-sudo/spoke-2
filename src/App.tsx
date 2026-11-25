@@ -23,6 +23,7 @@ import {
   PortalPublicData,
   RegistrationQuestion,
   StorePublicData,
+  TeacherCorrectionRecord,
 } from './types';
 import {
   ALL_CURRICULUM,
@@ -60,6 +61,9 @@ import { StorePortalShell } from './components/store/StorePortalShell';
 import { PortalRegistrationModal } from './components/PortalRegistrationModal';
 import { UnifiedAccessModal } from './components/UnifiedAccessModal';
 import { ProgramRequestModal } from './components/ProgramRequestModal';
+import { MarkingWorkspace } from './components/marking/MarkingWorkspace';
+import { StudentCorrectionsModal } from './components/marking/StudentCorrectionsModal';
+import { fetchStudentMarkingCorrections } from './utils/markingSheets';
 import {
   fetchPortalDataFromSheets,
   fetchRegistrationQuestionsFromSheets,
@@ -210,6 +214,7 @@ import {
   Video,
   Building2,
   Archive,
+  ClipboardCheck,
 } from 'lucide-react';
 
 const STORAGE_KEY_HISTORY = 'faseeh_pronunciation_history_v1';
@@ -262,7 +267,7 @@ export default function App() {
   // Exercise Mode: 'pronunciation', 'matching', 'dictation', 'writing', 'catch', or 'video'
   const [appMode, setAppMode] = useState<'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video'>('pronunciation');
   const [adminInitialTab, setAdminInitialTab] = useState<
-    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
+    'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'
   >('lessons');
 
   // Exercise 4: Arabic Writing & AR Whiteboard State
@@ -411,6 +416,23 @@ export default function App() {
   const [storeData, setStoreData] = useState<StorePublicData>(() => getLocalStoreData());
   const [storeRouteMode, setStoreRouteMode] = useState<'none' | 'store' | 'orders'>('none');
   const [storeEntryToast, setStoreEntryToast] = useState<string | null>(null);
+  const [markingRouteMode, setMarkingRouteMode] = useState<boolean>(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      return sp.get('page')?.toLowerCase() === 'marking' || window.location.hash.toLowerCase() === '#marking';
+    } catch {
+      return false;
+    }
+  });
+  const [markingSubKey, setMarkingSubKey] = useState<string | undefined>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('sub') || undefined;
+    } catch {
+      return undefined;
+    }
+  });
+  const [studentCorrections, setStudentCorrections] = useState<TeacherCorrectionRecord[]>([]);
+  const [isStudentCorrectionsModalOpen, setIsStudentCorrectionsModalOpen] = useState(false);
   const [telegramLinkedStudentIds, setTelegramLinkedStudentIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -966,6 +988,21 @@ export default function App() {
         hash.toLowerCase() === '#admin' ||
         path === '/admin';
 
+      const searchParams = new URLSearchParams(window.location.search);
+      const isMarkingRoute =
+        searchParams.get('page')?.toLowerCase() === 'marking' ||
+        hash.toLowerCase() === '#marking' ||
+        path === '/marking';
+      setMarkingRouteMode(isMarkingRoute);
+      const subParam = searchParams.get('sub') || undefined;
+      if (subParam) setMarkingSubKey(subParam);
+
+      if (isMarkingRoute) {
+        setIsAdminView(false);
+        setStoreRouteMode('none');
+        return;
+      }
+
       if (isControlRoute) {
         setStoreRouteMode('none');
         const authed = sessionStorage.getItem('faseeh_admin_auth') === 'true';
@@ -990,7 +1027,7 @@ export default function App() {
           setIsRegistrationModalOpen(true);
         } else if (
           lowerHash === '#access' ||
-          new URLSearchParams(window.location.search).get('portal')?.toLowerCase() === 'access'
+          searchParams.get('portal')?.toLowerCase() === 'access'
         ) {
           setStoreRouteMode('none');
           setIsUnifiedAccessOpen(true);
@@ -999,7 +1036,7 @@ export default function App() {
         if (lowerHash.startsWith('#program=')) {
           slugFromUrl = decodeURIComponent(hash.slice('#program='.length)).trim();
         } else {
-          const qp = new URLSearchParams(window.location.search).get('program');
+          const qp = searchParams.get('program');
           if (qp) slugFromUrl = qp.trim();
         }
         if (slugFromUrl) {
@@ -1469,6 +1506,11 @@ export default function App() {
                 if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
               })
               .catch(() => {});
+            fetchStudentMarkingCorrections(activeConfig.webhookUrl, parsed.id, parsed.name)
+              .then((corrs) => {
+                setStudentCorrections(corrs);
+              })
+              .catch(() => {});
             // Silent refresh of student profile (programId / status / name) from ID registrants
             fetchIDRegistrants(activeConfig.webhookUrl)
               .then((regs) => {
@@ -1627,6 +1669,15 @@ export default function App() {
                       if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
                     })
                     .catch(() => {});
+                  fetchStudentMarkingCorrections(
+                    activeConfig.webhookUrl,
+                    check.student.id,
+                    check.student.name
+                  )
+                    .then((corrs) => {
+                      setStudentCorrections(corrs);
+                    })
+                    .catch(() => {});
                 }
               } else if (check.error) {
                 setLoginModalPrefill({
@@ -1742,6 +1793,11 @@ export default function App() {
           if (attRes.records) setAttendanceRecords(getLocalAttendanceRecords());
         })
         .catch(() => {});
+      fetchStudentMarkingCorrections(sheetsConfig.webhookUrl, student.id, student.name)
+        .then((corrs) => {
+          setStudentCorrections(corrs);
+        })
+        .catch(() => {});
     }
     setAttendanceFeedback(null);
   };
@@ -1823,6 +1879,7 @@ export default function App() {
     setCatchHistory([]);
     setWritingHistory([]);
     setVideoProgressMap(getLocalVideoProgressMap(''));
+    setStudentCorrections([]);
     setAttendanceFeedback(null);
     try {
       localStorage.removeItem(STORAGE_KEY_STUDENT);
@@ -2580,10 +2637,15 @@ export default function App() {
 
   // Route to Admin or Student View with Authentication
   const handleOpenAdmin = (
-    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
+    targetTab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5' = 'lessons'
   ) => {
     setAdminInitialTab(targetTab);
-    if (isAdminAuthenticated) {
+    let sessionAuthed = false;
+    try {
+      sessionAuthed = sessionStorage.getItem('faseeh_admin_auth') === 'true';
+    } catch {}
+    if (isAdminAuthenticated || sessionAuthed) {
+      if (!isAdminAuthenticated) setIsAdminAuthenticated(true);
       window.location.hash = 'control';
       setIsAdminView(true);
       setIsPortalPreview(false);
@@ -2616,6 +2678,46 @@ export default function App() {
     window.location.hash = '';
     setIsAdminView(false);
   };
+
+  // STANDALONE TEACHER MARKING PORTAL (?page=marking or #marking)
+  if (markingRouteMode) {
+    return (
+      <MarkingWorkspace
+        webhookUrl={sheetsConfig.webhookUrl}
+        curriculum={curriculum}
+        writingTemplates={writingTemplates}
+        videoLessons={videoLessons}
+        courseSchedule={courseSchedule}
+        adminUsers={homeConfig?.adminUsers}
+        platformTitle={homeConfig?.title}
+        homeLogoUrl={homeConfig?.logoUrl}
+        isStandalonePage
+        initialSubmissionKey={markingSubKey}
+        onBackToHome={() => {
+          setMarkingRouteMode(false);
+          try {
+            const u = new URL(window.location.href);
+            u.searchParams.delete('page');
+            u.searchParams.delete('sub');
+            u.hash = '';
+            window.history.replaceState(null, '', u.pathname + u.search);
+          } catch {
+            window.location.hash = '';
+          }
+        }}
+        onOpenAdminMarkingSettings={() => {
+          setMarkingRouteMode(false);
+          try {
+            const u = new URL(window.location.href);
+            u.searchParams.delete('page');
+            u.searchParams.delete('sub');
+            window.history.replaceState(null, '', u.pathname + u.search);
+          } catch {}
+          handleOpenAdmin('marking');
+        }}
+      />
+    );
+  }
 
   // IF ADMIN VIEW IS ACTIVE: Render Revamped Admin Section
   if (isAdminView) {
@@ -2797,6 +2899,7 @@ export default function App() {
             setStoreRouteMode('store');
             window.location.hash = '#store';
           }}
+          adminUsers={homeConfig?.adminUsers}
         />
 
         <SettingsModal
@@ -3523,6 +3626,31 @@ export default function App() {
                           <span>{t('attendance_view_schedule', 'الجدول')}</span>
                         </button>
                       )}
+
+                    {currentStudent && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          fetchStudentMarkingCorrections(
+                            sheetsConfig.webhookUrl,
+                            currentStudent.id,
+                            currentStudent.name
+                          )
+                            .then((corrs) => setStudentCorrections(corrs))
+                            .catch(() => {});
+                          setIsStudentCorrectionsModalOpen(true);
+                        }}
+                        className="px-3.5 py-2.5 rounded-xl text-xs font-extrabold bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <ClipboardCheck className="w-4 h-4 text-emerald-700" />
+                        <span>تصحيحات المعلم</span>
+                        {studentCorrections.length > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold">
+                            {studentCorrections.length}
+                          </span>
+                        )}
+                      </button>
+                    )}
 
                     {tgLink && (
                       <a
@@ -4695,6 +4823,23 @@ export default function App() {
         }
         onRefreshProgress={refreshAllVideoData}
         t={t}
+      />
+
+      <StudentCorrectionsModal
+        isOpen={isStudentCorrectionsModalOpen}
+        onClose={() => setIsStudentCorrectionsModalOpen(false)}
+        studentId={currentStudent?.id || ''}
+        studentName={currentStudent?.name || ''}
+        corrections={studentCorrections}
+        onRefresh={async () => {
+          if (!currentStudent) return;
+          const next = await fetchStudentMarkingCorrections(
+            sheetsConfig.webhookUrl,
+            currentStudent.id,
+            currentStudent.name
+          );
+          setStudentCorrections(next);
+        }}
       />
 
       <CourseScheduleModal

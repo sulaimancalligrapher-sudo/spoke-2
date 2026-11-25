@@ -823,3 +823,67 @@ export interface StorePublicData {
   coupons: StoreCoupon[];
   orders: StoreOrder[];
 }
+
+// =========================
+// TEACHER MARKING & BATCH CORRECTION MODULE (التصحيح والمتابعة)
+// =========================
+export type MarkingExerciseType = 'writing' | 'pronunciation' | 'video' | 'dictation';
+export type MarkingStatus = 'pending' | 'corrected' | 'retry';
+
+export interface MarkingConfig {
+  cloudinaryCloudName: string;
+  cloudinaryUploadPreset: string;
+  cloudinaryFolder: string;
+  teacherTelegramChatId: string;
+  notifyTeacherOnSubmission: boolean;
+  notifyStudentOnCorrection: boolean;
+  portalBaseUrl?: string;
+  teacherSubmissionTemplate?: string;
+  studentCorrectionTemplate?: string;
+}
+
+export interface TeacherCorrectionRecord {
+  id: string;
+  submissionKey: string;
+  exerciseType: MarkingExerciseType;
+  studentId: string;
+  studentName: string;
+  lessonSubject: string;
+  itemTitle: string;
+  status: MarkingStatus;
+  score?: number;
+  ratingLabel?: string;
+  notes: string;
+  correctedImageUrl?: string;
+  teacherAudioUrl?: string;
+  teacherVideoUrl?: string;
+  teacherName?: string;
+  allowRetry?: boolean;
+  updatedAt: string;
+  telegramNotified?: boolean;
+}
+
+export interface UnifiedMarkingSubmission {
+  submissionKey: string;
+  exerciseType: MarkingExerciseType;
+  studentId: string;
+  studentName: string;
+  programId?: string;
+  programName?: string;
+  classroomId?: string;
+  classroomName?: string;
+  lessonSubject: string;
+  itemTitle: string;
+  slotIndex?: number;
+  timestamp: string;
+  studentScore?: number;
+  studentGrade?: string;
+  studentDetails?: string;
+  studentImageUrl?: string;
+  studentAudioUrl?: string;
+  referenceImageUrl?: string;
+  referenceAudioUrl?: string;
+  referenceAutoReadText?: string;
+  correction?: TeacherCorrectionRecord | null;
+}
+

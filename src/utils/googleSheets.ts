@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwyprmP8S0jtLlqDDue560qO8WVqVO03mO10aSR2LvoqopOS3N7i4Elz2ySVBIlu8IWwA/exec';
+  'https://script.google.com/macros/s/AKfycbxLfJGClj_dXG8ZEqtM_Yd--Dy0HzFvkSN5BD34xuTVYUow2WuEGS05_Y-_xJgIP0R02A/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4396,6 +4396,8 @@ var SCHEDULE_GROUPS_SHEET_NAME = "مجموعات_الجدول";
 var SCHEDULE_DAYS_SHEET_NAME = "الجدول_اليومي";
 var ATTENDANCE_SHEET_NAME = "سجل_الحضور";
 var HOME_CONTENT_SHEET_NAME = "محتوى_الرئيسية";
+var MARKING_CONFIG_SHEET_NAME = "إعدادات_التصحيح";
+var MARKING_CORRECTIONS_SHEET_NAME = "تصحيح_الواجبات";
 
 function getVideoQuestionsSheet(ss) {
   var sheet = ss.getSheetByName(VIDEO_QUESTIONS_SHEET_NAME);
@@ -4640,6 +4642,327 @@ function sendTelegramBotMessageGS(ss, chatId, text, photoUrl, tokenOverride) {
     Logger.log("Telegram send error: " + tgErr);
     return { ok: false, error: String(tgErr) };
   }
+}
+
+function getMarkingConfigSheet(ss) {
+  var sheet = ss.getSheetByName(MARKING_CONFIG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(MARKING_CONFIG_SHEET_NAME);
+    sheet.appendRow(["المفتاح", "القيمة"]);
+    sheet.getRange(1, 1, 1, 2).setBackground("#0f172a").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.appendRow(["cloudinaryCloudName", ""]);
+    sheet.appendRow(["cloudinaryUploadPreset", ""]);
+    sheet.appendRow(["cloudinaryFolder", "faseeh_marking"]);
+    sheet.appendRow(["teacherTelegramChatId", ""]);
+    sheet.appendRow(["notifyTeacherOnSubmission", "true"]);
+    sheet.appendRow(["notifyStudentOnCorrection", "true"]);
+    sheet.appendRow(["portalBaseUrl", ""]);
+  }
+  return sheet;
+}
+
+function readMarkingConfigGS(ss) {
+  var sheet = getMarkingConfigSheet(ss);
+  var rows = sheet.getDataRange().getValues();
+  var cfg = {
+    cloudinaryCloudName: "",
+    cloudinaryUploadPreset: "",
+    cloudinaryFolder: "faseeh_marking",
+    teacherTelegramChatId: "",
+    notifyTeacherOnSubmission: true,
+    notifyStudentOnCorrection: true,
+    portalBaseUrl: ""
+  };
+  for (var i = 1; i < rows.length; i++) {
+    var k = String(rows[i][0] || "").trim();
+    var v = String(rows[i][1] || "").trim();
+    if (k === "cloudinaryCloudName") cfg.cloudinaryCloudName = v;
+    else if (k === "cloudinaryUploadPreset") cfg.cloudinaryUploadPreset = v;
+    else if (k === "cloudinaryFolder" && v) cfg.cloudinaryFolder = v;
+    else if (k === "teacherTelegramChatId") cfg.teacherTelegramChatId = v;
+    else if (k === "notifyTeacherOnSubmission") cfg.notifyTeacherOnSubmission = (v.toLowerCase() !== "false" && v !== "0");
+    else if (k === "notifyStudentOnCorrection") cfg.notifyStudentOnCorrection = (v.toLowerCase() !== "false" && v !== "0");
+    else if (k === "portalBaseUrl") cfg.portalBaseUrl = v;
+  }
+  return cfg;
+}
+
+function writeMarkingConfigGS(ss, cfg) {
+  var sheet = getMarkingConfigSheet(ss);
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
+  }
+  var rows = [
+    ["cloudinaryCloudName", String(cfg.cloudinaryCloudName || "").trim()],
+    ["cloudinaryUploadPreset", String(cfg.cloudinaryUploadPreset || "").trim()],
+    ["cloudinaryFolder", String(cfg.cloudinaryFolder || "faseeh_marking").trim()],
+    ["teacherTelegramChatId", String(cfg.teacherTelegramChatId || "").trim()],
+    ["notifyTeacherOnSubmission", cfg.notifyTeacherOnSubmission === false ? "false" : "true"],
+    ["notifyStudentOnCorrection", cfg.notifyStudentOnCorrection === false ? "false" : "true"],
+    ["portalBaseUrl", String(cfg.portalBaseUrl || "").trim()]
+  ];
+  sheet.getRange(2, 1, rows.length, 2).setValues(rows);
+}
+
+function getMarkingCorrectionsSheet(ss) {
+  var sheet = ss.getSheetByName(MARKING_CORRECTIONS_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(MARKING_CORRECTIONS_SHEET_NAME);
+    var headers = [
+      "مفتاح التسليم", "نوع التمرين", "ID المشترك", "اسم المشترك",
+      "الدرس/الموضوع", "العنصر", "الحالة", "الدرجة", "التقييم",
+      "ملاحظة المعلم", "الصورة المصححة", "صوت المعلم", "فيديو التصحيح",
+      "اسم المعلم", "تاريخ التصحيح", "إشعار تيليغرام"
+    ];
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setBackground("#065f46").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
+  var sheet = getMarkingCorrectionsSheet(ss);
+  var lastR = sheet.getLastRow();
+  var list = [];
+  if (lastR <= 1) return list;
+  var rows = sheet.getRange(2, 1, lastR - 1, 16).getValues();
+  var cleanId = normRegDigitsGS(filterStudentId || "");
+  var cleanName = String(filterStudentName || "").trim();
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var sKey = String(row[0] || "").trim();
+    var sId = String(row[2] || "").trim();
+    var sName = String(row[3] || "").trim();
+    if (!sKey && !sId && !sName) continue;
+    if (cleanId || cleanName) {
+      var idOk = cleanId && normRegDigitsGS(sId) === cleanId;
+      var nameOk = (!cleanId || !sId) && cleanName && sName === cleanName;
+      if (!idOk && !nameOk) continue;
+    }
+    list.push({
+      id: "mc-" + (r + 2),
+      submissionKey: sKey,
+      exerciseType: String(row[1] || "writing").trim(),
+      studentId: sId,
+      studentName: sName,
+      lessonSubject: String(row[4] || "").trim(),
+      itemTitle: String(row[5] || "").trim(),
+      status: String(row[6] || "corrected").trim(),
+      score: row[7] !== "" && row[7] !== null && row[7] !== undefined ? Number(row[7]) : undefined,
+      ratingLabel: String(row[8] || "").trim(),
+      notes: String(row[9] || "").trim(),
+      correctedImageUrl: String(row[10] || "").trim(),
+      teacherAudioUrl: String(row[11] || "").trim(),
+      teacherVideoUrl: String(row[12] || "").trim(),
+      teacherName: String(row[13] || "").trim(),
+      updatedAt: String(row[14] || "").trim(),
+      telegramNotified: String(row[15] || "").trim() === "true"
+    });
+  }
+  return list;
+}
+
+function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrl, photoUrl, audioUrl) {
+  var cfg = readTelegramConfigGS(ss);
+  var token = String(cfg.botToken || "").trim();
+  if (!token || !chatId) return { ok: false, error: "missing token or chatId" };
+  var apiBase = "https://api.telegram.org/bot" + token;
+  var sent = false;
+
+  if (videoUrl) {
+    try {
+      var vUrlToSend = String(videoUrl).trim();
+      if (vUrlToSend.indexOf("res.cloudinary.com") !== -1 && vUrlToSend.indexOf("/video/upload/") !== -1 && vUrlToSend.indexOf("/f_mp4") === -1) {
+        vUrlToSend = vUrlToSend.replace("/video/upload/", "/video/upload/f_mp4,vc_h264/");
+      }
+      var vResp = UrlFetchApp.fetch(apiBase + "/sendVideo", {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          chat_id: String(chatId),
+          video: vUrlToSend,
+          caption: String(captionText || "").slice(0, 1020),
+          parse_mode: "HTML",
+          supports_streaming: true
+        }),
+        muteHttpExceptions: true
+      });
+      var vJson = null;
+      try { vJson = JSON.parse(vResp.getContentText()); } catch (e) {}
+      if (vResp.getResponseCode() >= 200 && vResp.getResponseCode() < 300 && vJson && vJson.ok) {
+        sent = true;
+      }
+    } catch (vErr) {}
+  }
+
+  if (!sent && photoUrl) {
+    var pRes = sendTelegramBotMessageGS(ss, chatId, String(captionText || "").slice(0, 1020), photoUrl);
+    if (pRes.ok) sent = true;
+  }
+
+  if (!sent) {
+    var fullTxt = String(captionText || "");
+    if (videoUrl) fullTxt += "\\n\\n🎬 <b>رابط فيديو التصحيح:</b> " + videoUrl;
+    if (photoUrl) fullTxt += "\\n🖼️ <b>رابط الصورة المصححة:</b> " + photoUrl;
+    var mRes = sendTelegramBotMessageGS(ss, chatId, fullTxt, "");
+    sent = Boolean(mRes.ok);
+  }
+
+  if (audioUrl) {
+    try {
+      var aResp = UrlFetchApp.fetch(apiBase + "/sendAudio", {
+        method: "post",
+        contentType: "application/json",
+        payload: JSON.stringify({
+          chat_id: String(chatId),
+          audio: String(audioUrl).trim(),
+          caption: "🎙️ تسجيل الملاحظة الصوتية من المعلم"
+        }),
+        muteHttpExceptions: true
+      });
+      var aJson = null;
+      try { aJson = JSON.parse(aResp.getContentText()); } catch (e) {}
+      if (!(aResp.getResponseCode() >= 200 && aResp.getResponseCode() < 300 && aJson && aJson.ok)) {
+        sendTelegramBotMessageGS(ss, chatId, "🎙️ <b>ملاحظة المعلم الصوتية:</b> " + audioUrl, "");
+      }
+    } catch (aErr) {}
+  }
+  return { ok: sent };
+}
+
+function notifyTeacherOnSubmissionGS(ss, info) {
+  try {
+    var mCfg = readMarkingConfigGS(ss);
+    if (mCfg.notifyTeacherOnSubmission === false) return false;
+    var tgCfg = readTelegramConfigGS(ss);
+    var targetChat = String(mCfg.teacherTelegramChatId || tgCfg.adminChatId || "").trim();
+    if (!targetChat || !tgCfg.botToken) return false;
+
+    var typeAr = info.exerciseType === "writing" ? "الكتابة والخط"
+      : info.exerciseType === "pronunciation" ? "النطق والتلاوة"
+      : info.exerciseType === "dictation" ? "الإملاء"
+      : "الفيديو التفاعلي";
+    var lines = [
+      "📥 <b>واجب جديد بانتظار التصحيح</b>",
+      "الطالب: <b>" + String(info.studentName || "طالب") + "</b>" + (info.studentId ? (" (<code>" + info.studentId + "</code>)") : ""),
+      "النوع: <b>" + typeAr + "</b>",
+      "الدرس: " + String(info.lessonSubject || "—") + (info.itemTitle ? (" · " + info.itemTitle) : "")
+    ];
+    if (info.score !== undefined && info.score !== null && info.score !== "") {
+      lines.push("النتيجة المبدئية: <b>" + info.score + "%</b>");
+    }
+    if (mCfg.portalBaseUrl) {
+      var sep = mCfg.portalBaseUrl.indexOf("?") === -1 ? "?" : "&";
+      var markLink = mCfg.portalBaseUrl.replace(/#.*$/, "") + sep + "page=marking";
+      lines.push("\\n🔗 <a href=\\"" + markLink + "\\">فتح بوابة التصحيح للمعلم</a>");
+    }
+    var txt = lines.join("\\n");
+    var res = sendTelegramBotMessageGS(ss, targetChat, txt, info.imageUrl || "");
+    return Boolean(res && res.ok);
+  } catch (err) {
+    return false;
+  }
+}
+
+function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
+  var mcSheet = getMarkingCorrectionsSheet(ss);
+  var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Asia/Bangkok", "yyyy/MM/dd HH:mm");
+  var sKey = String(item.submissionKey || "").trim();
+  var exType = String(item.exerciseType || "writing").trim();
+  var sId = String(item.studentId || "").trim();
+  var sName = String(item.studentName || "").trim();
+  var lSubj = String(item.lessonSubject || "").trim();
+  var iTitle = String(item.itemTitle || "").trim();
+  var stStatus = String(item.status || "corrected").trim();
+  var scVal = (item.score !== undefined && item.score !== null && item.score !== "") ? Number(item.score) : "";
+  var ratLabel = String(item.ratingLabel || "").trim();
+  var notesStr = String(item.notes || "").trim();
+  var corrImg = String(item.correctedImageUrl || "").trim();
+  var tAudio = String(item.teacherAudioUrl || "").trim();
+  var tVideo = String(item.teacherVideoUrl || "").trim();
+  var tName = String(item.teacherName || defaultTeacherName || "المعلم").trim();
+
+  var tgSent = false;
+  var mCfg = readMarkingConfigGS(ss);
+  if (item.sendTelegram !== false && mCfg.notifyStudentOnCorrection !== false) {
+    var stuChatId = findStudentTelegramChatIdGS(ss, sId, sName);
+    if (stuChatId) {
+      var statusBadge = stStatus === "retry" ? "🔄 مطلوب إعادة المحاولة" : "✅ تم التصحيح والاعتماد";
+      var msgLines = [
+        "<b>" + statusBadge + "</b>",
+        "الطالب: <b>" + (sName || "طالبنا الكريم") + "</b>",
+        "الدرس: <b>" + (lSubj || "—") + "</b>" + (iTitle ? (" — " + iTitle) : "")
+      ];
+      if (scVal !== "") msgLines.push("التقييم: <b>" + scVal + "%</b>" + (ratLabel ? (" (" + ratLabel + ")") : ""));
+      else if (ratLabel) msgLines.push("التقييم: <b>" + ratLabel + "</b>");
+      if (notesStr) msgLines.push("📝 ملاحظة المعلم: " + notesStr);
+      if (item.allowRetry) msgLines.push("🔓 تم فتح محاولة إضافية لك في المنصة.");
+      msgLines.push("👨‍🏫 المعلم: " + tName);
+      tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tVideo, corrImg, tAudio).ok;
+    }
+  }
+
+  // إذا طلب المعلم فتح محاولة جديدة للطالب، يتم تصفير عداد المحاولات في ورقة سجل_المحاولات
+  if (item.allowRetry && (sId || sName)) {
+    try {
+      var rSheet = getRetriesSheet(ss);
+      var rLast = rSheet.getLastRow();
+      if (rLast > 1) {
+        var rRows = rSheet.getRange(2, 1, rLast - 1, 5).getValues();
+        for (var ri = 0; ri < rRows.length; ri++) {
+          var rowSid = normRegDigitsGS(rRows[ri][0]);
+          var rowSname = String(rRows[ri][1] || "").trim();
+          var rowMode = String(rRows[ri][2] || "").trim();
+          var stMatched = (sId && rowSid === normRegDigitsGS(sId)) || (!sId && sName && rowSname === sName);
+          if (stMatched && (!exType || rowMode === exType)) {
+            rSheet.getRange(ri + 2, 5).setValue(0);
+          }
+        }
+      }
+    } catch (retErr) {}
+  }
+
+  var lastR = mcSheet.getLastRow();
+  var targetRow = -1;
+  if (lastR > 1 && sKey) {
+    var keysCol = mcSheet.getRange(2, 1, lastR - 1, 1).getValues();
+    for (var k = 0; k < keysCol.length; k++) {
+      if (String(keysCol[k][0] || "").trim() === sKey) {
+        targetRow = k + 2;
+        break;
+      }
+    }
+  }
+  var rowArr = [
+    sKey, exType, sId, sName, lSubj, iTitle,
+    stStatus, scVal, ratLabel, notesStr,
+    corrImg, tAudio, tVideo, tName, nowStr, tgSent ? "true" : "false"
+  ];
+  if (targetRow !== -1) {
+    mcSheet.getRange(targetRow, 1, 1, 16).setValues([rowArr]);
+  } else {
+    mcSheet.appendRow(rowArr);
+  }
+  return {
+    id: "mc-" + (targetRow !== -1 ? targetRow : mcSheet.getLastRow()),
+    submissionKey: sKey,
+    exerciseType: exType,
+    studentId: sId,
+    studentName: sName,
+    lessonSubject: lSubj,
+    itemTitle: iTitle,
+    status: stStatus,
+    score: scVal === "" ? undefined : Number(scVal),
+    ratingLabel: ratLabel,
+    notes: notesStr,
+    correctedImageUrl: corrImg,
+    teacherAudioUrl: tAudio,
+    teacherVideoUrl: tVideo,
+    teacherName: tName,
+    updatedAt: nowStr,
+    telegramNotified: tgSent
+  };
 }
 
 function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) {
@@ -7094,6 +7417,182 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    // (ج-14) نقاط نهاية نظام التصحيح الجماعي وتصحيحات المعلم (GET)
+    if (e && e.parameter && e.parameter.action === "get_student_corrections") {
+      var stCorrs = readMarkingCorrectionsGS(
+        ss,
+        String(e.parameter.studentId || "").trim(),
+        String(e.parameter.studentName || "").trim()
+      );
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        corrections: stCorrs
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (e && e.parameter && e.parameter.action === "get_marking_workspace_data") {
+      var mCfgGet = readMarkingConfigGS(ss);
+      var allCorrsGet = readMarkingCorrectionsGS(ss, "", "");
+
+      // 1) الكتابة والخط (answers 4)
+      var writingListGet = [];
+      try {
+        var a4Sh = getAnswers4Sheet(ss);
+        var a4LR = a4Sh.getLastRow();
+        if (a4LR > 1) {
+          var a4Rows = a4Sh.getRange(2, 1, a4LR - 1, Math.max(6, a4Sh.getLastColumn())).getValues();
+          for (var r4 = 0; r4 < a4Rows.length; r4++) {
+            var row4 = a4Rows[r4];
+            var ts4 = String(row4[0] || "").trim();
+            var id4 = String(row4[1] || "").trim();
+            var nm4 = String(row4[2] || "").trim();
+            var top4 = String(row4[3] || "").trim();
+            if (!id4 && !nm4 && !top4) continue;
+            var slot4 = 1;
+            for (var c4 = 5; c4 < row4.length; c4 += 5) {
+              var title4 = String(row4[c4 + 1] || "").trim();
+              var img4 = String(row4[c4 + 2] || "").trim();
+              var sc4Raw = String(row4[c4 + 3] || "").trim();
+              var det4 = String(row4[c4 + 4] || "").trim();
+              if (title4 || img4 || sc4Raw) {
+                var num4Match = sc4Raw.replace(/[^0-9.]/g, "");
+                writingListGet.push({
+                  timestamp: ts4,
+                  studentId: id4,
+                  studentName: nm4,
+                  lessonSubject: top4,
+                  slotIndex: slot4,
+                  itemTitle: title4 || ("تمرين " + slot4),
+                  imageUrl: img4,
+                  score: num4Match ? Math.round(parseFloat(num4Match)) : 0,
+                  details: det4
+                });
+              }
+              slot4++;
+            }
+          }
+        }
+      } catch (wGetErr) {}
+
+      // 2) الإملاء (answers 3)
+      var dictListGet = [];
+      try {
+        var a3Sh = getAnswers3Sheet(ss);
+        var a3LR = a3Sh.getLastRow();
+        if (a3LR > 1) {
+          var a3Rows = a3Sh.getRange(2, 1, a3LR - 1, Math.max(6, a3Sh.getLastColumn())).getValues();
+          for (var r3 = 0; r3 < a3Rows.length; r3++) {
+            var row3 = a3Rows[r3];
+            var ts3 = String(row3[0] || "").trim();
+            var id3 = String(row3[1] || "").trim();
+            var nm3 = String(row3[2] || "").trim();
+            var sub3 = String(row3[3] || "").trim();
+            var st3 = String(row3[4] || "").trim();
+            if (!sub3 && !nm3) continue;
+            var exParts3 = [];
+            for (var c3 = 5; c3 < row3.length; c3++) {
+              var f3 = String(row3[c3] || "").trim();
+              if (f3) exParts3.push("تمرين " + (c3 - 4) + ": " + f3);
+            }
+            dictListGet.push({
+              timestamp: ts3,
+              studentId: id3,
+              studentName: nm3,
+              lessonSubject: sub3,
+              completionStatus: st3,
+              details: exParts3.join(" | ")
+            });
+          }
+        }
+      } catch (dGetErr) {}
+
+      // 3) النطق والتلاوة (answers 1)
+      var pronListGet = [];
+      try {
+        var a1Sh = getAnswers1Sheet(ss);
+        var a1LR = a1Sh.getLastRow();
+        if (a1LR > 1) {
+          var a1Rows = a1Sh.getRange(2, 1, a1LR - 1, Math.max(5, a1Sh.getLastColumn())).getValues();
+          for (var r1 = 0; r1 < a1Rows.length; r1++) {
+            var row1 = a1Rows[r1];
+            var ts1 = String(row1[0] || "").trim();
+            var id1 = String(row1[1] || "").trim();
+            var nm1 = String(row1[2] || "").trim();
+            var sub1 = String(row1[3] || "").trim();
+            if (!id1 && !nm1 && !sub1) continue;
+            for (var c1 = 5; c1 < row1.length; c1 += 5) {
+              var w1 = String(row1[c1] || "").trim();
+              if (!w1) continue;
+              var sp1 = String(row1[c1 + 1] || "").trim();
+              var aud1 = String(row1[c1 + 2] || "").trim();
+              var sc1Raw = String(row1[c1 + 3] || "").replace(/[^0-9]/g, "");
+              var gr1 = String(row1[c1 + 4] || "").trim();
+              pronListGet.push({
+                timestamp: ts1,
+                studentId: id1,
+                studentName: nm1,
+                lessonSubject: sub1,
+                itemTitle: w1,
+                spokenText: sp1,
+                audioUrl: aud1,
+                score: sc1Raw ? parseInt(sc1Raw, 10) : 0,
+                grade: gr1
+              });
+            }
+          }
+        }
+      } catch (pGetErr) {}
+
+      // 4) الفيديو التفاعلي (فيديو_الإجابات)
+      var vidListGet = [];
+      try {
+        var vaSh = getVideoAnswersSheet(ss);
+        var vaLR = vaSh.getLastRow();
+        if (vaLR > 1) {
+          var vaRows = vaSh.getRange(2, 1, vaLR - 1, Math.max(13, vaSh.getLastColumn())).getValues();
+          for (var rv = 0; rv < vaRows.length; rv++) {
+            var rva = vaRows[rv];
+            var vId = String(rva[1] || "").trim();
+            var vNm = String(rva[2] || "").trim();
+            var vTitle = String(rva[5] || "").trim();
+            if (!vId && !vNm && !vTitle) continue;
+            vidListGet.push({
+              timestamp: String(rva[0] || "").trim(),
+              studentId: vId,
+              studentName: vNm,
+              lessonSubject: String(rva[4] || "").trim(),
+              itemTitle: vTitle,
+              completed: String(rva[6] || "").trim(),
+              score: Number(rva[7] || 0),
+              imageUrl: String(rva[11] || "").trim(),
+              audioUrl: String(rva[12] || "").trim()
+            });
+          }
+        }
+      } catch (vGetErr) {}
+
+      // 5) المشتركون لربط البرنامج والفصل
+      var regsLight = [];
+      try {
+        regsLight = readAllRegistrantsGS(getIDRegistrantsSheet(ss)).map(function(rg) {
+          return { id: rg.id, name: rg.name, programId: rg.programId || "", classroomId: rg.classroomId || "" };
+        });
+      } catch (rGetErr) {}
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        config: mCfgGet,
+        corrections: allCorrsGet,
+        writingSubmissions: writingListGet,
+        dictationSubmissions: dictListGet,
+        pronunciationSubmissions: pronListGet,
+        videoSubmissions: vidListGet,
+        registrants: regsLight
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
@@ -7911,6 +8410,100 @@ function doPost(e) {
         success: true,
         scheduleSaved: true,
         message: "تم حفظ البرامج والفصول والمجموعات والجدول اليومي في Google Sheets بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // (M) نقاط نهاية بوابة التصحيح للمعلم ونظام التصحيح الجماعي (POST)
+    if (data.action === "get_marking_config") {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        config: readMarkingConfigGS(ss)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_marking_config" && data.config) {
+      writeMarkingConfigGS(ss, data.config);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        message: "تم حفظ إعدادات التصحيح وCloudinary وتنبيهات المعلم بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "upload_marking_media" && data.base64Data) {
+      var mType = String(data.mediaType || "image").trim();
+      var mMime = mType === "audio" ? "audio/mp3" : mType === "video" ? "video/webm" : "image/png";
+      var mPrefix = String(data.fileName || ("marking_" + mType)).trim();
+      var uploadedMediaUrl = uploadVideoBase64ToDriveGS(
+        data.base64Data,
+        mPrefix,
+        mMime,
+        "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+      );
+      return ContentService.createTextOutput(JSON.stringify({
+        success: Boolean(uploadedMediaUrl),
+        markingHandled: true,
+        url: uploadedMediaUrl
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_marking_correction" && data.correction) {
+      var corrInput = data.correction;
+      if (corrInput.correctedImageBase64) {
+        corrInput.correctedImageUrl = uploadVideoBase64ToDriveGS(
+          corrInput.correctedImageBase64,
+          "corr_board_" + (corrInput.studentId || corrInput.studentName || "stu"),
+          "image/png",
+          "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+        );
+      }
+      if (corrInput.teacherAudioBase64) {
+        corrInput.teacherAudioUrl = uploadVideoBase64ToDriveGS(
+          corrInput.teacherAudioBase64,
+          "corr_voice_" + (corrInput.studentId || corrInput.studentName || "stu"),
+          "audio/mp3",
+          "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t"
+        );
+      }
+      var savedCorr = upsertMarkingCorrectionGS(ss, corrInput, data.teacherName || "المعلم");
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        correction: savedCorr,
+        telegramNotified: savedCorr.telegramNotified,
+        message: "تم حفظ التصحيح بنجاح!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "save_marking_batch" && Array.isArray(data.items)) {
+      var sharedImgUrl = String(data.sharedCorrectedImageUrl || "").trim();
+      var sharedAudUrl = String(data.sharedTeacherAudioUrl || "").trim();
+      var sharedVidUrl = String(data.sharedTeacherVideoUrl || "").trim();
+      if (data.sharedCorrectedImageBase64) {
+        sharedImgUrl = uploadVideoBase64ToDriveGS(data.sharedCorrectedImageBase64, "batch_img", "image/png", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+      }
+      if (data.sharedTeacherAudioBase64) {
+        sharedAudUrl = uploadVideoBase64ToDriveGS(data.sharedTeacherAudioBase64, "batch_voice", "audio/mp3", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+      }
+      var batchResults = [];
+      var tgSentCount = 0;
+      for (var bi = 0; bi < data.items.length; bi++) {
+        var bItem = data.items[bi] || {};
+        if (!bItem.correctedImageUrl && sharedImgUrl) bItem.correctedImageUrl = sharedImgUrl;
+        if (!bItem.teacherAudioUrl && sharedAudUrl) bItem.teacherAudioUrl = sharedAudUrl;
+        if (!bItem.teacherVideoUrl && sharedVidUrl) bItem.teacherVideoUrl = sharedVidUrl;
+        var bSaved = upsertMarkingCorrectionGS(ss, bItem, data.teacherName || "المعلم");
+        if (bSaved.telegramNotified) tgSentCount++;
+        batchResults.push(bSaved);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        count: batchResults.length,
+        telegramSentCount: tgSentCount,
+        corrections: batchResults,
+        message: "تم حفظ التصحيح الجماعي لـ " + batchResults.length + " تسليم بنجاح!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -9910,6 +10503,15 @@ function doPost(e) {
         a3Sheet.appendRow(newRow);
       }
 
+      notifyTeacherOnSubmissionGS(ss, {
+        exerciseType: "dictation",
+        studentId: sId,
+        studentName: sName,
+        lessonSubject: subj,
+        itemTitle: "تمرين " + exIdx,
+        details: formula
+      });
+
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         message: "تم تسجيل إجابة تمرين الإملاء في ورقة (answers 3) بنجاح"
@@ -10150,6 +10752,16 @@ function doPost(e) {
         compText = doneCount >= wTotal ? ("مكتمل (" + doneCount + "/" + wTotal + ")") : (doneCount + "/" + wTotal + " تمارين مكتملة");
         a4Sheet.getRange(foundRow, 5).setValue(compText);
       }
+      notifyTeacherOnSubmissionGS(ss, {
+        exerciseType: "writing",
+        studentId: wSid,
+        studentName: wSname,
+        lessonSubject: wTopic,
+        itemTitle: wText || ("تمرين " + wSlot),
+        score: wScore,
+        imageUrl: driveImageUrl && driveImageUrl.indexOf("http") === 0 ? driveImageUrl : ""
+      });
+
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         status: "success",
@@ -10627,6 +11239,15 @@ function doPost(e) {
         targetRow = ansSheet.getLastRow();
       }
       
+      notifyTeacherOnSubmissionGS(ss, {
+        exerciseType: "pronunciation",
+        studentId: studentId,
+        studentName: studentName,
+        lessonSubject: lessonSubject,
+        itemTitle: targetWord,
+        score: scoreVal
+      });
+
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
         rowIndex: targetRow,

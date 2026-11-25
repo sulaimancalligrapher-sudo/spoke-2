@@ -7,6 +7,7 @@ import {
   DifficultyLevel,
   Answers1SubmissionRow,
   StorePublicData,
+  AdminUserRecord,
 } from '../types';
 import {
   ALL_CURRICULUM,
@@ -76,6 +77,7 @@ import {
   LayoutGrid,
   FileText,
   Mail,
+  ClipboardCheck,
 } from 'lucide-react';
 import { TranslationItem } from '../utils/translations';
 import { TranslationManager } from './TranslationManager';
@@ -95,6 +97,7 @@ import { EmailAdminManager } from './EmailAdminManager';
 import { HomeContentAdminManager } from './HomeContentManager';
 import { PdfSettingsAdminPanel } from './StatsModal';
 import { PortalAdminManager } from './PortalAdminManager';
+import { MarkingAdminManager } from './marking/MarkingAdminManager';
 import { getLocalPortalData, getLocalRegistrationQuestions, getSavedPortalBotUsername, savePortalBotUsername } from '../utils/portalSheets';
 import {
   CourseScheduleData,
@@ -206,7 +209,8 @@ interface AdminPanelProps {
   storeData?: StorePublicData;
   onUpdateStoreData?: (next: StorePublicData) => void;
   onOpenStorePreview?: () => void;
-  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  adminUsers?: AdminUserRecord[];
+  initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
 }
 
 const TASHKEEL_BUTTONS = [
@@ -298,9 +302,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   storeData,
   onUpdateStoreData,
   onOpenStorePreview,
+  adminUsers = [],
   initialTab = 'lessons',
 }) => {
-  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1261,6 +1266,18 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           >
             <Film className={`w-4 h-4 ${activeTab === 'video' ? 'text-white' : 'text-indigo-600'}`} />
             <span>فيديو تفاعلي</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('marking')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'marking'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/80'
+            }`}
+          >
+            <ClipboardCheck className={`w-4 h-4 ${activeTab === 'marking' ? 'text-white' : 'text-emerald-700'}`} />
+            <span>التصحيح والمعلمين</span>
           </button>
 
           <button
@@ -3045,6 +3062,20 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             translations={translations || []}
             onSaveTranslations={onUpdateTranslations}
             geminiApiKey={geminiApiKey}
+          />
+        )}
+
+        {/* TAB 9.5: TEACHER MARKING & BATCH CORRECTION (التصحيح والمعلمين) */}
+        {activeTab === 'marking' && (
+          <MarkingAdminManager
+            webhookUrl={sheetsConfig.webhookUrl}
+            curriculum={curriculum}
+            writingTemplates={writingTemplates || []}
+            videoLessons={videoLessons || []}
+            courseSchedule={courseSchedule || createEmptyCourseSchedule()}
+            adminUsers={adminUsers}
+            platformTitle={platformTitle}
+            homeLogoUrl={homeLogoUrl}
           />
         )}
 
