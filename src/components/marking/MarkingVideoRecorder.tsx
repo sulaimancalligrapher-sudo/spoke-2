@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {
   Video,
   Camera,
@@ -23,6 +23,12 @@ import {
   uploadMarkingMediaToDrive,
   uploadVideoToCloudinary,
 } from '../../utils/markingSheets';
+import { CorrectionVideoPlayer } from './CorrectionVideoPlayer';
+
+export interface MarkingVideoRecorderHandle {
+  hasPendingRecording: () => boolean;
+  uploadPendingVideo: () => Promise<string | null>;
+}
 
 interface MarkingVideoRecorderProps {
   markingConfig: MarkingConfig;
@@ -32,6 +38,7 @@ interface MarkingVideoRecorderProps {
   onRemoveExistingVideo?: () => void;
   title?: string;
   autoClearAfterUpload?: boolean;
+  autoUploadOnStop?: boolean;
   /** Incrementing this counter opens the Camera Preview & Record modal immediately */
   openTrigger?: number;
   /** When true, hides the inline box and only renders the modal when triggered */
@@ -81,17 +88,25 @@ function createSafeVideoRecorder(stream: MediaStream): MediaRecorder {
   return new MediaRecorder(stream);
 }
 
-export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
-  markingConfig,
-  webhookUrl,
-  existingVideoUrl,
-  onVideoUploaded,
-  onRemoveExistingVideo,
-  title = 'تسجيل فيديو بالكاميرا أو OBS',
-  autoClearAfterUpload = false,
-  openTrigger,
-  hideInlineTrigger = false,
-}) => {
+export const MarkingVideoRecorder = React.forwardRef<
+  MarkingVideoRecorderHandle,
+  MarkingVideoRecorderProps
+>(
+  (
+    {
+      markingConfig,
+      webhookUrl,
+      existingVideoUrl,
+      onVideoUploaded,
+      onRemoveExistingVideo,
+      title = 'تسجيل فيديو بالكاميرا أو OBS',
+      autoClearAfterUpload = false,
+      autoUploadOnStop = false,
+      openTrigger,
+      hideInlineTrigger = false,
+    },
+    ref
+  ) => {
   const [modalOpen, setModalOpen] = useState<boolean>(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -123,6 +138,10 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
   useEffect(() => {
     setUploadedUrl(existingVideoUrl || '');
   }, [existingVideoUrl]);
+
+  const inFlightUploadRef = useRef<Promise<string | null> | null>(null);
+  const autoUploadOnStopRef = useRef<boolean>(autoUploadOnStop);
+  autoUploadOnStopRef.current = autoUploadOnStop;
 
   const playTimerBeep = (freq = 800, duration = 0.14, count = 1) => {
     try {
@@ -386,6 +405,9 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
         }
         setRecordedBlob(blob);
         setPreviewUrl(URL.createObjectURL(blob));
+        if (autoUploadOnStopRef.current) {
+          void uploadVideoBlob(blob);
+        }
       };
 
       mediaRecorderRef.current = mr;
@@ -438,81 +460,120 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
     setRecordedBlob(file);
     setPreviewUrl(URL.createObjectURL(file));
     if (!modalOpen) setModalOpen(true);
+    if (autoUploadOnStopRef.current) {
+      void uploadVideoBlob(file);
+    }
+  };
+
+  const uploadVideoBlob = async (blobToUpload: Blob): Promise<string | null> => {
+    if (inFlightUploadRef.current) {
+      return inFlightUploadRef.current;
+    }
+
+    const runner = (async (): Promise<string | null> => {
+      setErrorMsg(null);
+      setUploading(true);
+      setUploadProgress(5);
+
+      const hasCloudinaryNow =
+        Boolean(markingConfig.cloudinaryCloudName?.trim()) &&
+        Boolean(markingConfig.cloudinaryUploadPreset?.trim());
+
+      try {
+        if (hasCloudinaryNow) {
+          const res = await uploadVideoToCloudinary(blobToUpload, markingConfig, (pct) =>
+            setUploadProgress(pct)
+          );
+          if (res.success && (res.mp4Url || res.url)) {
+            const finalUrl = res.mp4Url || res.url || '';
+            onVideoUploaded(finalUrl);
+            if (autoClearAfterUpload) {
+              setPreviewUrl((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return null;
+              });
+              setRecordedBlob(null);
+              setUploadedUrl('');
+            } else {
+              setUploadedUrl(finalUrl);
+            }
+            setUploading(false);
+            handleCloseModal();
+            return finalUrl;
+          }
+          setErrorMsg(res.error || 'تعذر الرفع إلى Cloudinary.');
+          setUploading(false);
+          return null;
+        }
+
+        if (blobToUpload.size > 10 * 1024 * 1024) {
+          setErrorMsg(
+            'حجم الفيديو كبير للرفع المباشر إلى Drive. يرجى ضبط حساب Cloudinary في إعدادات التصحيح لرفع الفيديو بسرعة وبصيغة MP4.'
+          );
+          setUploading(false);
+          return null;
+        }
+
+        const b64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+          reader.readAsDataURL(blobToUpload);
+        });
+        setUploadProgress(55);
+        const resolvedMime =
+          blobToUpload.type ||
+          ((blobToUpload as File).name?.toLowerCase().endsWith('.webm') ? 'video/webm' : 'video/mp4');
+        const driveRes = await uploadMarkingMediaToDrive(webhookUrl, {
+          mediaType: 'video',
+          mimeType: resolvedMime,
+          base64Data: b64,
+          fileName: `camera_correction_${Date.now()}`,
+        });
+        if (driveRes.success && driveRes.url) {
+          setUploadProgress(100);
+          onVideoUploaded(driveRes.url);
+          if (autoClearAfterUpload) {
+            setPreviewUrl((prev) => {
+              if (prev) URL.revokeObjectURL(prev);
+              return null;
+            });
+            setRecordedBlob(null);
+            setUploadedUrl('');
+          } else {
+            setUploadedUrl(driveRes.url);
+          }
+          handleCloseModal();
+          return driveRes.url;
+        }
+        setErrorMsg(driveRes.error || 'تعذر رفع الفيديو إلى Google Drive.');
+        return null;
+      } finally {
+        setUploading(false);
+        inFlightUploadRef.current = null;
+      }
+    })();
+
+    inFlightUploadRef.current = runner;
+    return runner;
   };
 
   const handleUploadRecordedVideo = async () => {
     if (!recordedBlob) return;
-    setErrorMsg(null);
-    setUploading(true);
-    setUploadProgress(5);
-
-    const hasCloudinary =
-      Boolean(markingConfig.cloudinaryCloudName?.trim()) &&
-      Boolean(markingConfig.cloudinaryUploadPreset?.trim());
-
-    try {
-      if (hasCloudinary) {
-        const res = await uploadVideoToCloudinary(recordedBlob, markingConfig, (pct) =>
-          setUploadProgress(pct)
-        );
-        if (res.success && (res.mp4Url || res.url)) {
-          const finalUrl = res.mp4Url || res.url || '';
-          onVideoUploaded(finalUrl);
-          if (autoClearAfterUpload) {
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-            setPreviewUrl(null);
-            setRecordedBlob(null);
-            setUploadedUrl('');
-          } else {
-            setUploadedUrl(finalUrl);
-          }
-          setUploading(false);
-          handleCloseModal();
-          return;
-        }
-        setErrorMsg(res.error || 'تعذر الرفع إلى Cloudinary.');
-        setUploading(false);
-        return;
-      }
-
-      if (recordedBlob.size > 10 * 1024 * 1024) {
-        setErrorMsg(
-          'حجم الفيديو كبير للرفع المباشر إلى Drive. يرجى ضبط حساب Cloudinary في إعدادات التصحيح لرفع الفيديو بسرعة وبصيغة MP4.'
-        );
-        setUploading(false);
-        return;
-      }
-
-      const b64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-        reader.readAsDataURL(recordedBlob);
-      });
-      setUploadProgress(55);
-      const driveRes = await uploadMarkingMediaToDrive(webhookUrl, {
-        mediaType: 'video',
-        base64Data: b64,
-        fileName: `camera_correction_${Date.now()}`,
-      });
-      if (driveRes.success && driveRes.url) {
-        setUploadProgress(100);
-        onVideoUploaded(driveRes.url);
-        if (autoClearAfterUpload) {
-          if (previewUrl) URL.revokeObjectURL(previewUrl);
-          setPreviewUrl(null);
-          setRecordedBlob(null);
-          setUploadedUrl('');
-        } else {
-          setUploadedUrl(driveRes.url);
-        }
-        handleCloseModal();
-      } else {
-        setErrorMsg(driveRes.error || 'تعذر رفع الفيديو إلى Google Drive.');
-      }
-    } finally {
-      setUploading(false);
-    }
+    await uploadVideoBlob(recordedBlob);
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      hasPendingRecording: () => Boolean(recordedBlob || inFlightUploadRef.current),
+      uploadPendingVideo: async () => {
+        if (inFlightUploadRef.current) return inFlightUploadRef.current;
+        if (recordedBlob) return uploadVideoBlob(recordedBlob);
+        return null;
+      },
+    }),
+    [recordedBlob, uploadVideoBlob]
+  );
 
   const hasCloudinary =
     Boolean(markingConfig.cloudinaryCloudName?.trim()) &&
@@ -587,43 +648,27 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
           </div>
 
           {uploadedUrl && !autoClearAfterUpload && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-emerald-900">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-emerald-900 px-1">
                 <span className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span>تم رفع فيديو الكاميرا وإرفاقه</span>
                 </span>
-                <div className="flex items-center gap-2">
-                  <a
-                    href={toCloudinaryMp4Url(uploadedUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-emerald-800 underline"
+                {onRemoveExistingVideo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUploadedUrl('');
+                      onRemoveExistingVideo();
+                    }}
+                    className="text-rose-700 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
                   >
-                    <span>معاينة</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                  {onRemoveExistingVideo && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUploadedUrl('');
-                        onRemoveExistingVideo();
-                      }}
-                      className="text-rose-700 hover:underline font-bold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>إزالة</span>
-                    </button>
-                  )}
-                </div>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>إزالة</span>
+                  </button>
+                )}
               </div>
-              <video
-                src={toCloudinaryMp4Url(uploadedUrl)}
-                controls
-                playsInline
-                className="w-full max-h-52 rounded-xl bg-slate-950"
-              />
+              <CorrectionVideoPlayer url={uploadedUrl} label="معاينة فيديو التصحيح المرفوع" compact />
             </div>
           )}
         </div>
@@ -926,4 +971,6 @@ export const MarkingVideoRecorder: React.FC<MarkingVideoRecorderProps> = ({
       )}
     </>
   );
-};
+});
+
+MarkingVideoRecorder.displayName = 'MarkingVideoRecorder';

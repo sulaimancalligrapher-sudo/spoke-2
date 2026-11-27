@@ -831,7 +831,13 @@ export type MarkingExerciseType = 'writing' | 'pronunciation' | 'video' | 'dicta
 export type MarkingStatus = 'pending' | 'corrected' | 'retry';
 
 export type MarkingPresetScope = 'board' | 'audio' | 'both';
-export type MarkingSaveMode = 'full' | 'image_only' | 'audio_only' | 'append_image' | 'append_audio';
+export type MarkingSaveMode =
+  | 'full'
+  | 'image_only'
+  | 'audio_only'
+  | 'append_image'
+  | 'append_audio'
+  | 'append_both';
 
 export interface MarkingPresetText {
   id: string;

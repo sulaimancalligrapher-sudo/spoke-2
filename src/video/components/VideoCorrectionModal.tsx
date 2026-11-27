@@ -16,13 +16,12 @@ import {
   Link2,
 } from 'lucide-react';
 import { TeacherCorrectionRecord } from '../../types';
-import { toCloudinaryMp4Url } from '../../utils/markingSheets';
+import { CorrectionVideoPlayer } from '../../components/marking/CorrectionVideoPlayer';
 import {
   VideoCorrectionEntry,
   VideoLesson,
   VideoStudentProgress,
   fetchVideoCorrections,
-  getPlayableVideoInfo,
   resolveVideoAudioAlternatives,
   resolveVideoQuestionImage,
 } from '../videoSheets';
@@ -529,6 +528,18 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                         </div>
                       )}
 
+                      {entry.teacherVideos.length > 0 && (
+                        <div className="space-y-2 pt-1">
+                          {entry.teacherVideos.map((vidUrl, vIdx) => (
+                            <CorrectionVideoPlayer
+                              key={`img-vid-${vIdx}`}
+                              url={vidUrl}
+                              label={`فيديو التوضيح ${entry.teacherVideos.length > 1 ? vIdx + 1 : ''}`}
+                            />
+                          ))}
+                        </div>
+                      )}
+
                       {entry.imageDate && (
                         <div className="text-[11px] text-slate-400 font-mono">{entry.imageDate}</div>
                       )}
@@ -600,43 +611,15 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                         />
                       ))}
 
-                      {entry.teacherVideos.map((vidUrl, vIdx) => {
-                        const info = getPlayableVideoInfo(vidUrl);
-                        const isCloudinary = /cloudinary\.com/i.test(vidUrl);
-                        return (
-                          <div key={vIdx} className="space-y-1.5">
-                            <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                              <Video className="w-3.5 h-3.5 text-rose-600" />
-                              <span>{tr('video_corr_audio_tab', 'فيديو التصحيح')} {entry.teacherVideos.length > 1 ? vIdx + 1 : ''}</span>
-                            </div>
-                            {isCloudinary ? (
-                              <video
-                                src={toCloudinaryMp4Url(vidUrl)}
-                                controls
-                                playsInline
-                                className="w-full max-h-72 rounded-2xl border border-slate-200 bg-slate-950"
-                              />
-                            ) : info.kind === 'youtube' && info.youtubeId ? (
-                              <iframe
-                                src={`https://www.youtube.com/embed/${info.youtubeId}`}
-                                className="w-full aspect-video rounded-2xl border border-slate-200"
-                                allowFullScreen
-                                title={`teacher-video-${vIdx}`}
-                              />
-                            ) : /^https?:\/\//i.test(vidUrl) ? (
-                              <a
-                                href={vidUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 text-xs font-bold"
-                              >
-                                <Video className="w-4 h-4" />
-                                <span>{tr('video_view_lesson', 'مشاهدة فيديو التصحيح')}</span>
-                              </a>
-                            ) : null}
-                          </div>
-                        );
-                      })}
+                      {entry.teacherVideos.map((vidUrl, vIdx) => (
+                        <CorrectionVideoPlayer
+                          key={vIdx}
+                          url={vidUrl}
+                          label={`${tr('video_corr_audio_tab', 'فيديو التصحيح')} ${
+                            entry.teacherVideos.length > 1 ? vIdx + 1 : ''
+                          }`}
+                        />
+                      ))}
 
                       {entry.audioLinks && entry.audioLinks.length > 0 && (
                         <div className="space-y-1.5 pt-1">

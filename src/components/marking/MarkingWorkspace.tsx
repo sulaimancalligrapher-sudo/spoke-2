@@ -56,14 +56,14 @@ import {
   fetchMarkingWorkspaceData,
   getLocalMarkingConfig,
   saveMarkingCorrectionToSheets,
-  toCloudinaryMp4Url,
 } from '../../utils/markingSheets';
 import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
 import { getDirectImageUrl } from '../../utils/mediaUrl';
 import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
 import { MarkingAudioStudio } from './MarkingAudioStudio';
 import { MarkingPhotoCapture } from './MarkingPhotoCapture';
-import { MarkingVideoRecorder } from './MarkingVideoRecorder';
+import { MarkingVideoRecorder, MarkingVideoRecorderHandle } from './MarkingVideoRecorder';
+import { CorrectionVideoPlayer } from './CorrectionVideoPlayer';
 import { BatchCorrectionModal } from './BatchCorrectionModal';
 import { StudentAchievementModal } from './StudentAchievementModal';
 import { AudioRecorderModal } from './AudioRecorderModal';
@@ -160,12 +160,13 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   // Blank Blackboard on launch (empty until teacher explicitly selects or uses initialSubmissionKey)
   const [selectedKey, setSelectedKey] = useState<string>('');
   const blackboardRef = useRef<MarkingBlackboardHandle | null>(null);
+  const videoRecorderRef = useRef<MarkingVideoRecorderHandle | null>(null);
   const [forceShowBlackboard, setForceShowBlackboard] = useState<boolean>(false);
   const [boardOverrideImageUrl, setBoardOverrideImageUrl] = useState<string>('');
 
   // Independent Image Correction State
   const [fImgStatus, setFImgStatus] = useState<MarkingStatus>('corrected');
-  const [fImgScore, setFImgScore] = useState<string>('95');
+  const [fImgScore, setFImgScore] = useState<string>('0');
   const [fImgRating, setFImgRating] = useState<string>('');
   const [fImgNotes, setFImgNotes] = useState<string>('');
   const [fImgSaving, setFImgSaving] = useState(false);
@@ -173,7 +174,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
   // Independent Audio Correction State
   const [fAudioStatus, setFAudioStatus] = useState<MarkingStatus>('corrected');
-  const [fAudioScore, setFAudioScore] = useState<string>('95');
+  const [fAudioScore, setFAudioScore] = useState<string>('0');
   const [fAudioRating, setFAudioRating] = useState<string>('');
   const [fAudioNotes, setFAudioNotes] = useState<string>('');
   const [fAudioStickerSymbol, setFAudioStickerSymbol] = useState<string>('');
@@ -368,35 +369,42 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setForceShowBlackboard(false);
     setBoardOverrideImageUrl('');
 
-    // Image defaults (separated with graceful legacy fallback)
-    const fallbackScore =
-      activeSubmission.videoScore !== undefined
-        ? String(activeSubmission.videoScore)
-        : activeSubmission.studentScore !== undefined
-        ? String(activeSubmission.studentScore)
-        : '95';
-
+    // Image defaults (default to 0 unless teacher already saved a score)
     setFImgStatus(c?.imageStatus || c?.status || 'corrected');
+    const hasImgScore =
+      c?.imageScore !== undefined && String(c.imageScore).trim() !== '';
+    const hasLegacyImgScore =
+      !hasImgScore &&
+      (Boolean(c?.imageStatus) || Boolean(c?.correctedImageUrl)) &&
+      c?.score !== undefined &&
+      String(c.score).trim() !== '';
     setFImgScore(
-      c?.imageScore !== undefined
-        ? String(c.imageScore)
-        : c?.score !== undefined
-        ? String(c.score)
-        : fallbackScore
+      hasImgScore
+        ? String(c!.imageScore)
+        : hasLegacyImgScore
+        ? String(c!.score)
+        : '0'
     );
     const imgStars = parseStarCount(c?.imageRatingLabel || c?.ratingLabel);
     setFImgRating(imgStars > 0 ? formatStarValue(imgStars) : '');
     setFImgNotes(c?.imageNotes !== undefined ? c.imageNotes : c?.notes || '');
     setFImgFeedback(null);
 
-    // Audio defaults (separated with graceful legacy fallback)
+    // Audio defaults (default to 0 unless teacher already saved a score)
     setFAudioStatus(c?.audioStatus || c?.status || 'corrected');
+    const hasAudScore =
+      c?.audioScore !== undefined && String(c.audioScore).trim() !== '';
+    const hasLegacyAudScore =
+      !hasAudScore &&
+      (Boolean(c?.audioStatus) || Boolean(c?.teacherAudioUrl)) &&
+      c?.score !== undefined &&
+      String(c.score).trim() !== '';
     setFAudioScore(
-      c?.audioScore !== undefined
-        ? String(c.audioScore)
-        : c?.score !== undefined
-        ? String(c.score)
-        : fallbackScore
+      hasAudScore
+        ? String(c!.audioScore)
+        : hasLegacyAudScore
+        ? String(c!.score)
+        : '0'
     );
     const audStars = parseStarCount(c?.audioRatingLabel || c?.ratingLabel);
     setFAudioRating(audStars > 0 ? formatStarValue(audStars) : '');
@@ -589,9 +597,16 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         preparedExtraImages = fExtraImagesB64;
       }
 
-      const allVideos = [fTeacherVideoUrl.trim(), ...fExtraVideoUrls.map((v) => v.trim())].filter(
-        Boolean
-      );
+      let pendingVidUrl: string | null = null;
+      if (videoRecorderRef.current?.hasPendingRecording()) {
+        pendingVidUrl = await videoRecorderRef.current.uploadPendingVideo();
+      }
+
+      const allVideos = [
+        fTeacherVideoUrl.trim(),
+        ...fExtraVideoUrls.map((v) => v.trim()),
+        pendingVidUrl ? pendingVidUrl.trim() : '',
+      ].filter(Boolean);
       const uniqueVideos = Array.from(new Set(allVideos));
       const parsedScore = fImgScore.trim() !== '' ? Number(fImgScore) : undefined;
 
@@ -651,9 +666,16 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setFAudioSaving(true);
     setFAudioFeedback(null);
     try {
-      const allVideos = [fTeacherVideoUrl.trim(), ...fExtraVideoUrls.map((v) => v.trim())].filter(
-        Boolean
-      );
+      let pendingVidUrl: string | null = null;
+      if (videoRecorderRef.current?.hasPendingRecording()) {
+        pendingVidUrl = await videoRecorderRef.current.uploadPendingVideo();
+      }
+
+      const allVideos = [
+        fTeacherVideoUrl.trim(),
+        ...fExtraVideoUrls.map((v) => v.trim()),
+        pendingVidUrl ? pendingVidUrl.trim() : '',
+      ].filter(Boolean);
       const uniqueVideos = Array.from(new Set(allVideos));
       const parsedScore = fAudioScore.trim() !== '' ? Number(fAudioScore) : undefined;
       const existingAudUrl = (activeSubmission.correction?.teacherAudioUrl || '').trim();
@@ -865,7 +887,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {onOpenAdminMarkingSettings && (
+              {!isStandalonePage && onOpenAdminMarkingSettings && (
                 <button
                   type="button"
                   onClick={onOpenAdminMarkingSettings}
@@ -992,19 +1014,21 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 <span>جدول التصحيحات</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleCopyShareUrl}
-                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-                title="نسخ الرابط المستقل لبوابة المعلم"
-              >
-                {copiedPortalUrl ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-                <span>{copiedPortalUrl ? 'تم النسخ' : 'نسخ رابط الصفحة'}</span>
-              </button>
+              {!isStandalonePage && (
+                <button
+                  type="button"
+                  onClick={handleCopyShareUrl}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                  title="نسخ الرابط المستقل لبوابة المعلم"
+                >
+                  {copiedPortalUrl ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  <span>{copiedPortalUrl ? 'تم النسخ' : 'نسخ رابط الصفحة'}</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1260,6 +1284,8 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         />
 
         <MarkingVideoRecorder
+          ref={videoRecorderRef}
+          autoUploadOnStop
           hideInlineTrigger
           openTrigger={videoModalTrigger}
           markingConfig={markingConfig}
@@ -1441,31 +1467,16 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                               {[fTeacherVideoUrl, ...fExtraVideoUrls]
                                 .filter(Boolean)
                                 .map((vUrl, idx) => (
-                                  <div
+                                  <CorrectionVideoPlayer
                                     key={`${vUrl}-${idx}`}
-                                    className="p-2 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5"
-                                  >
-                                    <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
-                                      <span className="text-indigo-900">فيديو #{idx + 1}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (vUrl === fTeacherVideoUrl) setFTeacherVideoUrl('');
-                                          else
-                                            setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
-                                        }}
-                                        className="p-1 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                    <video
-                                      src={toCloudinaryMp4Url(vUrl)}
-                                      controls
-                                      playsInline
-                                      className="w-full max-h-28 rounded-lg bg-slate-950"
-                                    />
-                                  </div>
+                                    url={vUrl}
+                                    label={`فيديو #${idx + 1}`}
+                                    compact
+                                    onRemove={() => {
+                                      if (vUrl === fTeacherVideoUrl) setFTeacherVideoUrl('');
+                                      else setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                                    }}
+                                  />
                                 ))}
                             </div>
                           </div>
@@ -1490,6 +1501,32 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 >
                   إظهار السبورة للرسم الاختياري
                 </button>
+              </div>
+            )}
+
+            {/* Inline Correction Video Player Preview inside the page (Drive / YouTube / Cloudinary) */}
+            {(fTeacherVideoUrl || fExtraVideoUrls.length > 0) && (
+              <div className="bg-white rounded-2xl border border-indigo-200 p-4 space-y-2.5">
+                <div className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
+                  <Video className="w-4 h-4 text-indigo-600" />
+                  <span>فيديوهات الشرح والتصحيح المرفقة في هذا الدرس</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {[fTeacherVideoUrl, ...fExtraVideoUrls]
+                    .filter(Boolean)
+                    .map((vUrl, idx) => (
+                      <CorrectionVideoPlayer
+                        key={`inline-vid-${vUrl}-${idx}`}
+                        url={vUrl}
+                        label={`فيديو التصحيح #${idx + 1}`}
+                        compact
+                        onRemove={() => {
+                          if (vUrl === fTeacherVideoUrl) setFTeacherVideoUrl('');
+                          else setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                        }}
+                      />
+                    ))}
+                </div>
               </div>
             )}
 
@@ -1542,7 +1579,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     onChange={(e) =>
                       setFAudioScore(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))
                     }
-                    placeholder="95"
+                    placeholder="0"
                     className="w-20 px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-mono font-extrabold text-slate-900 text-center tabular-nums"
                   />
                 </div>
@@ -1795,27 +1832,27 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     </div>
                   )}
 
-                  {/* Audio Preset Texts */}
+                  {/* Audio Preset Texts Dropdown */}
                   <div className="space-y-1.5">
                     <label className="block text-xs font-bold text-slate-700">
-                      نصوص جاهزة خاصة بالتصحيح الصوتي (اضغط لإضافتها):
+                      نصوص جاهزة خاصة بالتصحيح الصوتي:
                     </label>
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const txt = e.target.value;
+                        if (!txt) return;
+                        setFAudioNotes((prev) => (prev ? `${prev}\n${txt}` : txt));
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500"
+                    >
+                      <option value="">اختر نصاً جاهزاً لإضافته...</option>
                       {audioPresetTexts.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() =>
-                            setFAudioNotes((prev) =>
-                              prev ? `${prev}\n${preset.text}` : preset.text
-                            )
-                          }
-                          className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
-                        >
-                          + {preset.text}
-                        </button>
+                        <option key={preset.id} value={preset.text}>
+                          {preset.text}
+                        </option>
                       ))}
-                    </div>
+                    </select>
                   </div>
 
                   <textarea

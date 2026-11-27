@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { TeacherCorrectionRecord } from '../../types';
 import { getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
-import { toCloudinaryMp4Url } from '../../utils/markingSheets';
+import { CorrectionVideoPlayer } from './CorrectionVideoPlayer';
 
 interface StudentCorrectionsModalProps {
   isOpen: boolean;
@@ -292,7 +292,7 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
                     </div>
                   )}
 
-                  {/* Cloudinary MP4 / Drive Correction Videos (1 or more) */}
+                  {/* Cloudinary MP4 / Drive / YouTube Correction Videos (1 or more) */}
                   {allVideos.length > 0 && (
                     <div className="space-y-2">
                       <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
@@ -304,36 +304,13 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
                         </span>
                       </div>
                       <div className="space-y-2.5">
-                        {allVideos.map((vidUrl, idx) => {
-                          const mp4Url = toCloudinaryMp4Url(vidUrl);
-                          return (
-                            <div
-                              key={`${vidUrl}-${idx}`}
-                              className="rounded-xl overflow-hidden border border-slate-200 bg-slate-950"
-                            >
-                              <video
-                                src={mp4Url}
-                                controls
-                                playsInline
-                                className="w-full max-h-72"
-                              />
-                              <div className="px-3 py-1.5 bg-white border-t border-slate-100 flex items-center justify-between text-[11px]">
-                                <span className="font-bold text-slate-600">
-                                  {allVideos.length > 1 ? `فيديو #${idx + 1}` : 'فيديو التصحيح'}
-                                </span>
-                                <a
-                                  href={mp4Url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-indigo-700 font-bold underline inline-flex items-center gap-1"
-                                >
-                                  <span>فتح الفيديو</span>
-                                  <ExternalLink className="w-3 h-3" />
-                                </a>
-                              </div>
-                            </div>
-                          );
-                        })}
+                        {allVideos.map((vidUrl, idx) => (
+                          <CorrectionVideoPlayer
+                            key={`${vidUrl}-${idx}`}
+                            url={vidUrl}
+                            label={allVideos.length > 1 ? `فيديو التصحيح #${idx + 1}` : 'فيديو التصحيح'}
+                          />
+                        ))}
                       </div>
                     </div>
                   )}

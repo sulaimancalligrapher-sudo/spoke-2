@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxty7WcFXViXmBGl69cTA62NtnM7HFJqdCttJPteGPcdGHhkYqOdCfoiXaBCvoaTUcJww/exec';
+  'https://script.google.com/macros/s/AKfycbwm1t2zpQ0t7WLQ3hWXyr6P5d4DG3NbBo1J-8YpkZs9CpsmHIr7D0kMfvyVzlnF5Fh7_A/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4875,6 +4875,22 @@ function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrlsInput, p
   if (!token || !chatId) return { ok: false, error: "missing token or chatId" };
   var apiBase = "https://api.telegram.org/bot" + token;
 
+  var toTgDirectDriveUrl = function(rawU, kind) {
+    var s = String(rawU || "").trim();
+    if (!s) return "";
+    if (s.indexOf("drive.google.com") !== -1) {
+      var m1 = s.match(new RegExp("/file/d/([a-zA-Z0-9_-]+)"));
+      var m2 = s.match(new RegExp("[?&]id=([a-zA-Z0-9_-]+)"));
+      var dId = (m1 && m1[1]) ? m1[1] : ((m2 && m2[1]) ? m2[1] : "");
+      if (dId) {
+        return kind === "photo"
+          ? ("https://drive.google.com/uc?export=view&id=" + dId)
+          : ("https://drive.google.com/uc?export=download&id=" + dId);
+      }
+    }
+    return s;
+  };
+
   var videoList = Array.isArray(videoUrlsInput) ? videoUrlsInput.slice() : (videoUrlsInput ? [String(videoUrlsInput)] : []);
   var photoList = Array.isArray(photoUrlsInput) ? photoUrlsInput.slice() : (photoUrlsInput ? [String(photoUrlsInput)] : []);
   var audioList = Array.isArray(audioUrlsInput) ? audioUrlsInput.slice() : (audioUrlsInput ? [String(audioUrlsInput)] : []);
@@ -4882,8 +4898,9 @@ function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrlsInput, p
   var captionUsed = false;
 
   for (var vi = 0; vi < videoList.length; vi++) {
-    var vUrlToSend = String(videoList[vi] || "").trim();
-    if (!vUrlToSend) continue;
+    var vOrigUrl = String(videoList[vi] || "").trim();
+    if (!vOrigUrl) continue;
+    var vUrlToSend = toTgDirectDriveUrl(vOrigUrl, "video");
     if (vUrlToSend.indexOf("res.cloudinary.com") !== -1 && vUrlToSend.indexOf("/video/upload/") !== -1 && vUrlToSend.indexOf("/f_mp4") === -1) {
       vUrlToSend = vUrlToSend.replace("/video/upload/", "/video/upload/f_mp4,vc_h264/");
     }
@@ -4906,22 +4923,23 @@ function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrlsInput, p
         sentAny = true;
         captionUsed = true;
       } else {
-        var linkRes = sendTelegramBotMessageGS(ss, chatId, (!captionUsed ? String(captionText || "") + "\\n\\n" : "") + "🎬 <b>فيديو التصحيح:</b> " + vUrlToSend, "");
+        var linkRes = sendTelegramBotMessageGS(ss, chatId, (!captionUsed ? String(captionText || "") + "\\n\\n" : "") + "🎬 <b>فيديو التصحيح:</b> " + vOrigUrl, "");
         if (linkRes.ok) { sentAny = true; captionUsed = true; }
       }
     } catch (vErr) {}
   }
 
   for (var pi = 0; pi < photoList.length; pi++) {
-    var pUrlToSend = String(photoList[pi] || "").trim();
-    if (!pUrlToSend) continue;
+    var pOrigUrl = String(photoList[pi] || "").trim();
+    if (!pOrigUrl) continue;
+    var pUrlToSend = toTgDirectDriveUrl(pOrigUrl, "photo");
     var pCaption = !captionUsed ? String(captionText || "").slice(0, 1020) : ("🖼️ صورة مرفقة (" + (pi + 1) + ")");
     var pRes = sendTelegramBotMessageGS(ss, chatId, pCaption, pUrlToSend);
     if (pRes.ok) {
       sentAny = true;
       captionUsed = true;
     } else {
-      var pLinkRes = sendTelegramBotMessageGS(ss, chatId, (!captionUsed ? String(captionText || "") + "\\n\\n" : "") + "🖼️ <b>صورة التصحيح:</b> " + pUrlToSend, "");
+      var pLinkRes = sendTelegramBotMessageGS(ss, chatId, (!captionUsed ? String(captionText || "") + "\\n\\n" : "") + "🖼️ <b>صورة التصحيح:</b> " + pOrigUrl, "");
       if (pLinkRes.ok) { sentAny = true; captionUsed = true; }
     }
   }
@@ -4935,8 +4953,9 @@ function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrlsInput, p
   }
 
   for (var ai = 0; ai < audioList.length; ai++) {
-    var aUrlToSend = String(audioList[ai] || "").trim();
-    if (!aUrlToSend) continue;
+    var aOrigUrl = String(audioList[ai] || "").trim();
+    if (!aOrigUrl) continue;
+    var aUrlToSend = toTgDirectDriveUrl(aOrigUrl, "audio");
     try {
       var aResp = UrlFetchApp.fetch(apiBase + "/sendAudio", {
         method: "post",
@@ -4953,7 +4972,7 @@ function sendTelegramRichCorrectionGS(ss, chatId, captionText, videoUrlsInput, p
       if (aResp.getResponseCode() >= 200 && aResp.getResponseCode() < 300 && aJson && aJson.ok) {
         sentAny = true;
       } else {
-        var aLinkRes = sendTelegramBotMessageGS(ss, chatId, "🎙️ <b>ملاحظة المعلم الصوتية:</b> " + aUrlToSend, "");
+        var aLinkRes = sendTelegramBotMessageGS(ss, chatId, "🎙️ <b>ملاحظة المعلم الصوتية:</b> " + aOrigUrl, "");
         if (aLinkRes.ok) sentAny = true;
       }
     } catch (aErr) {}
@@ -5020,8 +5039,8 @@ function mirrorCorrectionToVideoSheetGS(ss, opts) {
       }
     }
     var mode = String(opts.saveMode || "full").trim();
-    var imgDone = mode === "image_only" || mode === "append_image" || mode === "full";
-    var audDone = mode === "audio_only" || mode === "append_audio" || mode === "full";
+    var imgDone = mode === "image_only" || mode === "append_image" || mode === "append_both" || mode === "full";
+    var audDone = mode === "audio_only" || mode === "append_audio" || mode === "append_both" || mode === "full";
 
     var imgBadge = opts.imageStatus === "retry" ? "يحتاج إعادة" : (opts.imageRatingLabel || (opts.status === "retry" ? "يحتاج إعادة" : (opts.ratingLabel || "ممتاز")));
     var audBadge = opts.audioStatus === "retry" ? "يحتاج إعادة" : (opts.audioRatingLabel || (opts.status === "retry" ? "يحتاج إعادة" : (opts.ratingLabel || "ممتاز")));
@@ -5146,16 +5165,16 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   var incImgStatus = String(item.imageStatus || (saveMode === "image_only" ? item.status : "") || "").trim();
   var incImgScore = (item.imageScore !== undefined && item.imageScore !== null && item.imageScore !== "") ? Number(item.imageScore) : "";
   var incImgRating = String(item.imageRatingLabel || (saveMode === "image_only" ? item.ratingLabel : "") || "").trim();
-  var incImgNotes = String(item.imageNotes !== undefined ? item.imageNotes : (saveMode === "image_only" || saveMode === "append_image" ? item.notes : "") || "").trim();
-  var incImgStSym = String(item.imageStickerSymbol || (saveMode === "image_only" || saveMode === "append_image" ? item.stickerSymbol : "") || "").trim();
-  var incImgStLbl = String(item.imageStickerLabel || (saveMode === "image_only" || saveMode === "append_image" ? item.stickerLabel : "") || "").trim();
+  var incImgNotes = String(item.imageNotes !== undefined ? item.imageNotes : (saveMode === "image_only" || saveMode === "append_image" || saveMode === "append_both" ? item.notes : "") || "").trim();
+  var incImgStSym = String(item.imageStickerSymbol || (saveMode === "image_only" || saveMode === "append_image" || saveMode === "append_both" ? item.stickerSymbol : "") || "").trim();
+  var incImgStLbl = String(item.imageStickerLabel || (saveMode === "image_only" || saveMode === "append_image" || saveMode === "append_both" ? item.stickerLabel : "") || "").trim();
 
   var incAudStatus = String(item.audioStatus || (saveMode === "audio_only" ? item.status : "") || "").trim();
   var incAudScore = (item.audioScore !== undefined && item.audioScore !== null && item.audioScore !== "") ? Number(item.audioScore) : "";
   var incAudRating = String(item.audioRatingLabel || (saveMode === "audio_only" ? item.ratingLabel : "") || "").trim();
-  var incAudNotes = String(item.audioNotes !== undefined ? item.audioNotes : (saveMode === "audio_only" || saveMode === "append_audio" ? item.notes : "") || "").trim();
-  var incAudStSym = String(item.audioStickerSymbol || (saveMode === "audio_only" || saveMode === "append_audio" ? item.stickerSymbol : "") || "").trim();
-  var incAudStLbl = String(item.audioStickerLabel || (saveMode === "audio_only" || saveMode === "append_audio" ? item.stickerLabel : "") || "").trim();
+  var incAudNotes = String(item.audioNotes !== undefined ? item.audioNotes : (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" ? item.notes : "") || "").trim();
+  var incAudStSym = String(item.audioStickerSymbol || (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" ? item.stickerSymbol : "") || "").trim();
+  var incAudStLbl = String(item.audioStickerLabel || (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" ? item.stickerLabel : "") || "").trim();
 
   var corrImg = prevCorrImg;
   var addImgs = prevAddImgs.slice();
@@ -5225,6 +5244,25 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     if (incAudNotes) finalAudNotes = prevAudNotes ? (prevAudNotes + "\\n" + incAudNotes) : incAudNotes;
     if (incAudStSym) finalAudStSym = incAudStSym;
     if (incAudStLbl) finalAudStLbl = incAudStLbl;
+  } else if (saveMode === "append_both") {
+    addImgs = mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
+    if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
+    imgLinks = mergeUniqueStrArrayGS(prevImgLinks, incImgLinks);
+    if (!finalImgStatus && (addImgs.length > 0 || imgLinks.length > 0 || incImgNotes || incTVids.length > 0)) finalImgStatus = incImgStatus || "corrected";
+    if (incImgNotes) finalImgNotes = prevImgNotes ? (prevImgNotes + "\\n" + incImgNotes) : incImgNotes;
+    if (incImgStSym) finalImgStSym = incImgStSym;
+    if (incImgStLbl) finalImgStLbl = incImgStLbl;
+
+    tAudios = mergeUniqueStrArrayGS(prevTAuds, incTAuds);
+    tAudio = prevTAudio || (tAudios[0] || "");
+    audLinks = mergeUniqueStrArrayGS(prevAudLinks, incAudLinks);
+    if (!finalAudStatus && (tAudios.length > 0 || audLinks.length > 0 || incAudNotes)) finalAudStatus = incAudStatus || "corrected";
+    if (incAudNotes) finalAudNotes = prevAudNotes ? (prevAudNotes + "\\n" + incAudNotes) : incAudNotes;
+    if (incAudStSym) finalAudStSym = incAudStSym;
+    if (incAudStLbl) finalAudStLbl = incAudStLbl;
+
+    if (incTVids.length > 0) tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
   } else {
     // Full save mode
     corrImg = incCorrImg || (incAddImgs[0] || "");
@@ -5277,6 +5315,7 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
         : saveMode === "audio_only" ? "تصحيح واجب الصوت"
         : saveMode === "append_image" ? "ملاحظات/ملفات إضافية (الصورة)"
         : saveMode === "append_audio" ? "ملاحظات/ملفات إضافية (الصوت)"
+        : saveMode === "append_both" ? "توضيحات وملفات إضافية (صورة وفيديو وصوت)"
         : "التصحيح والاعتماد";
       var statusBadge = stStatus === "retry" ? "🔄 مطلوب إعادة المحاولة" : ("✅ تم " + modeLabel);
       var msgLines = [
@@ -5293,13 +5332,13 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
       if (saveMode === "image_only" && finalImgNotes) msgLines.push("📝 ملاحظة الصورة: " + finalImgNotes);
       else if (saveMode === "audio_only" && finalAudNotes) msgLines.push("📝 ملاحظة الصوت: " + finalAudNotes);
       else if (notesStr) msgLines.push("📝 ملاحظة المعلم: " + notesStr);
-      if (saveMode === "append_image" && imgLinks.length > 0) msgLines.push("🔗 روابط مرفقة: " + imgLinks.slice(-3).join(" | "));
-      if (saveMode === "append_audio" && audLinks.length > 0) msgLines.push("🔗 روابط مرفقة: " + audLinks.slice(-3).join(" | "));
+      if ((saveMode === "append_image" || saveMode === "append_both") && imgLinks.length > 0) msgLines.push("🔗 روابط مرفقة (صورة): " + imgLinks.slice(-3).join(" | "));
+      if ((saveMode === "append_audio" || saveMode === "append_both") && audLinks.length > 0) msgLines.push("🔗 روابط مرفقة (صوت): " + audLinks.slice(-3).join(" | "));
       if (item.allowRetry) msgLines.push("🔓 تم فتح محاولة إضافية لك في المنصة.");
       msgLines.push("👨‍🏫 المعلم: " + tName);
-      var tgVideos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "full") ? (incTVids.length > 0 ? incTVids : tVideos) : [];
-      var tgPhotos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "full") ? (incAddImgs.length > 0 ? incAddImgs : (corrImg ? [corrImg] : [])) : [];
-      var tgAudios = (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "full") ? (incTAuds.length > 0 ? incTAuds : tAudios) : [];
+      var tgVideos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" || saveMode === "full") ? (incTVids.length > 0 ? incTVids : (saveMode === "full" ? tVideos : [])) : [];
+      var tgPhotos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "append_both" || saveMode === "full") ? (incAddImgs.length > 0 ? incAddImgs : (saveMode === "full" && corrImg ? [corrImg] : [])) : [];
+      var tgAudios = (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" || saveMode === "full") ? (incTAuds.length > 0 ? incTAuds : (saveMode === "full" ? tAudios : [])) : [];
       tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tgVideos, tgPhotos, tgAudios).ok;
     }
   }
@@ -5604,6 +5643,8 @@ function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) 
   else if (resolvedMime.indexOf("png") !== -1) ext = ".png";
   else if (resolvedMime.indexOf("jpeg") !== -1 || resolvedMime.indexOf("jpg") !== -1) ext = ".jpg";
   else if (resolvedMime.indexOf("image/") === 0) ext = ".jpg";
+  else if (resolvedMime.indexOf("mp4") !== -1) ext = ".mp4";
+  else if (resolvedMime.indexOf("quicktime") !== -1 || resolvedMime.indexOf("mov") !== -1) ext = ".mov";
   else if (resolvedMime.indexOf("webm") !== -1) ext = ".webm";
   else if (resolvedMime.indexOf("wav") !== -1) ext = ".wav";
   else if (resolvedMime.indexOf("audio/") === 0) ext = ".mp3";
@@ -5623,10 +5664,7 @@ function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) 
   if (resolvedMime.indexOf("image/") === 0) {
     return "https://drive.google.com/uc?export=view&id=" + fid;
   }
-  if (resolvedMime.indexOf("pdf") !== -1) {
-    return "https://drive.google.com/file/d/" + fid + "/view";
-  }
-  return "https://drive.google.com/uc?export=download&id=" + fid;
+  return "https://drive.google.com/file/d/" + fid + "/view";
 }
 
 function readVideoLessonsListGS(ss) {
@@ -11860,7 +11898,7 @@ function doPost(e) {
         driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       } catch (sErr) {}
       var fileId = driveFile.getId();
-      var directAudioUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
+      var directAudioUrl = "https://drive.google.com/file/d/" + fileId + "/view";
       
       return ContentService.createTextOutput(JSON.stringify({
         success: true,
@@ -11910,7 +11948,7 @@ function doPost(e) {
           try {
             driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
           } catch (sErr) {}
-          directAudioUrl = "https://drive.google.com/uc?export=download&id=" + driveFile.getId();
+          directAudioUrl = "https://drive.google.com/file/d/" + driveFile.getId() + "/view";
         } catch (uploadErr) {
           Logger.log("Drive student audio upload error: " + uploadErr);
         }
@@ -12079,7 +12117,7 @@ function doPost(e) {
           try {
             driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
           } catch (sErr) {}
-          audioUrl = "https://drive.google.com/uc?export=download&id=" + driveFile.getId();
+          audioUrl = "https://drive.google.com/file/d/" + driveFile.getId() + "/view";
         } catch (uploadErr) {
           Logger.log("Drive upload error: " + uploadErr);
         }

@@ -32,7 +32,8 @@ import {
   UnifiedMarkingSubmission,
 } from '../../types';
 import { MarkingPhotoCapture } from './MarkingPhotoCapture';
-import { MarkingVideoRecorder } from './MarkingVideoRecorder';
+import { MarkingVideoRecorder, MarkingVideoRecorderHandle } from './MarkingVideoRecorder';
+import { CorrectionVideoPlayer } from './CorrectionVideoPlayer';
 import { AudioRecorderModal } from './AudioRecorderModal';
 import {
   clearMarkingBatchToSheets,
@@ -41,7 +42,6 @@ import {
   DEFAULT_MARKING_STICKERS,
   saveMarkingBatchToSheets,
   saveMarkingCorrectionToSheets,
-  toCloudinaryMp4Url,
   uploadMarkingMediaToDrive,
 } from '../../utils/markingSheets';
 import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
@@ -140,6 +140,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   const [batchAudioModalOpen, setBatchAudioModalOpen] = useState(false);
   const bulkPdfInputRef = useRef<HTMLInputElement | null>(null);
   const bulkAudioUploadRef = useRef<HTMLInputElement | null>(null);
+  const videoRecorderRef = useRef<MarkingVideoRecorderHandle | null>(null);
 
   const [bAllowRetry, setBAllowRetry] = useState(false);
   const [bSendTelegram, setBSendTelegram] = useState(true);
@@ -319,11 +320,45 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     e.target.value = '';
   };
 
-  const handleSaveBulkImageBatch = async () => {
+  const executeBulkBatchSend = async (primaryTab: 'image' | 'audio') => {
     if (targetRecipients.length === 0 || bSaving) return;
     setBSaving(true);
     setBFeedback(null);
     try {
+      // 1. Ensure any recorded/picked video not yet uploaded finishes uploading now
+      let pendingRecordedVideoUrl: string | null = null;
+      if (videoRecorderRef.current?.hasPendingRecording()) {
+        pendingRecordedVideoUrl = await videoRecorderRef.current.uploadPendingVideo();
+        if (!pendingRecordedVideoUrl) {
+          setBFeedback({
+            type: 'err',
+            text: 'تعذر رفع الفيديو المسجّل. تأكد من الاتصال أو من إتمام رفع الفيديو قبل الإرسال.',
+          });
+          return;
+        }
+      }
+
+      // 2. Consume typed links even if teacher forgot clicking "+ إضافة"
+      const typedVideoUrl = newVideoUrlInput.trim();
+      const effectiveVideoUrls = Array.from(
+        new Set(
+          [...batchVideoUrls, pendingRecordedVideoUrl || '', typedVideoUrl]
+            .map((u) => u.trim())
+            .filter(Boolean)
+        )
+      );
+
+      const typedImgLink = newImageLinkInput.trim();
+      const effectiveImgLinks = Array.from(
+        new Set([...batchImageLinks, typedImgLink].map((u) => u.trim()).filter(Boolean))
+      );
+
+      const typedAudLink = newAudioLinkInput.trim();
+      const effectiveAudLinks = Array.from(
+        new Set([...batchAudioLinks, typedAudLink].map((u) => u.trim()).filter(Boolean))
+      );
+
+      // 3. Prepare images (merge if requested)
       let preparedImages: string[] | undefined;
       if (batchImageBase64s.length > 1 && batchStitchImages) {
         const stitched = await combineImagesToSingleBase64(batchImageBase64s);
@@ -332,28 +367,110 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
         preparedImages = batchImageBase64s;
       }
 
+      // 4. Pre-upload batch audio clips to Drive first so URLs are guaranteed before writing Sheet rows
+      const uploadedAudioUrls: string[] = [];
+      for (let i = 0; i < batchAudioClips.length; i++) {
+        const clip = batchAudioClips[i];
+        const upAud = await uploadMarkingMediaToDrive(webhookUrl, {
+          mediaType: 'audio',
+          mimeType: 'audio/mp3',
+          base64Data: clip.base64,
+          fileName: clip.name || `batch_audio_${Date.now()}_${i + 1}`,
+        });
+        if (!upAud.success || !upAud.url) {
+          setBFeedback({
+            type: 'err',
+            text: upAud.error || `تعذر رفع المقطع الصوتي رقم ${i + 1} إلى Google Drive.`,
+          });
+          return;
+        }
+        uploadedAudioUrls.push(upAud.url);
+      }
+
+      const hasImgSection = Boolean(
+        (preparedImages && preparedImages.length > 0) ||
+          effectiveImgLinks.length > 0 ||
+          bImgNotes.trim() ||
+          bImgStickerSymbol
+      );
+      const hasAudSection = Boolean(
+        uploadedAudioUrls.length > 0 ||
+          effectiveAudLinks.length > 0 ||
+          bAudioNotes.trim() ||
+          bAudioStickerSymbol
+      );
+      const hasVidSection = effectiveVideoUrls.length > 0;
+
+      if (!hasImgSection && !hasAudSection && !hasVidSection) {
+        setBFeedback({
+          type: 'err',
+          text: 'يرجى إضافة صورة أو فيديو أو مقطع صوتي أو ملاحظة قبل الإرسال.',
+        });
+        return;
+      }
+
+      // If both image & audio data are present (or audio tab also has video+image), save everything together!
+      const effectiveSaveMode =
+        hasImgSection && hasAudSection
+          ? 'append_both'
+          : hasImgSection
+          ? 'append_image'
+          : hasAudSection
+          ? 'append_audio'
+          : primaryTab === 'audio'
+          ? 'append_audio'
+          : 'append_image';
+
       const res = await saveMarkingBatchToSheets(webhookUrl, {
         teacherName,
-        saveMode: 'append_image',
+        saveMode: effectiveSaveMode,
         sharedAdditionalImagesBase64: preparedImages,
-        sharedImageLinks: batchImageLinks.length > 0 ? batchImageLinks : undefined,
-        sharedTeacherVideos: batchVideoUrls.length > 0 ? batchVideoUrls : undefined,
-        sharedTeacherVideoUrl: batchVideoUrls[0] || undefined,
+        sharedImageLinks: effectiveImgLinks.length > 0 ? effectiveImgLinks : undefined,
+        sharedTeacherAudios: uploadedAudioUrls.length > 0 ? uploadedAudioUrls : undefined,
+        sharedTeacherAudioUrl: uploadedAudioUrls[0] || undefined,
+        sharedAudioLinks: effectiveAudLinks.length > 0 ? effectiveAudLinks : undefined,
+        sharedTeacherVideos: effectiveVideoUrls.length > 0 ? effectiveVideoUrls : undefined,
+        sharedTeacherVideoUrl: effectiveVideoUrls[0] || undefined,
         sharedImageStickerSymbol: bImgStickerSymbol || undefined,
         sharedImageStickerLabel: bImgStickerLabel || undefined,
-        sharedStickerSymbol: bImgStickerSymbol || undefined,
-        sharedStickerLabel: bImgStickerLabel || undefined,
+        sharedAudioStickerSymbol: bAudioStickerSymbol || undefined,
+        sharedAudioStickerLabel: bAudioStickerLabel || undefined,
+        sharedStickerSymbol:
+          primaryTab === 'audio'
+            ? bAudioStickerSymbol || bImgStickerSymbol || undefined
+            : bImgStickerSymbol || bAudioStickerSymbol || undefined,
+        sharedStickerLabel:
+          primaryTab === 'audio'
+            ? bAudioStickerLabel || bImgStickerLabel || undefined
+            : bImgStickerLabel || bAudioStickerLabel || undefined,
         items: targetRecipients.map((p) => {
-          const rawExisting = p.correction?.imageScore ?? p.correction?.score;
-          const parsedExisting =
-            rawExisting !== undefined &&
-            String(rawExisting).trim() !== '' &&
-            !Number.isNaN(Number(rawExisting))
-              ? Number(rawExisting)
+          const existingImgScore = p.correction?.imageScore ?? p.correction?.score;
+          const parsedImgScore =
+            existingImgScore !== undefined &&
+            String(existingImgScore).trim() !== '' &&
+            !Number.isNaN(Number(existingImgScore))
+              ? Number(existingImgScore)
               : undefined;
-          const preservedStatus = p.correction?.imageStatus || p.correction?.status || 'corrected';
-          const preservedRating = p.correction?.imageRatingLabel || p.correction?.ratingLabel;
-          const finalNotes = bImgNotes.trim();
+          const preservedImgStatus =
+            p.correction?.imageStatus || p.correction?.status || 'corrected';
+          const preservedImgRating =
+            p.correction?.imageRatingLabel || p.correction?.ratingLabel;
+
+          const existingAudScore = p.correction?.audioScore ?? p.correction?.score;
+          const parsedAudScore =
+            existingAudScore !== undefined &&
+            String(existingAudScore).trim() !== '' &&
+            !Number.isNaN(Number(existingAudScore))
+              ? Number(existingAudScore)
+              : undefined;
+          const preservedAudStatus =
+            p.correction?.audioStatus || p.correction?.status || 'corrected';
+          const preservedAudRating =
+            p.correction?.audioRatingLabel || p.correction?.ratingLabel;
+
+          const finalImgNotes = bImgNotes.trim();
+          const finalAudNotes = bAudioNotes.trim();
+
           return {
             submissionKey: p.submissionKey,
             exerciseType: p.exerciseType,
@@ -361,17 +478,30 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
             studentName: p.studentName,
             lessonSubject: p.lessonSubject,
             itemTitle: p.itemTitle,
-            status: preservedStatus,
-            score: parsedExisting,
-            ratingLabel: preservedRating,
-            notes: finalNotes,
-            imageStatus: preservedStatus,
-            imageScore: parsedExisting,
-            imageRatingLabel: preservedRating,
-            imageNotes: finalNotes,
+            saveMode: effectiveSaveMode,
+            status:
+              bAllowRetry || preservedImgStatus === 'retry' || preservedAudStatus === 'retry'
+                ? 'retry'
+                : 'corrected',
+            score: primaryTab === 'audio' ? parsedAudScore : parsedImgScore,
+            ratingLabel: primaryTab === 'audio' ? preservedAudRating : preservedImgRating,
+            notes: primaryTab === 'audio' ? finalAudNotes : finalImgNotes,
+            imageStatus: hasImgSection || hasVidSection ? preservedImgStatus : undefined,
+            imageScore: parsedImgScore,
+            imageRatingLabel: preservedImgRating,
+            imageNotes: finalImgNotes,
             imageStickerSymbol: bImgStickerSymbol || undefined,
             imageStickerLabel: bImgStickerLabel || undefined,
-            allowRetry: bAllowRetry || preservedStatus === 'retry',
+            audioStatus: hasAudSection ? preservedAudStatus : undefined,
+            audioScore: parsedAudScore,
+            audioRatingLabel: preservedAudRating,
+            audioNotes: finalAudNotes,
+            audioStickerSymbol: bAudioStickerSymbol || undefined,
+            audioStickerLabel: bAudioStickerLabel || undefined,
+            allowRetry:
+              bAllowRetry ||
+              preservedImgStatus === 'retry' ||
+              preservedAudStatus === 'retry',
             sendTelegram: bSendTelegram,
           };
         }),
@@ -380,91 +510,40 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
       if (res.success && res.corrections) {
         onCorrectionsUpdated(res.corrections);
         setBatchImageBase64s([]);
-        setBFeedback({
-          type: 'ok',
-          text: `تم إرسال تصحيح الصورة الجماعي وإضافته لسجلات ${
-            res.count || targetRecipients.length
-          } طالب بنجاح (${res.telegramSentCount || 0} إشعار تيليغرام) دون المساس بدرجاتهم السابقة.`,
-        });
-      } else {
-        setBFeedback({
-          type: 'err',
-          text: res.error || 'تعذر تنفيذ تصحيح الصورة الجماعي.',
-        });
-      }
-    } finally {
-      setBSaving(false);
-    }
-  };
-
-  const handleSaveBulkAudioBatch = async () => {
-    if (targetRecipients.length === 0 || bSaving) return;
-    setBSaving(true);
-    setBFeedback(null);
-    try {
-      const res = await saveMarkingBatchToSheets(webhookUrl, {
-        teacherName,
-        saveMode: 'append_audio',
-        sharedTeacherAudiosBase64:
-          batchAudioClips.length > 0 ? batchAudioClips.map((c) => c.base64) : undefined,
-        sharedAudioLinks: batchAudioLinks.length > 0 ? batchAudioLinks : undefined,
-        sharedAudioStickerSymbol: bAudioStickerSymbol || undefined,
-        sharedAudioStickerLabel: bAudioStickerLabel || undefined,
-        sharedStickerSymbol: bAudioStickerSymbol || undefined,
-        sharedStickerLabel: bAudioStickerLabel || undefined,
-        items: targetRecipients.map((p) => {
-          const rawExisting = p.correction?.audioScore ?? p.correction?.score;
-          const parsedExisting =
-            rawExisting !== undefined &&
-            String(rawExisting).trim() !== '' &&
-            !Number.isNaN(Number(rawExisting))
-              ? Number(rawExisting)
-              : undefined;
-          const preservedStatus = p.correction?.audioStatus || p.correction?.status || 'corrected';
-          const preservedRating = p.correction?.audioRatingLabel || p.correction?.ratingLabel;
-          const finalNotes = bAudioNotes.trim();
-          return {
-            submissionKey: p.submissionKey,
-            exerciseType: p.exerciseType,
-            studentId: p.studentId,
-            studentName: p.studentName,
-            lessonSubject: p.lessonSubject,
-            itemTitle: p.itemTitle,
-            status: preservedStatus,
-            score: parsedExisting,
-            ratingLabel: preservedRating,
-            notes: finalNotes,
-            audioStatus: preservedStatus,
-            audioScore: parsedExisting,
-            audioRatingLabel: preservedRating,
-            audioNotes: finalNotes,
-            audioStickerSymbol: bAudioStickerSymbol || undefined,
-            audioStickerLabel: bAudioStickerLabel || undefined,
-            allowRetry: bAllowRetry || preservedStatus === 'retry',
-            sendTelegram: bSendTelegram,
-          };
-        }),
-      });
-
-      if (res.success && res.corrections) {
-        onCorrectionsUpdated(res.corrections);
+        setBatchImageLinks([]);
+        setBatchVideoUrls([]);
         setBatchAudioClips([]);
+        setBatchAudioLinks([]);
+        setNewImageLinkInput('');
+        setNewVideoUrlInput('');
+        setNewAudioLinkInput('');
+        const sentSummaryParts: string[] = [];
+        if (preparedImages?.length || effectiveImgLinks.length) sentSummaryParts.push('الصور');
+        if (effectiveVideoUrls.length) sentSummaryParts.push(`الفيديو (${effectiveVideoUrls.length})`);
+        if (uploadedAudioUrls.length || effectiveAudLinks.length) {
+          sentSummaryParts.push(`الصوت (${uploadedAudioUrls.length + effectiveAudLinks.length})`);
+        }
         setBFeedback({
           type: 'ok',
-          text: `تم إرسال تصحيح الصوت الجماعي وإضافته لسجلات ${
+          text: `تم إرسال التصحيح الجماعي (${
+            sentSummaryParts.join(' + ') || 'الملاحظات'
+          }) وحفظ الروابط في الشيت لـ ${
             res.count || targetRecipients.length
-          } طالب بنجاح (${res.telegramSentCount || 0} إشعار تيليغرام) دون المساس بدرجاتهم السابقة.`,
+          } طالب بنجاح (${res.telegramSentCount || 0} إشعار تيليغرام).`,
         });
       } else {
         setBFeedback({
           type: 'err',
-          text: res.error || 'تعذر تنفيذ تصحيح الصوت الجماعي.',
+          text: res.error || 'تعذر تنفيذ التصحيح الجماعي.',
         });
       }
     } finally {
       setBSaving(false);
     }
   };
+
+  const handleSaveBulkImageBatch = () => executeBulkBatchSend('image');
+  const handleSaveBulkAudioBatch = () => executeBulkBatchSend('audio');
 
   const openQuickEditModal = (item: UnifiedMarkingSubmission) => {
     const c = item.correction;
@@ -1015,13 +1094,15 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Video Recorder (Cloudinary) + Extra Video URLs */}
+                {/* Video Recorder (Cloudinary / Drive) + Extra Video URLs */}
                 <div className="space-y-2">
                   <MarkingVideoRecorder
+                    ref={videoRecorderRef}
                     markingConfig={markingConfig}
                     webhookUrl={webhookUrl}
-                    title="تسجيل فيديو شرح للواجب المصوّر بالكاميرا / OBS (Cloudinary)"
+                    title="تسجيل فيديو شرح للواجب المصوّر بالكاميرا / OBS"
                     autoClearAfterUpload
+                    autoUploadOnStop
                     onVideoUploaded={(url) =>
                       setBatchVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]))
                     }
@@ -1054,29 +1135,15 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                     {batchVideoUrls.length > 0 && (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {batchVideoUrls.map((vUrl, idx) => (
-                          <div
+                          <CorrectionVideoPlayer
                             key={`${vUrl}-${idx}`}
-                            className="p-2 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5"
-                          >
-                            <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
-                              <span className="text-indigo-900">فيديو #{idx + 1}</span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setBatchVideoUrls((p) => p.filter((_, i) => i !== idx))
-                                }
-                                className="p-1 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <video
-                              src={toCloudinaryMp4Url(vUrl)}
-                              controls
-                              playsInline
-                              className="w-full max-h-28 rounded-lg bg-slate-950"
-                            />
-                          </div>
+                            url={vUrl}
+                            label={`فيديو #${idx + 1}`}
+                            compact
+                            onRemove={() =>
+                              setBatchVideoUrls((p) => p.filter((_, i) => i !== idx))
+                            }
+                          />
                         ))}
                       </div>
                     )}

@@ -156,19 +156,14 @@ export const StudentAchievementModal: React.FC<StudentAchievementModalProps> = (
                     qVal && typeof qVal === 'object' ? (qVal as Record<string, unknown>) : null;
                   const isCorrect =
                     obj && typeof obj.isCorrect === 'boolean' ? obj.isCorrect : undefined;
-                  const selectedText = obj
-                    ? String(
-                        obj.selectedOption ??
-                          obj.answer ??
-                          obj.value ??
-                          obj.text ??
-                          JSON.stringify(obj)
-                      )
-                    : String(qVal ?? '');
+                  const questionText =
+                    obj && typeof obj.question === 'string' && obj.question.trim()
+                      ? obj.question.trim()
+                      : `سؤال ${idx + 1}`;
                   return (
                     <div
                       key={qKey}
-                      className={`p-2.5 rounded-xl border text-xs flex items-start justify-between gap-2 ${
+                      className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${
                         isCorrect === true
                           ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
                           : isCorrect === false
@@ -176,15 +171,10 @@ export const StudentAchievementModal: React.FC<StudentAchievementModalProps> = (
                           : 'bg-slate-50 border-slate-200 text-slate-800'
                       }`}
                     >
-                      <div className="min-w-0">
-                        <div className="font-extrabold">سؤال {idx + 1}</div>
-                        <div className="text-[11px] font-semibold truncate">{selectedText}</div>
-                      </div>
-                      {isCorrect !== undefined && (
-                        <span className="shrink-0 font-bold text-[11px]">
-                          {isCorrect ? '✓ صحيح' : '✗ خطأ'}
-                        </span>
-                      )}
+                      <span className="font-bold leading-snug">{questionText}</span>
+                      <span className="shrink-0 font-extrabold text-[11px]">
+                        {isCorrect === true ? '✓ صح' : isCorrect === false ? '✗ خطأ' : '—'}
+                      </span>
                     </div>
                   );
                 })}
