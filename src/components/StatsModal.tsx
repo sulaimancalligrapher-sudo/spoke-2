@@ -13,6 +13,7 @@ import {
   PdfTextAlign,
   PracticeHistoryItem,
   StudentRegistrant,
+  TeacherCorrectionRecord,
   WordItem,
 } from '../types';
 import {
@@ -75,7 +76,7 @@ import {
   savePdfSettingsToSheets,
 } from '../utils/courseSchedule';
 import { DrawingTemplate } from '../arWriting/types/drawing';
-import { VideoLesson, fetchStudentVideoProgress } from '../video/videoSheets';
+import { VideoLesson, VideoStudentProgress, fetchStudentVideoProgress } from '../video/videoSheets';
 import { PdfPreviewModal } from './CourseScheduleModal';
 
 interface StatsModalProps {
@@ -85,13 +86,17 @@ interface StatsModalProps {
   matchingHistory?: MatchingHistoryItem[];
   dictationHistory?: DictationHistoryItem[];
   catchHistory?: CatchHistoryItem[];
+  videoLessons?: VideoLesson[];
+  videoProgressMap?: Record<string, VideoStudentProgress>;
+  studentCorrections?: TeacherCorrectionRecord[];
+  onOpenVideoCorrection?: (lessonTitle?: string) => void;
   onClearHistory?: () => void;
   currentStudent?: StudentRegistrant | null;
   isSyncingFromSheets?: boolean;
   isSyncingMatching?: boolean;
   isSyncingDictation?: boolean;
   isSyncingCatch?: boolean;
-  defaultTab?: 'pronunciation' | 'matching' | 'dictation' | 'catch';
+  defaultTab?: 'pronunciation' | 'matching' | 'dictation' | 'catch' | 'video';
   currentLang?: SupportedLang;
   translations?: TranslationItem[];
   t?: (id: string, fallback?: string) => string;
@@ -104,6 +109,10 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   matchingHistory = [],
   dictationHistory = [],
   catchHistory = [],
+  videoLessons = [],
+  videoProgressMap = {},
+  studentCorrections = [],
+  onOpenVideoCorrection,
   currentStudent,
   isSyncingFromSheets = false,
   isSyncingMatching = false,
@@ -115,7 +124,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
   t,
 }) => {
   const tr = (id: string, fallback: string) => (t ? t(id, fallback) : fallback);
-  const [activeTab, setActiveTab] = useState<'pronunciation' | 'matching' | 'dictation' | 'catch'>(defaultTab);
+  const [activeTab, setActiveTab] = useState<'pronunciation' | 'matching' | 'dictation' | 'catch' | 'video'>(defaultTab);
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -247,9 +256,75 @@ export const StatsModal: React.FC<StatsModalProps> = ({
     tryPlayNext();
   };
 
+  // Interactive Video & Corrections stats
+  const videoCorrectionRows = (() => {
+    const map = new Map<
+      string,
+      {
+        title: string;
+        quizScore?: number;
+        completed: boolean;
+        correction?: TeacherCorrectionRecord;
+      }
+    >();
+
+    videoLessons.forEach((l) => {
+      const prog = videoProgressMap[l.id];
+      const corr = studentCorrections.find(
+        (c) => (c.itemTitle || '').trim().toLowerCase() === l.title.trim().toLowerCase()
+      );
+      if (prog || corr) {
+        map.set(l.title.trim().toLowerCase(), {
+          title: l.title,
+          quizScore: prog?.videoScore,
+          completed: Boolean(prog?.completed),
+          correction: corr,
+        });
+      }
+    });
+
+    Object.values(videoProgressMap).forEach((prog) => {
+      const key = (prog.title || '').trim().toLowerCase();
+      if (!key || map.has(key)) return;
+      const corr = studentCorrections.find(
+        (c) => (c.itemTitle || '').trim().toLowerCase() === key
+      );
+      map.set(key, {
+        title: prog.title,
+        quizScore: prog.videoScore,
+        completed: Boolean(prog.completed),
+        correction: corr,
+      });
+    });
+
+    studentCorrections.forEach((corr) => {
+      const key = (corr.itemTitle || '').trim().toLowerCase();
+      if (!key || map.has(key)) return;
+      map.set(key, {
+        title: corr.itemTitle,
+        completed: true,
+        correction: corr,
+      });
+    });
+
+    return Array.from(map.values());
+  })();
+
+  const totalVideoDone = videoCorrectionRows.length;
+  const totalVideoGraded = videoCorrectionRows.filter((r) => Boolean(r.correction)).length;
+  const avgVideoQuiz =
+    videoCorrectionRows.filter((r) => typeof r.quizScore === 'number').length > 0
+      ? Math.round(
+          videoCorrectionRows
+            .filter((r) => typeof r.quizScore === 'number')
+            .reduce((acc, r) => acc + (r.quizScore || 0), 0) /
+            videoCorrectionRows.filter((r) => typeof r.quizScore === 'number').length
+        )
+      : 0;
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[90dvh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[90dvh] flex flex-col overflow-hidden">
         <button
           onClick={onClose}
           className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -276,7 +351,9 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                   ID: {currentStudent.id}
                 </span>
                 <span className="text-[10px] text-emerald-600 font-normal">
-                  {activeTab === 'catch'
+                  {activeTab === 'video'
+                    ? '(موثق في ورقة تصحيح_الواجبات)'
+                    : activeTab === 'catch'
                     ? tr('stats_catch_verified_sheet', '(موثق في ورقة اجابات صيد)')
                     : activeTab === 'dictation'
                     ? tr('stats_dictation_verified_sheet', '(موثق في ورقة answers 3)')
@@ -293,12 +370,12 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           </div>
         </div>
 
-        {/* Four Tabs: [ 🎙️ سجل النطق ] | [ 🔗 سجل التوصيل ] | [ 📝 سجل الإملاء ] | [ 🎯 سجل الصيد ] */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-4 border border-slate-200/80">
+        {/* Five Tabs: [ 🎙️ سجل النطق ] | [ 🔗 سجل التوصيل ] | [ 📝 سجل الإملاء ] | [ 🎯 سجل الصيد ] | [ 🎬 الفيديو والتصحيح ] */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-4 border border-slate-200/80">
           <button
             type="button"
             onClick={() => setActiveTab('pronunciation')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold transition-all cursor-pointer ${
               activeTab === 'pronunciation'
                 ? 'bg-white text-emerald-800 shadow-xs border border-emerald-200/80'
                 : 'text-slate-600 hover:text-slate-900'
@@ -311,7 +388,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('matching')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold transition-all cursor-pointer ${
               activeTab === 'matching'
                 ? 'bg-white text-purple-800 shadow-xs border border-purple-200/80'
                 : 'text-slate-600 hover:text-slate-900'
@@ -324,7 +401,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('dictation')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold transition-all cursor-pointer ${
               activeTab === 'dictation'
                 ? 'bg-white text-teal-800 shadow-xs border border-teal-200/80'
                 : 'text-slate-600 hover:text-slate-900'
@@ -337,7 +414,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('catch')}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold transition-all cursor-pointer ${
               activeTab === 'catch'
                 ? 'bg-white text-sky-800 shadow-xs border border-sky-200/80'
                 : 'text-slate-600 hover:text-slate-900'
@@ -345,6 +422,19 @@ export const StatsModal: React.FC<StatsModalProps> = ({
           >
             <span>🎯</span>
             <span className="truncate">{tr('stats_tab_catch', 'سجل الصيد')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('video')}
+            className={`col-span-2 sm:col-span-1 flex items-center justify-center gap-1 py-2 px-2 rounded-xl text-[11px] font-extrabold transition-all cursor-pointer ${
+              activeTab === 'video'
+                ? 'bg-white text-indigo-800 shadow-xs border border-indigo-200/80'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span>🎬</span>
+            <span className="truncate">الفيديو والتصحيح</span>
           </button>
         </div>
 
@@ -787,7 +877,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               )}
             </div>
           </>
-        ) : (
+        ) : activeTab === 'catch' ? (
           <>
             {/* Live Sync Banner if syncing AR Catch (اجابات صيد) */}
             {isSyncingCatch && (
@@ -935,6 +1025,134 @@ export const StatsModal: React.FC<StatsModalProps> = ({
                               </div>
                             );
                           })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        ) : (
+          /* TAB 5: INTERACTIVE VIDEO & TEACHER CORRECTIONS SUMMARY */
+          <>
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-3 text-center">
+                <span className="text-[11px] text-slate-400 font-medium block mb-1">
+                  الدروس المنجزة
+                </span>
+                <span className="text-2xl font-bold font-cairo text-slate-800 tabular-nums">
+                  {totalVideoDone}
+                </span>
+              </div>
+
+              <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-3 text-center">
+                <span className="text-[11px] text-indigo-700 font-medium block mb-1">
+                  تم تصحيحها
+                </span>
+                <span className="text-2xl font-bold font-cairo text-indigo-800 tabular-nums">
+                  {totalVideoGraded}
+                </span>
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3 text-center">
+                <span className="text-[11px] text-emerald-700 font-medium block mb-1">
+                  معدل أسئلة الفيديو
+                </span>
+                <span className="text-2xl font-bold font-cairo text-emerald-800 tabular-nums">
+                  {avgVideoQuiz}%
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-bold text-slate-700">
+                تفاصيل درجات الفيديو وتصحيح المعلم (الصورة والصوت):
+              </h4>
+              {onOpenVideoCorrection && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenVideoCorrection();
+                  }}
+                  className="text-xs font-extrabold text-indigo-700 hover:underline cursor-pointer"
+                >
+                  فتح سجل التصحيحات الكامل
+                </button>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5">
+              {videoCorrectionRows.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-xs">
+                  لا توجد دروس فيديو تفاعلي مكتملة أو مصحّحة حتى الآن.
+                </div>
+              ) : (
+                videoCorrectionRows.map((row) => {
+                  const c = row.correction;
+                  const imgSt = c?.imageStatus || (c?.correctedImageUrl ? c?.status : undefined);
+                  const imgScore = c?.imageScore ?? (c?.correctedImageUrl ? c?.score : undefined);
+                  const audSt = c?.audioStatus || (c?.teacherAudioUrl ? c?.status : undefined);
+                  const audScore = c?.audioScore ?? (c?.teacherAudioUrl ? c?.score : undefined);
+
+                  return (
+                    <div
+                      key={row.title}
+                      className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl space-y-2.5 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h5 className="font-extrabold text-slate-900 text-sm">{row.title}</h5>
+                        {onOpenVideoCorrection && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              onOpenVideoCorrection(row.title);
+                            }}
+                            className="px-3 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            عرض التصحيح والملفات
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="p-2 rounded-xl bg-white border border-slate-200">
+                          <div className="text-[10px] text-slate-400 font-bold">أسئلة الفيديو</div>
+                          <div className="font-mono font-extrabold text-slate-900 tabular-nums mt-0.5">
+                            {row.quizScore !== undefined ? `${row.quizScore}%` : row.completed ? 'مكتمل' : '—'}
+                          </div>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-white border border-slate-200">
+                          <div className="text-[10px] text-emerald-700 font-bold">تصحيح الصورة</div>
+                          <div className="font-extrabold text-slate-900 tabular-nums mt-0.5">
+                            {imgScore !== undefined ? `${imgScore}/100` : '—'}{' '}
+                            {imgSt && (
+                              <span className="text-[10px] text-emerald-700">
+                                ({imgSt === 'corrected' ? 'مصحّح' : imgSt === 'retry' ? 'إعادة' : 'انتظار'})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="p-2 rounded-xl bg-white border border-slate-200">
+                          <div className="text-[10px] text-indigo-700 font-bold">تصحيح الصوت</div>
+                          <div className="font-extrabold text-slate-900 tabular-nums mt-0.5">
+                            {audScore !== undefined ? `${audScore}/100` : '—'}{' '}
+                            {audSt && (
+                              <span className="text-[10px] text-indigo-700">
+                                ({audSt === 'corrected' ? 'مصحّح' : audSt === 'retry' ? 'إعادة' : 'انتظار'})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {(c?.imageNotes || c?.audioNotes || c?.notes) && (
+                        <div className="text-[11px] text-slate-600 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200/80 line-clamp-2">
+                          {c?.imageNotes || c?.audioNotes || c?.notes}
                         </div>
                       )}
                     </div>

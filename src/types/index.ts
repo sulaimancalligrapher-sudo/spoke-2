@@ -830,10 +830,14 @@ export interface StorePublicData {
 export type MarkingExerciseType = 'writing' | 'pronunciation' | 'video' | 'dictation';
 export type MarkingStatus = 'pending' | 'corrected' | 'retry';
 
+export type MarkingPresetScope = 'board' | 'audio' | 'both';
+export type MarkingSaveMode = 'full' | 'image_only' | 'audio_only' | 'append_image' | 'append_audio';
+
 export interface MarkingPresetText {
   id: string;
   text: string;
   category?: 'positive' | 'correction' | 'general';
+  scope?: MarkingPresetScope;
 }
 
 export interface MarkingSticker {
@@ -842,6 +846,7 @@ export interface MarkingSticker {
   symbol: string;
   color?: string;
   kind?: 'positive' | 'correction' | 'stamp';
+  scope?: MarkingPresetScope;
 }
 
 export interface WatermarkSettings {
@@ -891,10 +896,23 @@ export interface TeacherCorrectionRecord {
   teacherVideos?: string[];
   stickerSymbol?: string;
   stickerLabel?: string;
+  // Independent Image Correction fields
+  imageStatus?: MarkingStatus;
   imageScore?: number | string;
+  imageRatingLabel?: string;
   imageNotes?: string;
+  imageStickerSymbol?: string;
+  imageStickerLabel?: string;
+  imageLinks?: string[];
+  // Independent Audio Correction fields
+  audioStatus?: MarkingStatus;
   audioScore?: number | string;
+  audioRatingLabel?: string;
   audioNotes?: string;
+  audioStickerSymbol?: string;
+  audioStickerLabel?: string;
+  audioLinks?: string[];
+  saveMode?: MarkingSaveMode;
   teacherName?: string;
   allowRetry?: boolean;
   updatedAt: string;

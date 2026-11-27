@@ -18,22 +18,25 @@ const STORAGE_KEY_MARKING_CONFIG = 'faseeh_marking_config_v1';
 const STORAGE_KEY_MARKING_CORRECTIONS_PREFIX = 'faseeh_marking_corrs_v1_';
 
 export const DEFAULT_MARKING_PRESETS: MarkingPresetText[] = [
-  { id: 'pr-1', text: 'أحسنت! نطق واضح وإتقان رائع.', category: 'positive' },
-  { id: 'pr-2', text: 'ممتاز، استمر على هذا المستوى المتألق.', category: 'positive' },
-  { id: 'pr-3', text: 'كتابة متقنة وخط جميل واضح.', category: 'positive' },
-  { id: 'pr-4', text: 'يرجى الانتباه لمخرج الحرف وإعادة التسجيل.', category: 'correction' },
-  { id: 'pr-5', text: 'انتبه لرسم الحرف على السطر وأعد المحاولة.', category: 'correction' },
+  { id: 'pr-1', text: 'أحسنت! نطق واضح وإتقان رائع.', category: 'positive', scope: 'audio' },
+  { id: 'pr-2', text: 'ممتاز، استمر على هذا المستوى المتألق.', category: 'positive', scope: 'audio' },
+  { id: 'pr-3', text: 'كتابة متقنة وخط جميل واضح.', category: 'positive', scope: 'board' },
+  { id: 'pr-4', text: 'يرجى الانتباه لمخرج الحرف وإعادة التسجيل.', category: 'correction', scope: 'audio' },
+  { id: 'pr-5', text: 'انتبه لرسم الحرف على السطر وأعد المحاولة.', category: 'correction', scope: 'board' },
+  { id: 'pr-6', text: 'تشكيل متقن ومسافات ممتازة بين الحروف.', category: 'positive', scope: 'board' },
 ];
 
 export const DEFAULT_MARKING_STICKERS: MarkingSticker[] = [
-  { id: 'st-star', label: 'ممتاز!', symbol: '⭐', color: '#eab308', kind: 'positive' },
-  { id: 'st-clap', label: 'أحسنت', symbol: '👏', color: '#059669', kind: 'positive' },
-  { id: 'st-gem', label: 'متقن', symbol: '💎', color: '#0284c7', kind: 'positive' },
-  { id: 'st-trophy', label: 'بطل الدرس', symbol: '🏆', color: '#d97706', kind: 'positive' },
-  { id: 'st-check', label: 'صحيح', symbol: '✔️', color: '#16a34a', kind: 'stamp' },
-  { id: 'st-cross', label: 'خطأ', symbol: '❌', color: '#dc2626', kind: 'correction' },
-  { id: 'st-warn', label: 'انتبه هنا', symbol: '⚠️', color: '#ea580c', kind: 'correction' },
-  { id: 'st-retry', label: 'أعد المحاولة', symbol: '🔄', color: '#7c3aed', kind: 'correction' },
+  { id: 'st-star', label: 'ممتاز!', symbol: '⭐', color: '#eab308', kind: 'positive', scope: 'board' },
+  { id: 'st-clap', label: 'أحسنت', symbol: '👏', color: '#059669', kind: 'positive', scope: 'audio' },
+  { id: 'st-gem', label: 'متقن', symbol: '💎', color: '#0284c7', kind: 'positive', scope: 'board' },
+  { id: 'st-trophy', label: 'بطل الدرس', symbol: '🏆', color: '#d97706', kind: 'positive', scope: 'both' },
+  { id: 'st-check', label: 'صحيح', symbol: '✔️', color: '#16a34a', kind: 'stamp', scope: 'board' },
+  { id: 'st-cross', label: 'خطأ', symbol: '❌', color: '#dc2626', kind: 'correction', scope: 'board' },
+  { id: 'st-warn', label: 'انتبه هنا', symbol: '⚠️', color: '#ea580c', kind: 'correction', scope: 'board' },
+  { id: 'st-retry', label: 'أعد المحاولة', symbol: '🔄', color: '#7c3aed', kind: 'correction', scope: 'audio' },
+  { id: 'st-mic', label: 'نطق متقن', symbol: '🎙️', color: '#0284c7', kind: 'positive', scope: 'audio' },
+  { id: 'st-heart', label: 'بارك الله فيك', symbol: '🌟', color: '#ca8a04', kind: 'positive', scope: 'audio' },
 ];
 
 export const DEFAULT_MARKING_CONFIG: MarkingConfig = {
@@ -199,15 +202,17 @@ export async function uploadVideoToCloudinary(
 export async function uploadMarkingMediaToDrive(
   webhookUrl: string,
   params: {
-    mediaType: 'image' | 'audio' | 'video';
+    mediaType: 'image' | 'audio' | 'video' | 'pdf';
     base64Data: string;
     fileName?: string;
+    mimeType?: string;
   }
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
   const res = await callGoogleSheetsPost(url, {
     action: 'upload_marking_media',
     mediaType: params.mediaType,
+    mimeType: params.mimeType,
     base64Data: params.base64Data,
     fileName: params.fileName || `marking_${params.mediaType}_${Date.now()}`,
   });
@@ -407,10 +412,16 @@ export async function fetchMarkingWorkspaceData(
             teacherAudios: auds,
             teacherVideoUrl: vids[0] || undefined,
             teacherVideos: vids,
+            imageStatus: vc.imageStatus === 'يحتاج إعادة' ? 'retry' : vc.imageStatus ? 'corrected' : undefined,
             imageScore: vc.imageScore,
+            imageRatingLabel: vc.imageStatus || undefined,
             imageNotes: vc.imageNotes,
+            imageLinks: Array.isArray(vc.imageLinks) ? vc.imageLinks : undefined,
+            audioStatus: vc.audioStatus === 'يحتاج إعادة' ? 'retry' : vc.audioStatus ? 'corrected' : undefined,
             audioScore: vc.audioScore,
+            audioRatingLabel: vc.audioStatus || undefined,
             audioNotes: vc.audioNotes,
+            audioLinks: Array.isArray(vc.audioLinks) ? vc.audioLinks : undefined,
             updatedAt: vc.audioDate || vc.imageDate || '',
           });
         }
@@ -625,6 +636,7 @@ export async function saveMarkingCorrectionToSheets(
     lessonSubject: string;
     itemTitle: string;
     status: TeacherCorrectionRecord['status'];
+    saveMode?: TeacherCorrectionRecord['saveMode'];
     score?: number;
     ratingLabel?: string;
     notes: string;
@@ -640,10 +652,20 @@ export async function saveMarkingCorrectionToSheets(
     teacherVideos?: string[];
     stickerSymbol?: string;
     stickerLabel?: string;
+    imageStatus?: TeacherCorrectionRecord['status'];
     imageScore?: number | string;
+    imageRatingLabel?: string;
     imageNotes?: string;
+    imageStickerSymbol?: string;
+    imageStickerLabel?: string;
+    imageLinks?: string[];
+    audioStatus?: TeacherCorrectionRecord['status'];
     audioScore?: number | string;
+    audioRatingLabel?: string;
     audioNotes?: string;
+    audioStickerSymbol?: string;
+    audioStickerLabel?: string;
+    audioLinks?: string[];
     allowRetry?: boolean;
     sendTelegram?: boolean;
     teacherName?: string;
@@ -679,18 +701,25 @@ export async function saveMarkingBatchToSheets(
   webhookUrl: string,
   payload: {
     teacherName?: string;
+    saveMode?: TeacherCorrectionRecord['saveMode'];
     sharedCorrectedImageUrl?: string;
     sharedCorrectedImageBase64?: string;
     sharedAdditionalImages?: string[];
     sharedAdditionalImagesBase64?: string[];
+    sharedImageLinks?: string[];
     sharedTeacherAudioUrl?: string;
     sharedTeacherAudioBase64?: string;
     sharedTeacherAudios?: string[];
     sharedTeacherAudiosBase64?: string[];
+    sharedAudioLinks?: string[];
     sharedTeacherVideoUrl?: string;
     sharedTeacherVideos?: string[];
     sharedStickerSymbol?: string;
     sharedStickerLabel?: string;
+    sharedImageStickerSymbol?: string;
+    sharedImageStickerLabel?: string;
+    sharedAudioStickerSymbol?: string;
+    sharedAudioStickerLabel?: string;
     items: Array<{
       submissionKey: string;
       exerciseType: UnifiedMarkingSubmission['exerciseType'];
@@ -699,9 +728,20 @@ export async function saveMarkingBatchToSheets(
       lessonSubject: string;
       itemTitle: string;
       status: TeacherCorrectionRecord['status'];
+      saveMode?: TeacherCorrectionRecord['saveMode'];
       score?: number;
       ratingLabel?: string;
       notes: string;
+      imageStatus?: TeacherCorrectionRecord['status'];
+      imageScore?: number | string;
+      imageRatingLabel?: string;
+      imageNotes?: string;
+      imageLinks?: string[];
+      audioStatus?: TeacherCorrectionRecord['status'];
+      audioScore?: number | string;
+      audioRatingLabel?: string;
+      audioNotes?: string;
+      audioLinks?: string[];
       correctedImageUrl?: string;
       additionalImages?: string[];
       teacherAudioUrl?: string;

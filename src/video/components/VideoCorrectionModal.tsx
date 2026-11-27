@@ -12,7 +12,11 @@ import {
   Video,
   MessageSquare,
   RefreshCw,
+  ExternalLink,
+  Link2,
 } from 'lucide-react';
+import { TeacherCorrectionRecord } from '../../types';
+import { toCloudinaryMp4Url } from '../../utils/markingSheets';
 import {
   VideoCorrectionEntry,
   VideoLesson,
@@ -31,10 +35,20 @@ interface VideoCorrectionModalProps {
   studentName: string;
   lessons: VideoLesson[];
   progressMap: Record<string, VideoStudentProgress>;
+  studentCorrections?: TeacherCorrectionRecord[];
   selectedLessonTitle?: string;
   onRefreshProgress?: () => Promise<void>;
   t?: (id: string, fallback?: string) => string;
 }
+
+type MergedCorrectionView = VideoCorrectionEntry & {
+  imageRatingLabel?: string;
+  audioRatingLabel?: string;
+  imageStickerSymbol?: string;
+  imageStickerLabel?: string;
+  audioStickerSymbol?: string;
+  audioStickerLabel?: string;
+};
 
 const AudioPlayerItem: React.FC<{ url: string; label: string }> = ({ url, label }) => {
   const candidates = useMemo(() => resolveVideoAudioAlternatives(url), [url]);
@@ -84,6 +98,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
   studentName,
   lessons,
   progressMap,
+  studentCorrections = [],
   selectedLessonTitle,
   onRefreshProgress,
   t,
@@ -125,14 +140,88 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
       setFilterByLesson(Boolean(selectedLessonTitle));
       loadCorrections();
     }
-  }, [isOpen, studentId, studentName]);
+  }, [isOpen, studentId, studentName, selectedLessonTitle]);
+
+  const mergedCorrections = useMemo<MergedCorrectionView[]>(() => {
+    const map = new Map<string, MergedCorrectionView>();
+
+    const uniq = (arr: (string | undefined)[]) =>
+      Array.from(new Set(arr.map((s) => (s || '').trim()).filter(Boolean)));
+
+    corrections.forEach((entry) => {
+      const key = entry.lessonTitle.trim().toLowerCase();
+      map.set(key, { ...entry });
+    });
+
+    studentCorrections
+      .filter((tc) => tc.exerciseType === 'video' || Boolean(tc.itemTitle))
+      .forEach((tc) => {
+        const key = (tc.itemTitle || '').trim().toLowerCase();
+        if (!key) return;
+        const prev = map.get(key);
+        const statusAr = (st?: string) =>
+          st === 'corrected' ? 'مصحّح ✓' : st === 'retry' ? 'مطلوب إعادة' : '';
+
+        const nextImgStatus =
+          statusAr(tc.imageStatus) || prev?.imageStatus || statusAr(tc.status);
+        const nextImgScore =
+          tc.imageScore !== undefined
+            ? String(tc.imageScore)
+            : prev?.imageScore || (tc.score !== undefined ? String(tc.score) : '');
+        const nextAudioStatus =
+          statusAr(tc.audioStatus) || prev?.audioStatus || statusAr(tc.status);
+        const nextAudioScore =
+          tc.audioScore !== undefined
+            ? String(tc.audioScore)
+            : prev?.audioScore || (tc.score !== undefined ? String(tc.score) : '');
+
+        map.set(key, {
+          studentId: tc.studentId || prev?.studentId || studentId,
+          studentName: tc.studentName || prev?.studentName || studentName,
+          lessonTitle: tc.itemTitle || prev?.lessonTitle || '',
+          imageStatus: nextImgStatus,
+          imageScore: nextImgScore,
+          imageNotes: tc.imageNotes || prev?.imageNotes || tc.notes || '',
+          correctedImage: tc.correctedImageUrl || prev?.correctedImage || '',
+          additionalImages: uniq([
+            ...(prev?.additionalImages || []),
+            ...(tc.additionalImages || []),
+          ]),
+          imageDate: tc.updatedAt || prev?.imageDate || '',
+          audioStatus: nextAudioStatus,
+          audioScore: nextAudioScore,
+          audioNotes: tc.audioNotes || prev?.audioNotes || tc.notes || '',
+          teacherAudios: uniq([
+            ...(prev?.teacherAudios || []),
+            tc.teacherAudioUrl,
+            ...(tc.teacherAudios || []),
+          ]),
+          teacherVideos: uniq([
+            ...(prev?.teacherVideos || []),
+            tc.teacherVideoUrl,
+            ...(tc.teacherVideos || []),
+          ]),
+          audioDate: tc.updatedAt || prev?.audioDate || '',
+          imageLinks: uniq([...(prev?.imageLinks || []), ...(tc.imageLinks || [])]),
+          audioLinks: uniq([...(prev?.audioLinks || []), ...(tc.audioLinks || [])]),
+          imageRatingLabel: tc.imageRatingLabel || tc.ratingLabel,
+          audioRatingLabel: tc.audioRatingLabel || tc.ratingLabel,
+          imageStickerSymbol: tc.imageStickerSymbol || tc.stickerSymbol,
+          imageStickerLabel: tc.imageStickerLabel || tc.stickerLabel,
+          audioStickerSymbol: tc.audioStickerSymbol || tc.stickerSymbol,
+          audioStickerLabel: tc.audioStickerLabel || tc.stickerLabel,
+        });
+      });
+
+    return Array.from(map.values());
+  }, [corrections, studentCorrections, studentId, studentName]);
 
   const filteredCorrections = useMemo(() => {
-    if (!filterByLesson || !selectedLessonTitle) return corrections;
+    if (!filterByLesson || !selectedLessonTitle) return mergedCorrections;
     const target = selectedLessonTitle.trim().toLowerCase();
-    const matched = corrections.filter((c) => c.lessonTitle.trim().toLowerCase() === target);
-    return matched.length > 0 ? matched : corrections;
-  }, [corrections, filterByLesson, selectedLessonTitle]);
+    const matched = mergedCorrections.filter((c) => c.lessonTitle.trim().toLowerCase() === target);
+    return matched.length > 0 ? matched : mergedCorrections;
+  }, [mergedCorrections, filterByLesson, selectedLessonTitle]);
 
   const quizEntries = useMemo(() => {
     const entries: Array<{
@@ -348,10 +437,21 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                         </div>
                       </div>
 
+                      {entry.imageStickerSymbol && (
+                        <div className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200 flex items-center gap-2.5">
+                          <span className="text-2xl leading-none">{entry.imageStickerSymbol}</span>
+                          {entry.imageStickerLabel && (
+                            <span className="text-xs font-extrabold text-amber-950">
+                              {entry.imageStickerLabel}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {entry.imageNotes && (
                         <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-xs sm:text-sm text-amber-950 flex items-start gap-2">
                           <MessageSquare className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">{entry.imageNotes}</span>
+                          <span className="leading-relaxed whitespace-pre-line">{entry.imageNotes}</span>
                         </div>
                       )}
 
@@ -364,6 +464,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                             <img
                               src={mainImg}
                               alt="الصورة المصححة"
+                              referrerPolicy="no-referrer"
                               onClick={() => setZoomedImg(mainImg)}
                               className="w-full max-h-64 object-contain cursor-zoom-in mx-auto"
                             />
@@ -385,10 +486,36 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                               key={i}
                               src={img}
                               alt={`صورة إضافية ${i + 1}`}
+                              referrerPolicy="no-referrer"
                               onClick={() => setZoomedImg(img)}
                               className="h-28 w-full object-cover rounded-xl border border-slate-200 cursor-zoom-in"
                             />
                           ))}
+                        </div>
+                      )}
+
+                      {entry.imageLinks && entry.imageLinks.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                            <Link2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>روابط وملفات التصحيح المرفقة:</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {entry.imageLinks
+                              .filter((lnk) => /^https?:\/\//i.test(lnk))
+                              .map((lnk, lIdx) => (
+                                <a
+                                  key={`${lnk}-${lIdx}`}
+                                  href={lnk}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold inline-flex items-center gap-1.5"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                  <span>مرفق / رابط #{lIdx + 1}</span>
+                                </a>
+                              ))}
+                          </div>
                         </div>
                       )}
 
@@ -425,17 +552,28 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                             </span>
                           )}
                           {entry.audioScore && (
-                            <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200">
+                            <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200 tabular-nums">
                               {tr('video_score_label', 'الدرجة:')} {entry.audioScore}
                             </span>
                           )}
                         </div>
                       </div>
 
+                      {entry.audioStickerSymbol && (
+                        <div className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200 flex items-center gap-2.5">
+                          <span className="text-2xl leading-none">{entry.audioStickerSymbol}</span>
+                          {entry.audioStickerLabel && (
+                            <span className="text-xs font-extrabold text-amber-950">
+                              {entry.audioStickerLabel}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       {entry.audioNotes && (
                         <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-xs sm:text-sm text-amber-950 flex items-start gap-2">
                           <MessageSquare className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">{entry.audioNotes}</span>
+                          <span className="leading-relaxed whitespace-pre-line">{entry.audioNotes}</span>
                         </div>
                       )}
 
@@ -449,20 +587,28 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
 
                       {entry.teacherVideos.map((vidUrl, vIdx) => {
                         const info = getPlayableVideoInfo(vidUrl);
+                        const isCloudinary = /cloudinary\.com/i.test(vidUrl);
                         return (
                           <div key={vIdx} className="space-y-1.5">
                             <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                               <Video className="w-3.5 h-3.5 text-rose-600" />
                               <span>{tr('video_corr_audio_tab', 'فيديو التصحيح')} {entry.teacherVideos.length > 1 ? vIdx + 1 : ''}</span>
                             </div>
-                            {info.kind === 'youtube' && info.youtubeId ? (
+                            {isCloudinary ? (
+                              <video
+                                src={toCloudinaryMp4Url(vidUrl)}
+                                controls
+                                playsInline
+                                className="w-full max-h-72 rounded-2xl border border-slate-200 bg-slate-950"
+                              />
+                            ) : info.kind === 'youtube' && info.youtubeId ? (
                               <iframe
                                 src={`https://www.youtube.com/embed/${info.youtubeId}`}
                                 className="w-full aspect-video rounded-2xl border border-slate-200"
                                 allowFullScreen
                                 title={`teacher-video-${vIdx}`}
                               />
-                            ) : info.embedUrl || info.src ? (
+                            ) : /^https?:\/\//i.test(vidUrl) ? (
                               <a
                                 href={vidUrl}
                                 target="_blank"
@@ -476,6 +622,31 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                           </div>
                         );
                       })}
+
+                      {entry.audioLinks && entry.audioLinks.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                            <Link2 className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>روابط صوتية أو ملفات إضافية:</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {entry.audioLinks
+                              .filter((lnk) => /^https?:\/\//i.test(lnk))
+                              .map((lnk, lIdx) => (
+                                <a
+                                  key={`${lnk}-${lIdx}`}
+                                  href={lnk}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 text-xs font-bold inline-flex items-center gap-1.5"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                  <span>رابط صوتي / ملف #{lIdx + 1}</span>
+                                </a>
+                              ))}
+                          </div>
+                        </div>
+                      )}
 
                       {entry.audioDate && (
                         <div className="text-[11px] text-slate-400 font-mono">{entry.audioDate}</div>

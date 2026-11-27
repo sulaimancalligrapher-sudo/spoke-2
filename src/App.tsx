@@ -358,6 +358,9 @@ export default function App() {
   const [isVideoResetMode, setIsVideoResetMode] = useState(false);
   const [isVideoLessonsModalOpen, setIsVideoLessonsModalOpen] = useState(false);
   const [isVideoCorrectionModalOpen, setIsVideoCorrectionModalOpen] = useState(false);
+  const [selectedVideoCorrectionTitle, setSelectedVideoCorrectionTitle] = useState<string | undefined>(
+    undefined
+  );
 
   // Modals & Registration (declared before schedule memos so currentStudent is in scope)
   const [isStatsOpen, setIsStatsOpen] = useState(false);
@@ -4574,6 +4577,13 @@ export default function App() {
         matchingHistory={matchingHistory}
         dictationHistory={dictationHistory}
         catchHistory={catchHistory}
+        videoLessons={visibleVideoLessons}
+        videoProgressMap={videoProgressMap}
+        studentCorrections={studentCorrections}
+        onOpenVideoCorrection={(title) => {
+          setSelectedVideoCorrectionTitle(title);
+          setIsVideoCorrectionModalOpen(true);
+        }}
         onClearHistory={handleClearHistory}
         currentStudent={currentStudent}
         isSyncingFromSheets={isSyncingAnswers1}
@@ -4581,7 +4591,9 @@ export default function App() {
         isSyncingDictation={isSyncingDictation}
         isSyncingCatch={isSyncingCatch}
         defaultTab={
-          appMode === 'catch'
+          appMode === 'video'
+            ? 'video'
+            : appMode === 'catch'
             ? 'catch'
             : appMode === 'dictation'
             ? 'dictation'
@@ -4796,6 +4808,12 @@ export default function App() {
           setCurrentView('practice');
         }}
         onOpenCorrections={() => {
+          setSelectedVideoCorrectionTitle(undefined);
+          setIsVideoLessonsModalOpen(false);
+          setIsVideoCorrectionModalOpen(true);
+        }}
+        onOpenLessonCorrection={(lessonTitle) => {
+          setSelectedVideoCorrectionTitle(lessonTitle);
           setIsVideoLessonsModalOpen(false);
           setIsVideoCorrectionModalOpen(true);
         }}
@@ -4810,16 +4828,21 @@ export default function App() {
 
       <VideoCorrectionModal
         isOpen={isVideoCorrectionModalOpen}
-        onClose={() => setIsVideoCorrectionModalOpen(false)}
+        onClose={() => {
+          setIsVideoCorrectionModalOpen(false);
+          setSelectedVideoCorrectionTitle(undefined);
+        }}
         webhookUrl={sheetsConfig.webhookUrl}
         studentId={currentStudent?.id || ''}
         studentName={currentStudent?.name || ''}
         lessons={visibleVideoLessons}
         progressMap={videoProgressMap}
+        studentCorrections={studentCorrections}
         selectedLessonTitle={
-          appMode === 'video'
+          selectedVideoCorrectionTitle ??
+          (appMode === 'video'
             ? visibleVideoLessons.find((l) => l.id === resolvedVideoLessonId)?.title
-            : undefined
+            : undefined)
         }
         onRefreshProgress={refreshAllVideoData}
         t={t}

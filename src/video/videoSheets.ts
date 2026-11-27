@@ -72,12 +72,14 @@ export interface VideoCorrectionEntry {
   imageScore: string;
   correctedImage: string;
   additionalImages: string[];
+  imageLinks?: string[];
   imageDate?: string;
   imageNotes?: string;
   audioStatus: string;
   audioScore: string;
   teacherAudios: string[];
   teacherVideos: string[];
+  audioLinks?: string[];
   audioDate?: string;
   audioNotes?: string;
 }
@@ -1402,12 +1404,14 @@ export async function fetchVideoCorrections(
         imageScore: String(c.imageScore || '').trim(),
         correctedImage: String(c.correctedImage || '').trim(),
         additionalImages: Array.isArray(c.additionalImages) ? c.additionalImages : [],
+        imageLinks: Array.isArray(c.imageLinks) ? c.imageLinks : [],
         imageDate: String(c.imageDate || '').trim() || undefined,
         imageNotes: String(c.imageNotes || '').trim() || undefined,
         audioStatus: String(c.audioStatus || '').trim(),
         audioScore: String(c.audioScore || '').trim(),
         teacherAudios: Array.isArray(c.teacherAudios) ? c.teacherAudios : [],
         teacherVideos: Array.isArray(c.teacherVideos) ? c.teacherVideos : [],
+        audioLinks: Array.isArray(c.audioLinks) ? c.audioLinks : [],
         audioDate: String(c.audioDate || '').trim() || undefined,
         audioNotes: String(c.audioNotes || '').trim() || undefined,
       }));

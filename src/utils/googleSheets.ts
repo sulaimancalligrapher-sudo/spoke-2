@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxwk4zIcBWjF4AX4bokBXKrMnbkUyeTHI86pTEnANlYWSnBVfQATBM-6gm2VOOR9QO42g/exec';
+  'https://script.google.com/macros/s/AKfycbxty7WcFXViXmBGl69cTA62NtnM7HFJqdCttJPteGPcdGHhkYqOdCfoiXaBCvoaTUcJww/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4434,16 +4434,22 @@ function getVideoAnswersSheet(ss) {
 
 function getVideoCorrectionsSheet(ss) {
   var sheet = ss.getSheetByName(VIDEO_CORRECTIONS_SHEET_NAME);
+  var headers = [
+    "عنوان الدرس", "ID المشترك", "اسم المشترك",
+    "حالة الصورة", "درجة الصورة", "الصورة المصححة", "صور إضافية JSON", "تاريخ تصحيح الصورة", "ملاحظات الصورة",
+    "حالة الصوت", "درجة الصوت", "تسجيلات المعلم JSON", "فيديوهات المعلم JSON", "تاريخ تصحيح الصوت", "ملاحظات الصوت",
+    "روابط الصورة JSON", "روابط الصوت JSON"
+  ];
   if (!sheet) {
     sheet = ss.insertSheet(VIDEO_CORRECTIONS_SHEET_NAME);
-    var headers = [
-      "عنوان الدرس", "ID المشترك", "اسم المشترك",
-      "حالة الصورة", "درجة الصورة", "الصورة المصححة", "صور إضافية JSON", "تاريخ تصحيح الصورة", "ملاحظات الصورة",
-      "حالة الصوت", "درجة الصوت", "تسجيلات المعلم JSON", "فيديوهات المعلم JSON", "تاريخ تصحيح الصوت", "ملاحظات الصوت"
-    ];
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setBackground("#7c2d12").setFontColor("#ffffff").setFontWeight("bold");
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastColumn() < headers.length) {
+    var curCols = Math.max(15, sheet.getLastColumn());
+    for (var vcCol = curCols + 1; vcCol <= headers.length; vcCol++) {
+      sheet.getRange(1, vcCol).setValue(headers[vcCol - 1]).setBackground("#7c2d12").setFontColor("#ffffff").setFontWeight("bold");
+    }
   }
   return sheet;
 }
@@ -4727,7 +4733,9 @@ function getMarkingCorrectionsSheet(ss) {
     "ملاحظة المعلم", "الصورة المصححة", "صوت المعلم", "فيديو التصحيح",
     "اسم المعلم", "تاريخ التصحيح", "إشعار تيليغرام",
     "صور إضافية JSON", "أصوات إضافية JSON", "فيديوهات إضافية JSON",
-    "رمز الاستيكر", "نص الاستيكر"
+    "رمز الاستيكر", "نص الاستيكر",
+    "حالة الصورة", "درجة الصورة", "تقدير الصورة", "ملاحظة الصورة", "رمز استيكر الصورة", "نص استيكر الصورة", "روابط الصورة JSON",
+    "حالة الصوت", "درجة الصوت", "تقدير الصوت", "ملاحظة الصوت", "رمز استيكر الصوت", "نص استيكر الصوت", "روابط الصوت JSON"
   ];
   if (!sheet) {
     sheet = ss.insertSheet(MARKING_CORRECTIONS_SHEET_NAME);
@@ -4757,12 +4765,29 @@ function parseJsonStrArrayGS(raw) {
   return [s];
 }
 
+function mergeUniqueStrArrayGS(baseArr, extraArr) {
+  var out = [];
+  var seen = {};
+  var pushAll = function(arr) {
+    if (!Array.isArray(arr)) return;
+    for (var i = 0; i < arr.length; i++) {
+      var item = String(arr[i] || "").trim();
+      if (!item || seen[item]) continue;
+      seen[item] = true;
+      out.push(item);
+    }
+  };
+  pushAll(baseArr);
+  pushAll(extraArr);
+  return out;
+}
+
 function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
   var sheet = getMarkingCorrectionsSheet(ss);
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var colCount = Math.max(16, Math.min(21, sheet.getLastColumn()));
+  var colCount = Math.max(16, Math.min(35, sheet.getLastColumn()));
   var rows = sheet.getRange(2, 1, lastR - 1, colCount).getValues();
   var cleanId = normRegDigitsGS(filterStudentId || "");
   var cleanName = String(filterStudentName || "").trim();
@@ -4786,6 +4811,22 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
     if (tAud && addAuds.indexOf(tAud) === -1) addAuds.unshift(tAud);
     if (tVid && addVids.indexOf(tVid) === -1) addVids.unshift(tVid);
 
+    var imgStatus = colCount >= 22 ? String(row[21] || "").trim() : "";
+    var imgScoreRaw = colCount >= 23 ? row[22] : "";
+    var imgRating = colCount >= 24 ? String(row[23] || "").trim() : "";
+    var imgNotes = colCount >= 25 ? String(row[24] || "").trim() : "";
+    var imgStSym = colCount >= 26 ? String(row[25] || "").trim() : "";
+    var imgStLbl = colCount >= 27 ? String(row[26] || "").trim() : "";
+    var imgLinks = colCount >= 28 ? parseJsonStrArrayGS(row[27]) : [];
+
+    var audStatus = colCount >= 29 ? String(row[28] || "").trim() : "";
+    var audScoreRaw = colCount >= 30 ? row[29] : "";
+    var audRating = colCount >= 31 ? String(row[30] || "").trim() : "";
+    var audNotes = colCount >= 32 ? String(row[31] || "").trim() : "";
+    var audStSym = colCount >= 33 ? String(row[32] || "").trim() : "";
+    var audStLbl = colCount >= 34 ? String(row[33] || "").trim() : "";
+    var audLinks = colCount >= 35 ? parseJsonStrArrayGS(row[34]) : [];
+
     list.push({
       id: "mc-" + (r + 2),
       submissionKey: sKey,
@@ -4806,6 +4847,20 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
       teacherVideos: addVids,
       stickerSymbol: colCount >= 20 ? String(row[19] || "").trim() : "",
       stickerLabel: colCount >= 21 ? String(row[20] || "").trim() : "",
+      imageStatus: imgStatus || undefined,
+      imageScore: imgScoreRaw !== "" && imgScoreRaw !== null && imgScoreRaw !== undefined ? Number(imgScoreRaw) : undefined,
+      imageRatingLabel: imgRating || undefined,
+      imageNotes: imgNotes || undefined,
+      imageStickerSymbol: imgStSym || undefined,
+      imageStickerLabel: imgStLbl || undefined,
+      imageLinks: imgLinks,
+      audioStatus: audStatus || undefined,
+      audioScore: audScoreRaw !== "" && audScoreRaw !== null && audScoreRaw !== undefined ? Number(audScoreRaw) : undefined,
+      audioRatingLabel: audRating || undefined,
+      audioNotes: audNotes || undefined,
+      audioStickerSymbol: audStSym || undefined,
+      audioStickerLabel: audStLbl || undefined,
+      audioLinks: audLinks,
       teacherName: String(row[13] || "").trim(),
       updatedAt: String(row[14] || "").trim(),
       telegramNotified: String(row[15] || "").trim() === "true"
@@ -4949,8 +5004,9 @@ function mirrorCorrectionToVideoSheetGS(ss, opts) {
     if (!lTitle) return;
     var lastR = vcSheet.getLastRow();
     var targetR = -1;
+    var existingRow = null;
     if (lastR > 1) {
-      var rows = vcSheet.getRange(2, 1, lastR - 1, 3).getValues();
+      var rows = vcSheet.getRange(2, 1, lastR - 1, Math.max(17, vcSheet.getLastColumn())).getValues();
       for (var r = 0; r < rows.length; r++) {
         var rTitle = String(rows[r][0] || "").trim();
         var rId = normRegDigitsGS(rows[r][1] || "");
@@ -4958,31 +5014,63 @@ function mirrorCorrectionToVideoSheetGS(ss, opts) {
         var stMatch = (sId && rId === normRegDigitsGS(sId)) || ((!sId || !rId) && sName && rName === sName);
         if (stMatch && rTitle === lTitle) {
           targetR = r + 2;
+          existingRow = rows[r];
           break;
         }
       }
     }
-    var stBadge = opts.status === "retry" ? "يحتاج إعادة" : (opts.ratingLabel || "ممتاز");
-    var imgNotesFull = (opts.stickerText ? (opts.stickerText + "\\n") : "") + String(opts.notes || "");
+    var mode = String(opts.saveMode || "full").trim();
+    var imgDone = mode === "image_only" || mode === "append_image" || mode === "full";
+    var audDone = mode === "audio_only" || mode === "append_audio" || mode === "full";
+
+    var imgBadge = opts.imageStatus === "retry" ? "يحتاج إعادة" : (opts.imageRatingLabel || (opts.status === "retry" ? "يحتاج إعادة" : (opts.ratingLabel || "ممتاز")));
+    var audBadge = opts.audioStatus === "retry" ? "يحتاج إعادة" : (opts.audioRatingLabel || (opts.status === "retry" ? "يحتاج إعادة" : (opts.ratingLabel || "ممتاز")));
+
+    var imgStickerLine = opts.imageStickerText ? (opts.imageStickerText + "\\n") : "";
+    var audStickerLine = opts.audioStickerText ? (opts.audioStickerText + "\\n") : "";
+    var imgNotesFull = imgStickerLine + String(opts.imageNotes || opts.notes || "");
+    var audNotesFull = audStickerLine + String(opts.audioNotes || opts.notes || "");
+
+    var prevImgStatus = existingRow ? String(existingRow[3] || "").trim() : "";
+    var prevImgScore = existingRow ? String(existingRow[4] || "").trim() : "";
+    var prevCorrImg = existingRow ? String(existingRow[5] || "").trim() : "";
+    var prevAddImgs = existingRow ? parseJsonStrArrayGS(existingRow[6]) : [];
+    var prevImgDate = existingRow ? String(existingRow[7] || "").trim() : "";
+    var prevImgNotes = existingRow ? String(existingRow[8] || "").trim() : "";
+    var prevImgLinks = existingRow && existingRow.length >= 16 ? parseJsonStrArrayGS(existingRow[15]) : [];
+
+    var prevAudStatus = existingRow ? String(existingRow[9] || "").trim() : "";
+    var prevAudScore = existingRow ? String(existingRow[10] || "").trim() : "";
+    var prevTAuds = existingRow ? parseJsonStrArrayGS(existingRow[11]) : [];
+    var prevTVids = existingRow ? parseJsonStrArrayGS(existingRow[12]) : [];
+    var prevAudDate = existingRow ? String(existingRow[13] || "").trim() : "";
+    var prevAudNotes = existingRow ? String(existingRow[14] || "").trim() : "";
+    var prevAudLinks = existingRow && existingRow.length >= 17 ? parseJsonStrArrayGS(existingRow[16]) : [];
+
+    var rowImgStatus = imgDone ? ((opts.correctedImageUrl || (opts.additionalImages && opts.additionalImages.length > 0) || opts.imageScore !== "" || opts.imageNotes) ? imgBadge : prevImgStatus) : prevImgStatus;
+    var rowImgScore = imgDone ? (opts.imageScore !== "" && opts.imageScore !== undefined ? String(opts.imageScore) : prevImgScore) : prevImgScore;
+    var rowCorrImg = imgDone ? (opts.correctedImageUrl || prevCorrImg) : prevCorrImg;
+    var rowAddImgs = imgDone ? (opts.additionalImages || prevAddImgs) : prevAddImgs;
+    var rowImgDate = imgDone ? (opts.nowStr || prevImgDate) : prevImgDate;
+    var rowImgNotes = imgDone ? (imgNotesFull || prevImgNotes) : prevImgNotes;
+    var rowImgLinks = imgDone ? (opts.imageLinks || prevImgLinks) : prevImgLinks;
+
+    var rowAudStatus = audDone ? (((opts.teacherAudios && opts.teacherAudios.length > 0) || opts.audioScore !== "" || opts.audioNotes) ? audBadge : prevAudStatus) : prevAudStatus;
+    var rowAudScore = audDone ? (opts.audioScore !== "" && opts.audioScore !== undefined ? String(opts.audioScore) : prevAudScore) : prevAudScore;
+    var rowTAuds = audDone ? (opts.teacherAudios || prevTAuds) : prevTAuds;
+    var rowTVids = (imgDone || audDone) ? (opts.teacherVideos && opts.teacherVideos.length > 0 ? opts.teacherVideos : prevTVids) : prevTVids;
+    var rowAudDate = audDone ? (opts.nowStr || prevAudDate) : prevAudDate;
+    var rowAudNotes = audDone ? (audNotesFull || prevAudNotes) : prevAudNotes;
+    var rowAudLinks = audDone ? (opts.audioLinks || prevAudLinks) : prevAudLinks;
+
     var rowData = [
-      lTitle,
-      sId,
-      sName,
-      opts.correctedImageUrl || (opts.additionalImages && opts.additionalImages.length > 0) ? stBadge : "",
-      opts.score !== "" && opts.score !== undefined ? String(opts.score) : "",
-      opts.correctedImageUrl || "",
-      JSON.stringify(opts.additionalImages || []),
-      opts.nowStr || "",
-      imgNotesFull,
-      (opts.teacherAudios && opts.teacherAudios.length > 0) || (opts.teacherVideos && opts.teacherVideos.length > 0) ? stBadge : stBadge,
-      opts.score !== "" && opts.score !== undefined ? String(opts.score) : "",
-      JSON.stringify(opts.teacherAudios || []),
-      JSON.stringify(opts.teacherVideos || []),
-      opts.nowStr || "",
-      imgNotesFull
+      lTitle, sId, sName,
+      rowImgStatus, rowImgScore, rowCorrImg, JSON.stringify(rowAddImgs || []), rowImgDate, rowImgNotes,
+      rowAudStatus, rowAudScore, JSON.stringify(rowTAuds || []), JSON.stringify(rowTVids || []), rowAudDate, rowAudNotes,
+      JSON.stringify(rowImgLinks || []), JSON.stringify(rowAudLinks || [])
     ];
     if (targetR !== -1) {
-      vcSheet.getRange(targetR, 1, 1, 15).setValues([rowData]);
+      vcSheet.getRange(targetR, 1, 1, 17).setValues([rowData]);
     } else {
       vcSheet.appendRow(rowData);
     }
@@ -4998,28 +5086,186 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   var sName = String(item.studentName || "").trim();
   var lSubj = String(item.lessonSubject || "").trim();
   var iTitle = String(item.itemTitle || "").trim();
-  var stStatus = String(item.status || "corrected").trim();
-  var scVal = (item.score !== undefined && item.score !== null && item.score !== "") ? Number(item.score) : "";
-  var ratLabel = String(item.ratingLabel || "").trim();
-  var notesStr = String(item.notes || "").trim();
-  var corrImg = String(item.correctedImageUrl || "").trim();
-  var addImgs = parseJsonStrArrayGS(item.additionalImages);
-  if (corrImg && addImgs.indexOf(corrImg) === -1) addImgs.unshift(corrImg);
-  if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
+  var saveMode = String(item.saveMode || "full").trim();
 
-  var tAudios = parseJsonStrArrayGS(item.teacherAudios);
-  var tAudio = String(item.teacherAudioUrl || "").trim();
-  if (tAudio && tAudios.indexOf(tAudio) === -1) tAudios.unshift(tAudio);
-  if (!tAudio && tAudios.length > 0) tAudio = tAudios[0];
+  var lastR = mcSheet.getLastRow();
+  var targetRow = -1;
+  var prev = null;
+  if (lastR > 1 && sKey) {
+    var keysCol = mcSheet.getRange(2, 1, lastR - 1, 1).getValues();
+    for (var k = 0; k < keysCol.length; k++) {
+      if (String(keysCol[k][0] || "").trim() === sKey) {
+        targetRow = k + 2;
+        var prevCols = Math.max(21, Math.min(35, mcSheet.getLastColumn()));
+        prev = mcSheet.getRange(targetRow, 1, 1, prevCols).getValues()[0];
+        break;
+      }
+    }
+  }
 
-  var tVideos = parseJsonStrArrayGS(item.teacherVideos);
-  var tVideo = String(item.teacherVideoUrl || "").trim();
-  if (tVideo && tVideos.indexOf(tVideo) === -1) tVideos.unshift(tVideo);
-  if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+  var prevCorrImg = prev ? String(prev[10] || "").trim() : "";
+  var prevTAudio = prev ? String(prev[11] || "").trim() : "";
+  var prevTVideo = prev ? String(prev[12] || "").trim() : "";
+  var prevAddImgs = prev && prev.length >= 17 ? parseJsonStrArrayGS(prev[16]) : [];
+  var prevTAuds = prev && prev.length >= 18 ? parseJsonStrArrayGS(prev[17]) : [];
+  var prevTVids = prev && prev.length >= 19 ? parseJsonStrArrayGS(prev[18]) : [];
+  var prevStSym = prev && prev.length >= 20 ? String(prev[19] || "").trim() : "";
+  var prevStLbl = prev && prev.length >= 21 ? String(prev[20] || "").trim() : "";
 
-  var stSym = String(item.stickerSymbol || "").trim();
-  var stLbl = String(item.stickerLabel || "").trim();
-  var stickerHeader = (stSym || stLbl) ? ((stSym ? stSym + " " : "") + stLbl).trim() : "";
+  var prevImgStatus = prev && prev.length >= 22 ? String(prev[21] || "").trim() : "";
+  var prevImgScore = prev && prev.length >= 23 && prev[22] !== "" ? prev[22] : "";
+  var prevImgRating = prev && prev.length >= 24 ? String(prev[23] || "").trim() : "";
+  var prevImgNotes = prev && prev.length >= 25 ? String(prev[24] || "").trim() : "";
+  var prevImgStSym = prev && prev.length >= 26 ? String(prev[25] || "").trim() : "";
+  var prevImgStLbl = prev && prev.length >= 27 ? String(prev[26] || "").trim() : "";
+  var prevImgLinks = prev && prev.length >= 28 ? parseJsonStrArrayGS(prev[27]) : [];
+
+  var prevAudStatus = prev && prev.length >= 29 ? String(prev[28] || "").trim() : "";
+  var prevAudScore = prev && prev.length >= 30 && prev[29] !== "" ? prev[29] : "";
+  var prevAudRating = prev && prev.length >= 31 ? String(prev[30] || "").trim() : "";
+  var prevAudNotes = prev && prev.length >= 32 ? String(prev[31] || "").trim() : "";
+  var prevAudStSym = prev && prev.length >= 33 ? String(prev[32] || "").trim() : "";
+  var prevAudStLbl = prev && prev.length >= 34 ? String(prev[33] || "").trim() : "";
+  var prevAudLinks = prev && prev.length >= 35 ? parseJsonStrArrayGS(prev[34]) : [];
+
+  // Incoming parsed values
+  var incCorrImg = String(item.correctedImageUrl || "").trim();
+  var incAddImgs = parseJsonStrArrayGS(item.additionalImages);
+  if (incCorrImg && incAddImgs.indexOf(incCorrImg) === -1) incAddImgs.unshift(incCorrImg);
+  var incImgLinks = parseJsonStrArrayGS(item.imageLinks);
+
+  var incTAuds = parseJsonStrArrayGS(item.teacherAudios);
+  var incTAudio = String(item.teacherAudioUrl || "").trim();
+  if (incTAudio && incTAuds.indexOf(incTAudio) === -1) incTAuds.unshift(incTAudio);
+  var incAudLinks = parseJsonStrArrayGS(item.audioLinks);
+
+  var incTVids = parseJsonStrArrayGS(item.teacherVideos);
+  var incTVideo = String(item.teacherVideoUrl || "").trim();
+  if (incTVideo && incTVids.indexOf(incTVideo) === -1) incTVids.unshift(incTVideo);
+
+  var incImgStatus = String(item.imageStatus || (saveMode === "image_only" ? item.status : "") || "").trim();
+  var incImgScore = (item.imageScore !== undefined && item.imageScore !== null && item.imageScore !== "") ? Number(item.imageScore) : "";
+  var incImgRating = String(item.imageRatingLabel || (saveMode === "image_only" ? item.ratingLabel : "") || "").trim();
+  var incImgNotes = String(item.imageNotes !== undefined ? item.imageNotes : (saveMode === "image_only" || saveMode === "append_image" ? item.notes : "") || "").trim();
+  var incImgStSym = String(item.imageStickerSymbol || (saveMode === "image_only" || saveMode === "append_image" ? item.stickerSymbol : "") || "").trim();
+  var incImgStLbl = String(item.imageStickerLabel || (saveMode === "image_only" || saveMode === "append_image" ? item.stickerLabel : "") || "").trim();
+
+  var incAudStatus = String(item.audioStatus || (saveMode === "audio_only" ? item.status : "") || "").trim();
+  var incAudScore = (item.audioScore !== undefined && item.audioScore !== null && item.audioScore !== "") ? Number(item.audioScore) : "";
+  var incAudRating = String(item.audioRatingLabel || (saveMode === "audio_only" ? item.ratingLabel : "") || "").trim();
+  var incAudNotes = String(item.audioNotes !== undefined ? item.audioNotes : (saveMode === "audio_only" || saveMode === "append_audio" ? item.notes : "") || "").trim();
+  var incAudStSym = String(item.audioStickerSymbol || (saveMode === "audio_only" || saveMode === "append_audio" ? item.stickerSymbol : "") || "").trim();
+  var incAudStLbl = String(item.audioStickerLabel || (saveMode === "audio_only" || saveMode === "append_audio" ? item.stickerLabel : "") || "").trim();
+
+  var corrImg = prevCorrImg;
+  var addImgs = prevAddImgs.slice();
+  var imgLinks = prevImgLinks.slice();
+  var tAudio = prevTAudio;
+  var tAudios = prevTAuds.slice();
+  var audLinks = prevAudLinks.slice();
+  var tVideo = prevTVideo;
+  var tVideos = prevTVids.slice();
+
+  var finalImgStatus = prevImgStatus;
+  var finalImgScore = prevImgScore;
+  var finalImgRating = prevImgRating;
+  var finalImgNotes = prevImgNotes;
+  var finalImgStSym = prevImgStSym;
+  var finalImgStLbl = prevImgStLbl;
+
+  var finalAudStatus = prevAudStatus;
+  var finalAudScore = prevAudScore;
+  var finalAudRating = prevAudRating;
+  var finalAudNotes = prevAudNotes;
+  var finalAudStSym = prevAudStSym;
+  var finalAudStLbl = prevAudStLbl;
+
+  if (saveMode === "image_only") {
+    corrImg = incCorrImg || prevCorrImg;
+    addImgs = incCorrImg ? mergeUniqueStrArrayGS([incCorrImg], mergeUniqueStrArrayGS(incAddImgs, prevAddImgs)) : mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
+    if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
+    imgLinks = incImgLinks.length > 0 ? incImgLinks : prevImgLinks;
+    if (incTVids.length > 0) tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    finalImgStatus = incImgStatus || "corrected";
+    if (incImgScore !== "") finalImgScore = incImgScore;
+    finalImgRating = incImgRating || prevImgRating;
+    finalImgNotes = incImgNotes;
+    if (incImgStSym) finalImgStSym = incImgStSym;
+    if (incImgStLbl) finalImgStLbl = incImgStLbl;
+  } else if (saveMode === "audio_only") {
+    tAudios = incTAuds.length > 0 ? incTAuds : prevTAuds;
+    tAudio = incTAudio || (tAudios[0] || prevTAudio);
+    audLinks = incAudLinks.length > 0 ? incAudLinks : prevAudLinks;
+    if (incTVids.length > 0) tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    finalAudStatus = incAudStatus || "corrected";
+    if (incAudScore !== "") finalAudScore = incAudScore;
+    finalAudRating = incAudRating || prevAudRating;
+    finalAudNotes = incAudNotes;
+    if (incAudStSym) finalAudStSym = incAudStSym;
+    if (incAudStLbl) finalAudStLbl = incAudStLbl;
+  } else if (saveMode === "append_image") {
+    addImgs = mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
+    if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
+    imgLinks = mergeUniqueStrArrayGS(prevImgLinks, incImgLinks);
+    tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    if (!finalImgStatus) finalImgStatus = incImgStatus || "corrected";
+    if (incImgNotes) finalImgNotes = prevImgNotes ? (prevImgNotes + "\\n" + incImgNotes) : incImgNotes;
+    if (incImgStSym) finalImgStSym = incImgStSym;
+    if (incImgStLbl) finalImgStLbl = incImgStLbl;
+  } else if (saveMode === "append_audio") {
+    tAudios = mergeUniqueStrArrayGS(prevTAuds, incTAuds);
+    tAudio = prevTAudio || (tAudios[0] || "");
+    audLinks = mergeUniqueStrArrayGS(prevAudLinks, incAudLinks);
+    if (incTVids.length > 0) tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    if (!finalAudStatus) finalAudStatus = incAudStatus || "corrected";
+    if (incAudNotes) finalAudNotes = prevAudNotes ? (prevAudNotes + "\\n" + incAudNotes) : incAudNotes;
+    if (incAudStSym) finalAudStSym = incAudStSym;
+    if (incAudStLbl) finalAudStLbl = incAudStLbl;
+  } else {
+    // Full save mode
+    corrImg = incCorrImg || (incAddImgs[0] || "");
+    addImgs = incAddImgs;
+    imgLinks = incImgLinks;
+    tAudio = incTAudio || (incTAuds[0] || "");
+    tAudios = incTAuds;
+    audLinks = incAudLinks;
+    tVideo = incTVideo || (incTVids[0] || "");
+    tVideos = incTVids;
+    finalImgStatus = incImgStatus || (corrImg || addImgs.length > 0 || incImgNotes || incImgScore !== "" ? String(item.status || "corrected") : prevImgStatus);
+    if (incImgScore !== "") finalImgScore = incImgScore;
+    if (incImgRating) finalImgRating = incImgRating;
+    if (incImgNotes) finalImgNotes = incImgNotes;
+    if (incImgStSym) finalImgStSym = incImgStSym;
+    if (incImgStLbl) finalImgStLbl = incImgStLbl;
+    finalAudStatus = incAudStatus || (tAudio || tAudios.length > 0 || incAudNotes || incAudScore !== "" ? String(item.status || "corrected") : prevAudStatus);
+    if (incAudScore !== "") finalAudScore = incAudScore;
+    if (incAudRating) finalAudRating = incAudRating;
+    if (incAudNotes) finalAudNotes = incAudNotes;
+    if (incAudStSym) finalAudStSym = incAudStSym;
+    if (incAudStLbl) finalAudStLbl = incAudStLbl;
+  }
+
+  var stStatus = (finalImgStatus === "retry" || finalAudStatus === "retry") ? "retry" : String(item.status || (prev ? prev[6] : "corrected") || "corrected").trim();
+  var scVal = (item.score !== undefined && item.score !== null && item.score !== "")
+    ? Number(item.score)
+    : (finalImgScore !== "" && finalAudScore !== "")
+      ? Math.round((Number(finalImgScore) + Number(finalAudScore)) / 2)
+      : (finalImgScore !== "" ? Number(finalImgScore) : (finalAudScore !== "" ? Number(finalAudScore) : (prev && prev[7] !== "" ? Number(prev[7]) : "")));
+  var ratLabel = String(item.ratingLabel || finalImgRating || finalAudRating || (prev ? prev[8] : "") || "").trim();
+  var combinedNotesParts = [];
+  if (finalImgNotes) combinedNotesParts.push("🖼️ " + finalImgNotes);
+  if (finalAudNotes) combinedNotesParts.push("🎙️ " + finalAudNotes);
+  var notesStr = combinedNotesParts.length > 0 ? combinedNotesParts.join("\\n") : String(item.notes || (prev ? prev[9] : "") || "").trim();
+
+  var stSym = String(item.stickerSymbol || finalImgStSym || finalAudStSym || prevStSym || "").trim();
+  var stLbl = String(item.stickerLabel || finalImgStLbl || finalAudStLbl || prevStLbl || "").trim();
+  var imgStickerHeader = (finalImgStSym || finalImgStLbl) ? ((finalImgStSym ? finalImgStSym + " " : "") + finalImgStLbl).trim() : "";
+  var audStickerHeader = (finalAudStSym || finalAudStLbl) ? ((finalAudStSym ? finalAudStSym + " " : "") + finalAudStLbl).trim() : "";
+  var stickerHeader = imgStickerHeader || audStickerHeader || ((stSym || stLbl) ? ((stSym ? stSym + " " : "") + stLbl).trim() : "");
   var tName = String(item.teacherName || defaultTeacherName || "المعلم").trim();
 
   var tgSent = false;
@@ -5027,22 +5273,37 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   if (item.sendTelegram !== false && mCfg.notifyStudentOnCorrection !== false) {
     var stuChatId = findStudentTelegramChatIdGS(ss, sId, sName);
     if (stuChatId) {
-      var statusBadge = stStatus === "retry" ? "🔄 مطلوب إعادة المحاولة" : "✅ تم التصحيح والاعتماد";
+      var modeLabel = saveMode === "image_only" ? "تصحيح واجب الصورة"
+        : saveMode === "audio_only" ? "تصحيح واجب الصوت"
+        : saveMode === "append_image" ? "ملاحظات/ملفات إضافية (الصورة)"
+        : saveMode === "append_audio" ? "ملاحظات/ملفات إضافية (الصوت)"
+        : "التصحيح والاعتماد";
+      var statusBadge = stStatus === "retry" ? "🔄 مطلوب إعادة المحاولة" : ("✅ تم " + modeLabel);
       var msgLines = [
         "<b>" + statusBadge + "</b>" + (stickerHeader ? ("   " + stickerHeader) : ""),
         "الطالب: <b>" + (sName || "طالبنا الكريم") + "</b>",
         "الدرس: <b>" + (lSubj || "—") + "</b>" + (iTitle ? (" — " + iTitle) : "")
       ];
-      if (scVal !== "") msgLines.push("الدرجة: <b>" + scVal + "</b>" + (ratLabel ? (" (" + ratLabel + ")") : ""));
-      else if (ratLabel) msgLines.push("التقدير: <b>" + ratLabel + "</b>");
-      if (notesStr) msgLines.push("📝 ملاحظة المعلم: " + notesStr);
+      if ((saveMode === "image_only" || saveMode === "full") && finalImgScore !== "") {
+        msgLines.push("🖼️ درجة الصورة: <b>" + finalImgScore + "</b>" + (finalImgRating ? (" (" + finalImgRating + ")") : ""));
+      }
+      if ((saveMode === "audio_only" || saveMode === "full") && finalAudScore !== "") {
+        msgLines.push("🎙️ درجة الصوت: <b>" + finalAudScore + "</b>" + (finalAudRating ? (" (" + finalAudRating + ")") : ""));
+      }
+      if (saveMode === "image_only" && finalImgNotes) msgLines.push("📝 ملاحظة الصورة: " + finalImgNotes);
+      else if (saveMode === "audio_only" && finalAudNotes) msgLines.push("📝 ملاحظة الصوت: " + finalAudNotes);
+      else if (notesStr) msgLines.push("📝 ملاحظة المعلم: " + notesStr);
+      if (saveMode === "append_image" && imgLinks.length > 0) msgLines.push("🔗 روابط مرفقة: " + imgLinks.slice(-3).join(" | "));
+      if (saveMode === "append_audio" && audLinks.length > 0) msgLines.push("🔗 روابط مرفقة: " + audLinks.slice(-3).join(" | "));
       if (item.allowRetry) msgLines.push("🔓 تم فتح محاولة إضافية لك في المنصة.");
       msgLines.push("👨‍🏫 المعلم: " + tName);
-      tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tVideos, addImgs, tAudios).ok;
+      var tgVideos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "full") ? (incTVids.length > 0 ? incTVids : tVideos) : [];
+      var tgPhotos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "full") ? (incAddImgs.length > 0 ? incAddImgs : (corrImg ? [corrImg] : [])) : [];
+      var tgAudios = (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "full") ? (incTAuds.length > 0 ? incTAuds : tAudios) : [];
+      tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tgVideos, tgPhotos, tgAudios).ok;
     }
   }
 
-  // إذا طلب المعلم فتح محاولة جديدة للطالب، يتم تصفير عداد المحاولات في ورقة سجل_المحاولات
   if (item.allowRetry && (sId || sName)) {
     try {
       var rSheet = getRetriesSheet(ss);
@@ -5067,11 +5328,23 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
       lessonTitle: iTitle || lSubj,
       studentId: sId,
       studentName: sName,
+      saveMode: saveMode,
       status: stStatus,
       score: scVal,
       ratingLabel: ratLabel,
       notes: notesStr,
-      stickerText: stickerHeader,
+      imageStatus: finalImgStatus,
+      imageScore: finalImgScore,
+      imageRatingLabel: finalImgRating,
+      imageNotes: finalImgNotes,
+      imageStickerText: imgStickerHeader,
+      imageLinks: imgLinks,
+      audioStatus: finalAudStatus,
+      audioScore: finalAudScore,
+      audioRatingLabel: finalAudRating,
+      audioNotes: finalAudNotes,
+      audioStickerText: audStickerHeader,
+      audioLinks: audLinks,
       correctedImageUrl: corrImg,
       additionalImages: addImgs,
       teacherAudios: tAudios,
@@ -5080,26 +5353,17 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     });
   }
 
-  var lastR = mcSheet.getLastRow();
-  var targetRow = -1;
-  if (lastR > 1 && sKey) {
-    var keysCol = mcSheet.getRange(2, 1, lastR - 1, 1).getValues();
-    for (var k = 0; k < keysCol.length; k++) {
-      if (String(keysCol[k][0] || "").trim() === sKey) {
-        targetRow = k + 2;
-        break;
-      }
-    }
-  }
   var rowArr = [
     sKey, exType, sId, sName, lSubj, iTitle,
     stStatus, scVal, ratLabel, notesStr,
     corrImg, tAudio, tVideo, tName, nowStr, tgSent ? "true" : "false",
     JSON.stringify(addImgs), JSON.stringify(tAudios), JSON.stringify(tVideos),
-    stSym, stLbl
+    stSym, stLbl,
+    finalImgStatus, finalImgScore, finalImgRating, finalImgNotes, finalImgStSym, finalImgStLbl, JSON.stringify(imgLinks),
+    finalAudStatus, finalAudScore, finalAudRating, finalAudNotes, finalAudStSym, finalAudStLbl, JSON.stringify(audLinks)
   ];
   if (targetRow !== -1) {
-    mcSheet.getRange(targetRow, 1, 1, 21).setValues([rowArr]);
+    mcSheet.getRange(targetRow, 1, 1, 35).setValues([rowArr]);
   } else {
     mcSheet.appendRow(rowArr);
   }
@@ -5123,6 +5387,21 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     teacherVideos: tVideos,
     stickerSymbol: stSym,
     stickerLabel: stLbl,
+    imageStatus: finalImgStatus || undefined,
+    imageScore: finalImgScore === "" ? undefined : Number(finalImgScore),
+    imageRatingLabel: finalImgRating || undefined,
+    imageNotes: finalImgNotes || undefined,
+    imageStickerSymbol: finalImgStSym || undefined,
+    imageStickerLabel: finalImgStLbl || undefined,
+    imageLinks: imgLinks,
+    audioStatus: finalAudStatus || undefined,
+    audioScore: finalAudScore === "" ? undefined : Number(finalAudScore),
+    audioRatingLabel: finalAudRating || undefined,
+    audioNotes: finalAudNotes || undefined,
+    audioStickerSymbol: finalAudStSym || undefined,
+    audioStickerLabel: finalAudStLbl || undefined,
+    audioLinks: audLinks,
+    saveMode: saveMode,
     teacherName: tName,
     updatedAt: nowStr,
     telegramNotified: tgSent
@@ -5321,7 +5600,8 @@ function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) 
   }
   var resolvedMime = String(mimeType || "application/octet-stream");
   var ext = ".bin";
-  if (resolvedMime.indexOf("png") !== -1) ext = ".png";
+  if (resolvedMime.indexOf("pdf") !== -1) ext = ".pdf";
+  else if (resolvedMime.indexOf("png") !== -1) ext = ".png";
   else if (resolvedMime.indexOf("jpeg") !== -1 || resolvedMime.indexOf("jpg") !== -1) ext = ".jpg";
   else if (resolvedMime.indexOf("image/") === 0) ext = ".jpg";
   else if (resolvedMime.indexOf("webm") !== -1) ext = ".webm";
@@ -5342,6 +5622,9 @@ function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) 
   var fid = file.getId();
   if (resolvedMime.indexOf("image/") === 0) {
     return "https://drive.google.com/uc?export=view&id=" + fid;
+  }
+  if (resolvedMime.indexOf("pdf") !== -1) {
+    return "https://drive.google.com/file/d/" + fid + "/view";
   }
   return "https://drive.google.com/uc?export=download&id=" + fid;
 }
@@ -5392,7 +5675,8 @@ function readVideoCorrectionsListGS(ss, filterId, filterName) {
   var lastR = sheet.getLastRow();
   var list = [];
   if (lastR <= 1) return list;
-  var rows = sheet.getRange(2, 1, lastR - 1, Math.max(15, sheet.getLastColumn())).getValues();
+  var colCnt = Math.max(15, Math.min(17, sheet.getLastColumn()));
+  var rows = sheet.getRange(2, 1, lastR - 1, colCnt).getValues();
   for (var r = 0; r < rows.length; r++) {
     var row = rows[r];
     var cTitle = String(row[0] || "").trim();
@@ -5407,9 +5691,13 @@ function readVideoCorrectionsListGS(ss, filterId, filterName) {
     var addImgs = [];
     var tAudios = [];
     var tVideos = [];
+    var imgLinks = [];
+    var audLinks = [];
     try { if (row[6]) addImgs = JSON.parse(String(row[6])); } catch (e) {}
     try { if (row[11]) tAudios = JSON.parse(String(row[11])); } catch (e) {}
     try { if (row[12]) tVideos = JSON.parse(String(row[12])); } catch (e) {}
+    try { if (colCnt >= 16 && row[15]) imgLinks = JSON.parse(String(row[15])); } catch (e) {}
+    try { if (colCnt >= 17 && row[16]) audLinks = JSON.parse(String(row[16])); } catch (e) {}
     list.push({
       lessonTitle: cTitle,
       studentId: cId,
@@ -5418,12 +5706,14 @@ function readVideoCorrectionsListGS(ss, filterId, filterName) {
       imageScore: String(row[4] || "").trim(),
       correctedImage: String(row[5] || "").trim(),
       additionalImages: Array.isArray(addImgs) ? addImgs : [],
+      imageLinks: Array.isArray(imgLinks) ? imgLinks : [],
       imageDate: String(row[7] || "").trim(),
       imageNotes: String(row[8] || "").trim(),
       audioStatus: String(row[9] || "").trim(),
       audioScore: String(row[10] || "").trim(),
       teacherAudios: Array.isArray(tAudios) ? tAudios : [],
       teacherVideos: Array.isArray(tVideos) ? tVideos : [],
+      audioLinks: Array.isArray(audLinks) ? audLinks : [],
       audioDate: String(row[13] || "").trim(),
       audioNotes: String(row[14] || "").trim()
     });
@@ -8802,7 +9092,7 @@ function doPost(e) {
 
     if (data.action === "upload_marking_media" && data.base64Data) {
       var mType = String(data.mediaType || "image").trim();
-      var mMime = mType === "audio" ? "audio/mp3" : mType === "video" ? "video/webm" : "image/png";
+      var mMime = String(data.mimeType || "").trim() || (mType === "pdf" ? "application/pdf" : mType === "audio" ? "audio/mp3" : mType === "video" ? "video/webm" : "image/png");
       var mPrefix = String(data.fileName || ("marking_" + mType)).trim();
       var uploadedMediaUrl = uploadVideoBase64ToDriveGS(
         data.base64Data,
@@ -8881,11 +9171,14 @@ function doPost(e) {
     }
 
     if (data.action === "save_marking_batch" && Array.isArray(data.items)) {
+      var batchSaveMode = String(data.saveMode || "").trim();
       var sharedImgUrl = String(data.sharedCorrectedImageUrl || "").trim();
       var sharedAudUrl = String(data.sharedTeacherAudioUrl || "").trim();
       var sharedVidUrl = String(data.sharedTeacherVideoUrl || "").trim();
       var sharedAddImgs = parseJsonStrArrayGS(data.sharedAdditionalImages);
+      var sharedImgLinks = parseJsonStrArrayGS(data.sharedImageLinks);
       var sharedAddAuds = parseJsonStrArrayGS(data.sharedTeacherAudios);
+      var sharedAudLinks = parseJsonStrArrayGS(data.sharedAudioLinks);
       var sharedAddVids = parseJsonStrArrayGS(data.sharedTeacherVideos);
 
       if (data.sharedCorrectedImageBase64) {
@@ -8923,13 +9216,20 @@ function doPost(e) {
       var tgSentCount = 0;
       for (var bi = 0; bi < data.items.length; bi++) {
         var bItem = data.items[bi] || {};
+        if (!bItem.saveMode && batchSaveMode) bItem.saveMode = batchSaveMode;
         if (!bItem.correctedImageUrl && sharedImgUrl) bItem.correctedImageUrl = sharedImgUrl;
         if ((!bItem.additionalImages || bItem.additionalImages.length === 0) && sharedAddImgs.length > 0) {
           bItem.additionalImages = sharedAddImgs.slice();
         }
+        if ((!bItem.imageLinks || bItem.imageLinks.length === 0) && sharedImgLinks.length > 0) {
+          bItem.imageLinks = sharedImgLinks.slice();
+        }
         if (!bItem.teacherAudioUrl && sharedAudUrl) bItem.teacherAudioUrl = sharedAudUrl;
         if ((!bItem.teacherAudios || bItem.teacherAudios.length === 0) && sharedAddAuds.length > 0) {
           bItem.teacherAudios = sharedAddAuds.slice();
+        }
+        if ((!bItem.audioLinks || bItem.audioLinks.length === 0) && sharedAudLinks.length > 0) {
+          bItem.audioLinks = sharedAudLinks.slice();
         }
         if (!bItem.teacherVideoUrl && sharedVidUrl) bItem.teacherVideoUrl = sharedVidUrl;
         if ((!bItem.teacherVideos || bItem.teacherVideos.length === 0) && sharedAddVids.length > 0) {
@@ -8937,6 +9237,10 @@ function doPost(e) {
         }
         if (!bItem.stickerSymbol && data.sharedStickerSymbol) bItem.stickerSymbol = data.sharedStickerSymbol;
         if (!bItem.stickerLabel && data.sharedStickerLabel) bItem.stickerLabel = data.sharedStickerLabel;
+        if (!bItem.imageStickerSymbol && data.sharedImageStickerSymbol) bItem.imageStickerSymbol = data.sharedImageStickerSymbol;
+        if (!bItem.imageStickerLabel && data.sharedImageStickerLabel) bItem.imageStickerLabel = data.sharedImageStickerLabel;
+        if (!bItem.audioStickerSymbol && data.sharedAudioStickerSymbol) bItem.audioStickerSymbol = data.sharedAudioStickerSymbol;
+        if (!bItem.audioStickerLabel && data.sharedAudioStickerLabel) bItem.audioStickerLabel = data.sharedAudioStickerLabel;
 
         var bSaved = upsertMarkingCorrectionGS(ss, bItem, data.teacherName || "المعلم");
         if (bSaved.telegramNotified) tgSentCount++;

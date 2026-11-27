@@ -70,7 +70,9 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [showCloudinaryHelp, setShowCloudinaryHelp] = useState(false);
 
-  // New Preset Text / Sticker Inputs
+  // New Preset Text / Sticker Inputs (separated by board vs audio scope)
+  const [presetScopeTab, setPresetScopeTab] = useState<'board' | 'audio'>('board');
+  const [stickerScopeTab, setStickerScopeTab] = useState<'board' | 'audio'>('board');
   const [newPresetText, setNewPresetText] = useState('');
   const [newPresetCat, setNewPresetCat] = useState<MarkingPresetText['category']>('positive');
   const [newStickerSymbol, setNewStickerSymbol] = useState('🌟');
@@ -95,6 +97,17 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
       : DEFAULT_MARKING_PRESETS;
   const stickers =
     config.stickers && config.stickers.length > 0 ? config.stickers : DEFAULT_MARKING_STICKERS;
+
+  const filteredPresetsByScope = presetTexts.filter((p) => {
+    const sc = p.scope || 'board';
+    return sc === presetScopeTab || sc === 'both';
+  });
+
+  const filteredStickersByScope = stickers.filter((s) => {
+    const sc = s.scope || 'board';
+    return sc === stickerScopeTab || sc === 'both';
+  });
+
   const watermark: WatermarkSettings = {
     ...DEFAULT_WATERMARK_SETTINGS,
     ...(config.watermark || {}),
@@ -118,6 +131,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
       id: `pr-${Date.now()}`,
       text: clean,
       category: newPresetCat,
+      scope: presetScopeTab,
     };
     setConfig((prev) => ({
       ...prev,
@@ -143,6 +157,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
       label: lbl || sym || 'ملصق',
       kind: newStickerKind,
       color: newStickerColor,
+      scope: stickerScopeTab,
     };
     setConfig((prev) => ({
       ...prev,
@@ -392,7 +407,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
             </div>
           </div>
 
-          {/* Preset Texts & Stickers Management */}
+          {/* Preset Texts & Stickers Management (Separated Board vs Audio) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2 border-t border-slate-100">
             {/* Custom Preset Texts */}
             <div className="space-y-3">
@@ -400,7 +415,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <MessageSquareText className="w-4 h-4 text-emerald-600" />
                   <h3 className="text-sm font-extrabold text-slate-900">
-                    النصوص والعبارات الجاهزة ({presetTexts.length})
+                    النصوص الجاهزة ({filteredPresetsByScope.length})
                   </h3>
                 </div>
                 <button
@@ -415,6 +430,32 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                 </button>
               </div>
 
+              {/* Scope Switch Tabs: Board vs Audio */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setPresetScopeTab('board')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors whitespace-nowrap ${
+                    presetScopeTab === 'board'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  نصوص السبورة والصور
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPresetScopeTab('audio')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors whitespace-nowrap ${
+                    presetScopeTab === 'audio'
+                      ? 'bg-white text-indigo-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  نصوص تصحيح الصوت
+                </button>
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 <input
                   type="text"
@@ -426,7 +467,11 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                       handleAddPreset();
                     }
                   }}
-                  placeholder="أضف عبارة تقييم أو توجيه جاهزة..."
+                  placeholder={
+                    presetScopeTab === 'board'
+                      ? 'أضف عبارة لسبورة تصحيح الصورة...'
+                      : 'أضف عبارة لقسم تصحيح الصوت...'
+                  }
                   className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900 focus:outline-hidden focus:border-emerald-500"
                 />
                 <select
@@ -444,38 +489,53 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                   className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>إضافة نص</span>
+                  <span>إضافة</span>
                 </button>
               </div>
 
               <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5">
-                {presetTexts.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
-                  >
-                    <div className="min-w-0 flex items-center gap-2">
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          p.category === 'correction'
-                            ? 'bg-rose-500'
-                            : p.category === 'general'
-                            ? 'bg-sky-500'
-                            : 'bg-emerald-500'
-                        }`}
-                      />
-                      <span className="font-semibold text-slate-800 truncate">{p.text}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePreset(p.id)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0 cursor-pointer"
-                      title="حذف النص"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                {filteredPresetsByScope.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-400 font-semibold">
+                    لا توجد عبارات مضافة لهذا القسم بعد.
                   </div>
-                ))}
+                ) : (
+                  filteredPresetsByScope.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                    >
+                      <div className="min-w-0 flex items-center gap-2">
+                        <span className="font-semibold text-slate-800 truncate">{p.text}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextScope = presetScopeTab === 'board' ? 'audio' : 'board';
+                            setConfig((prev) => ({
+                              ...prev,
+                              presetTexts: (prev.presetTexts || DEFAULT_MARKING_PRESETS).map((x) =>
+                                x.id === p.id ? { ...x, scope: nextScope } : x
+                              ),
+                            }));
+                          }}
+                          className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
+                          title="نقل العبارة للقسم الآخر"
+                        >
+                          {presetScopeTab === 'board' ? 'نقل للصوت' : 'نقل للسبورة'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePreset(p.id)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0 cursor-pointer"
+                          title="حذف النص"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -485,7 +545,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <Sticker className="w-4 h-4 text-amber-600" />
                   <h3 className="text-sm font-extrabold text-slate-900">
-                    الاستيكرات وعلامات التصحيح ({stickers.length})
+                    الملصقات والختوم ({filteredStickersByScope.length})
                   </h3>
                 </div>
                 <button
@@ -497,6 +557,32 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                 >
                   <RotateCcw className="w-3 h-3" />
                   <span>استعادة الافتراضي</span>
+                </button>
+              </div>
+
+              {/* Scope Switch Tabs: Board vs Audio */}
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setStickerScopeTab('board')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors whitespace-nowrap ${
+                    stickerScopeTab === 'board'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ملصقات السبورة والصور
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStickerScopeTab('audio')}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors whitespace-nowrap ${
+                    stickerScopeTab === 'audio'
+                      ? 'bg-white text-indigo-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  ملصقات تصحيح الصوت
                 </button>
               </div>
 
@@ -518,7 +604,11 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                       handleAddSticker();
                     }
                   }}
-                  placeholder="اسم الاستيكر (مثال: أحسنت! أو خطأ هنا)"
+                  placeholder={
+                    stickerScopeTab === 'board'
+                      ? 'اسم ملصق السبورة (مثال: أحسنت!)'
+                      : 'اسم ملصق الصوت (مثال: نطق متقن)'
+                  }
                   className="flex-1 min-w-[140px] px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900 focus:outline-hidden focus:border-emerald-500"
                 />
                 <select
@@ -534,7 +624,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
                   type="color"
                   value={newStickerColor}
                   onChange={(e) => setNewStickerColor(e.target.value)}
-                  className="w-9 h-9 rounded-xl border border-slate-200 cursor-pointer p-0.5 bg-white"
+                  className="w-9 h-9 rounded-xl border border-slate-200 cursor-pointer p-0 bg-white"
                   title="لون خلفية الختم"
                 />
                 <button
@@ -548,34 +638,40 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
               </div>
 
               <div className="max-h-56 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-0.5">
-                {stickers.map((st) => (
-                  <div
-                    key={st.id}
-                    className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-lg leading-none shrink-0">{st.symbol}</span>
-                      <div className="min-w-0">
-                        <div className="font-extrabold text-slate-900 truncate">{st.label}</div>
-                        <div className="text-[10px] text-slate-500">
-                          {st.kind === 'correction'
-                            ? 'توضيح خطأ'
-                            : st.kind === 'stamp'
-                            ? 'ختم سريع'
-                            : 'تشجيعي'}
+                {filteredStickersByScope.length === 0 ? (
+                  <div className="col-span-2 p-4 text-center text-xs text-slate-400 font-semibold">
+                    لا توجد ملصقات مضافة لهذا القسم بعد.
+                  </div>
+                ) : (
+                  filteredStickersByScope.map((st) => (
+                    <div
+                      key={st.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-lg leading-none shrink-0">{st.symbol}</span>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-slate-900 truncate">{st.label}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {st.kind === 'correction'
+                              ? 'توضيح خطأ'
+                              : st.kind === 'stamp'
+                              ? 'ختم سريع'
+                              : 'تشجيعي'}
+                          </div>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSticker(st.id)}
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0 cursor-pointer"
+                        title="حذف الاستيكر"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteSticker(st.id)}
-                      className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0 cursor-pointer"
-                      title="حذف الاستيكر"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>

@@ -20,9 +20,6 @@ import {
   Mic,
   Video,
   RotateCcw,
-  Sparkles,
-  ExternalLink,
-  BookOpen,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -33,6 +30,11 @@ import {
   Square,
   Sticker,
   ClipboardList,
+  Eye,
+  EyeOff,
+  Camera,
+  Upload,
+  X,
 } from 'lucide-react';
 import {
   AdminUserRecord,
@@ -129,30 +131,53 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   const [markingConfig, setMarkingConfig] = useState<MarkingConfig>(() => getLocalMarkingConfig());
   const [submissions, setSubmissions] = useState<UnifiedMarkingSubmission[]>([]);
 
-  // Interactive Video Focused Filters (No Programs / Classrooms bars)
+  // Collapsible Top Cards State
+  const [adminCardOpen, setAdminCardOpen] = useState<boolean>(false);
+  const [submissionsCardOpen, setSubmissionsCardOpen] = useState<boolean>(false);
+  const [hideCorrected, setHideCorrected] = useState<boolean>(true);
+  const [showPhotoPanel, setShowPhotoPanel] = useState<boolean>(false);
+  const [showVideoPanel, setShowVideoPanel] = useState<boolean>(false);
+
+  // Filters + Floating Dropdown
   const [filterLesson, setFilterLesson] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<'all' | MarkingStatus>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-
-  // Floating Collapsible Submissions Dropdown
   const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
   const dropdownContainerRef = useRef<HTMLDivElement | null>(null);
+  const boardUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const audioUploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Active Submission & Studio State
+  // Blank Blackboard on launch (empty until teacher explicitly selects or uses initialSubmissionKey)
   const [selectedKey, setSelectedKey] = useState<string>('');
   const blackboardRef = useRef<MarkingBlackboardHandle | null>(null);
   const [forceShowBlackboard, setForceShowBlackboard] = useState<boolean>(false);
+  const [boardOverrideImageUrl, setBoardOverrideImageUrl] = useState<string>('');
 
-  const [fStatus, setFStatus] = useState<MarkingStatus>('corrected');
-  const [fScore, setFScore] = useState<string>('95');
-  const [fRating, setFRating] = useState<string>('ممتاز');
-  const [fNotes, setFNotes] = useState<string>('');
-  const [fStickerSymbol, setFStickerSymbol] = useState<string>('');
-  const [fStickerLabel, setFStickerLabel] = useState<string>('');
+  // Independent Image Correction State
+  const [fImgStatus, setFImgStatus] = useState<MarkingStatus>('corrected');
+  const [fImgScore, setFImgScore] = useState<string>('95');
+  const [fImgRating, setFImgRating] = useState<string>('ممتاز');
+  const [fImgNotes, setFImgNotes] = useState<string>('');
+  const [fImgSaving, setFImgSaving] = useState(false);
+  const [fImgFeedback, setFImgFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  // Multi-media studio states
+  // Independent Audio Correction State
+  const [fAudioStatus, setFAudioStatus] = useState<MarkingStatus>('corrected');
+  const [fAudioScore, setFAudioScore] = useState<string>('95');
+  const [fAudioRating, setFAudioRating] = useState<string>('ممتاز');
+  const [fAudioNotes, setFAudioNotes] = useState<string>('');
+  const [fAudioStickerSymbol, setFAudioStickerSymbol] = useState<string>('');
+  const [fAudioStickerLabel, setFAudioStickerLabel] = useState<string>('');
+  const [fAudioSaving, setFAudioSaving] = useState(false);
+  const [fAudioFeedback, setFAudioFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(
+    null
+  );
+
+  // Multi-media attachments
   const [fTeacherAudioB64, setFTeacherAudioB64] = useState<string | null>(null);
-  const [fExtraAudioClips, setFExtraAudioClips] = useState<Array<{ id: string; blobUrl: string; base64: string }>>([]);
+  const [fExtraAudioClips, setFExtraAudioClips] = useState<
+    Array<{ id: string; blobUrl: string; base64: string; name?: string }>
+  >([]);
   const [extraAudRecording, setExtraAudRecording] = useState(false);
   const extraAudRecorderRef = useRef<MediaRecorder | null>(null);
   const extraAudChunksRef = useRef<Blob[]>([]);
@@ -164,8 +189,6 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
   const [fAllowRetry, setFAllowRetry] = useState<boolean>(false);
   const [fSendTelegram, setFSendTelegram] = useState<boolean>(true);
-  const [saving, setSaving] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   // Modals & Share Link
   const [batchModalState, setBatchModalState] = useState<{
@@ -207,8 +230,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     if (!isTeacherAuthed || !adminUsers || adminUsers.length === 0) return;
     const blocked = adminUsers.find(
       (u) =>
-        (u.name.toLowerCase() === teacherName.toLowerCase() ||
-          teacherName.includes(u.name)) &&
+        (u.name.toLowerCase() === teacherName.toLowerCase() || teacherName.includes(u.name)) &&
         u.blocked
     );
     if (blocked) {
@@ -241,11 +263,10 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         if (initialSubmissionKey) {
           const match = res.submissions.find((s) => s.submissionKey === initialSubmissionKey);
           if (match) setSelectedKey(match.submissionKey);
-        } else if (effectiveList.length > 0) {
+        } else {
+          // Keep current selection if still valid, otherwise stay blank so teacher picks manually
           setSelectedKey((prev) =>
-            prev && effectiveList.some((s) => s.submissionKey === prev)
-              ? prev
-              : effectiveList[0].submissionKey
+            prev && effectiveList.some((s) => s.submissionKey === prev) ? prev : ''
           );
         }
       } else {
@@ -278,30 +299,33 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     return Array.from(set);
   }, [submissions]);
 
-  // Filtered submissions list
+  // Filtered submissions list (respects hideCorrected by default!)
   const filteredSubmissions = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return submissions.filter((s) => {
       if (filterLesson !== 'all' && s.itemTitle !== filterLesson) return false;
       const effectiveStatus: MarkingStatus = s.correction?.status || 'pending';
       if (filterStatus !== 'all' && effectiveStatus !== filterStatus) return false;
+      if (hideCorrected && filterStatus !== 'corrected' && effectiveStatus === 'corrected') {
+        if (s.submissionKey !== selectedKey) return false;
+      }
       if (q) {
         const hay = `${s.studentName} ${s.studentId} ${s.lessonSubject} ${s.itemTitle}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [submissions, filterLesson, filterStatus, searchQuery]);
+  }, [submissions, filterLesson, filterStatus, hideCorrected, selectedKey, searchQuery]);
 
   const activeIndex = useMemo(() => {
-    if (filteredSubmissions.length === 0) return -1;
-    const idx = filteredSubmissions.findIndex((s) => s.submissionKey === selectedKey);
-    return idx >= 0 ? idx : 0;
+    if (!selectedKey || filteredSubmissions.length === 0) return -1;
+    return filteredSubmissions.findIndex((s) => s.submissionKey === selectedKey);
   }, [filteredSubmissions, selectedKey]);
 
   const activeSubmission = activeIndex >= 0 ? filteredSubmissions[activeIndex] : null;
 
-  const hasStudentImage = Boolean(activeSubmission?.studentImageUrl?.trim());
+  const hasStudentImage =
+    Boolean(activeSubmission?.studentImageUrl?.trim()) || Boolean(boardOverrideImageUrl);
   const shouldShowBlackboard = hasStudentImage || forceShowBlackboard;
 
   const presetTexts = useMemo(
@@ -320,25 +344,59 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     [markingConfig.stickers]
   );
 
+  // Scoped presets & stickers for Audio section
+  const audioPresetTexts = useMemo(() => {
+    const filtered = presetTexts.filter((p) => p.scope === 'audio' || p.scope === 'both');
+    return filtered.length > 0 ? filtered : presetTexts;
+  }, [presetTexts]);
+
+  const audioStickersList = useMemo(() => {
+    const filtered = stickersList.filter((s) => s.scope === 'audio' || s.scope === 'both');
+    return filtered.length > 0 ? filtered : stickersList;
+  }, [stickersList]);
+
   // Sync studio inputs whenever active submission changes
   useEffect(() => {
     if (!activeSubmission) return;
     const c = activeSubmission.correction;
     setForceShowBlackboard(false);
-    setFStatus(c?.status || 'corrected');
-    setFScore(
-      c?.score !== undefined
-        ? String(c.score)
-        : activeSubmission.videoScore !== undefined
+    setBoardOverrideImageUrl('');
+
+    // Image defaults (separated with graceful legacy fallback)
+    const fallbackScore =
+      activeSubmission.videoScore !== undefined
         ? String(activeSubmission.videoScore)
         : activeSubmission.studentScore !== undefined
         ? String(activeSubmission.studentScore)
-        : '95'
+        : '95';
+
+    setFImgStatus(c?.imageStatus || c?.status || 'corrected');
+    setFImgScore(
+      c?.imageScore !== undefined
+        ? String(c.imageScore)
+        : c?.score !== undefined
+        ? String(c.score)
+        : fallbackScore
     );
-    setFRating(c?.ratingLabel || 'ممتاز');
-    setFNotes(c?.notes || '');
-    setFStickerSymbol(c?.stickerSymbol || '');
-    setFStickerLabel(c?.stickerLabel || '');
+    setFImgRating(c?.imageRatingLabel || c?.ratingLabel || 'ممتاز');
+    setFImgNotes(c?.imageNotes !== undefined ? c.imageNotes : c?.notes || '');
+    setFImgFeedback(null);
+
+    // Audio defaults (separated with graceful legacy fallback)
+    setFAudioStatus(c?.audioStatus || c?.status || 'corrected');
+    setFAudioScore(
+      c?.audioScore !== undefined
+        ? String(c.audioScore)
+        : c?.score !== undefined
+        ? String(c.score)
+        : fallbackScore
+    );
+    setFAudioRating(c?.audioRatingLabel || c?.ratingLabel || 'ممتاز');
+    setFAudioNotes(c?.audioNotes !== undefined ? c.audioNotes : c?.notes || '');
+    setFAudioStickerSymbol(c?.audioStickerSymbol || c?.stickerSymbol || '');
+    setFAudioStickerLabel(c?.audioStickerLabel || c?.stickerLabel || '');
+    setFAudioFeedback(null);
+
     setFTeacherAudioB64(null);
     setFExtraAudioClips([]);
     setFExtraImagesB64([]);
@@ -350,7 +408,6 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     );
     setFAllowRetry(Boolean(c?.allowRetry));
     setFSendTelegram(markingConfig.notifyStudentOnCorrection !== false);
-    setSaveFeedback(null);
   }, [activeSubmission?.submissionKey]);
 
   // Stats summary
@@ -455,6 +512,43 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     );
   };
 
+  const handleUploadImageToBoard = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
+        setBoardOverrideImageUrl(reader.result);
+        setForceShowBlackboard(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleUploadAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          const blobUrl = URL.createObjectURL(file);
+          setFExtraAudioClips((prev) => [
+            ...prev,
+            {
+              id: `aud-file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              blobUrl,
+              base64: reader.result as string,
+              name: file.name,
+            },
+          ]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
   const startExtraAudioRecord = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -482,7 +576,10 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       mr.start();
       setExtraAudRecording(true);
     } catch {
-      setSaveFeedback({ type: 'err', text: 'تعذر الوصول للميكروفون لإضافة مقطع صوتي إضافي.' });
+      setFAudioFeedback({
+        type: 'err',
+        text: 'تعذر الوصول للميكروفون لإضافة مقطع صوتي إضافي.',
+      });
     }
   };
 
@@ -493,14 +590,18 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setExtraAudRecording(false);
   };
 
-  const handleSaveSingleCorrection = async () => {
-    if (!activeSubmission || saving) return;
-    setSaving(true);
-    setSaveFeedback(null);
+  // Independent Save: Image Correction Only (never overwrites Audio section)
+  const handleSaveImageCorrection = async () => {
+    if (!activeSubmission || fImgSaving) return;
+    setFImgSaving(true);
+    setFImgFeedback(null);
     try {
       let annotatedBase64: string | undefined;
-      if (shouldShowBlackboard && blackboardRef.current?.hasAnnotations()) {
-        const exported = await blackboardRef.current.exportWatermarkedDataUrl(
+      if (
+        shouldShowBlackboard &&
+        (blackboardRef.current?.hasAnnotations() || Boolean(boardOverrideImageUrl))
+      ) {
+        const exported = await blackboardRef.current?.exportWatermarkedDataUrl(
           markingConfig.watermark,
           {
             studentId: activeSubmission.studentId,
@@ -526,6 +627,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         Boolean
       );
       const uniqueVideos = Array.from(new Set(allVideos));
+      const parsedScore = fImgScore.trim() !== '' ? Number(fImgScore) : undefined;
 
       const res = await saveMarkingCorrectionToSheets(webhookUrl, {
         submissionKey: activeSubmission.submissionKey,
@@ -534,16 +636,81 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         studentName: activeSubmission.studentName,
         lessonSubject: activeSubmission.lessonSubject,
         itemTitle: activeSubmission.itemTitle,
-        status: fStatus,
-        score: fScore.trim() !== '' ? Number(fScore) : undefined,
-        ratingLabel: fRating,
-        notes: fNotes.trim(),
+        saveMode: 'image_only',
+        status: fImgStatus,
+        score: parsedScore,
+        ratingLabel: fImgRating,
+        notes: fImgNotes.trim(),
+        imageStatus: fImgStatus,
+        imageScore: parsedScore,
+        imageRatingLabel: fImgRating,
+        imageNotes: fImgNotes.trim(),
         correctedImageUrl: !annotatedBase64
           ? activeSubmission.correction?.correctedImageUrl
           : undefined,
         correctedImageBase64: annotatedBase64,
         additionalImages: activeSubmission.correction?.additionalImages,
         additionalImagesBase64: preparedExtraImages,
+        teacherVideoUrl: uniqueVideos[0] || undefined,
+        teacherVideos: uniqueVideos.length > 0 ? uniqueVideos : undefined,
+        allowRetry: fAllowRetry || fImgStatus === 'retry',
+        sendTelegram: fSendTelegram,
+        teacherName,
+      });
+
+      if (res.success && res.correction) {
+        applyUpdatedCorrections([res.correction]);
+        setFExtraImagesB64([]);
+        setBoardOverrideImageUrl('');
+        setFImgFeedback({
+          type: 'ok',
+          text: res.telegramNotified
+            ? `تم حفظ تصحيح الصورة لـ ${activeSubmission.studentName} وإرسال إشعار تيليغرام.`
+            : `تم حفظ تصحيح الصورة لـ ${activeSubmission.studentName} في الشيت بنجاح.`,
+        });
+      } else {
+        setFImgFeedback({
+          type: 'err',
+          text: res.error || 'تعذر حفظ تصحيح الصورة.',
+        });
+      }
+    } finally {
+      setFImgSaving(false);
+    }
+  };
+
+  // Independent Save: Audio Correction Only (never overwrites Image section)
+  const handleSaveAudioCorrection = async () => {
+    if (!activeSubmission || fAudioSaving) return;
+    setFAudioSaving(true);
+    setFAudioFeedback(null);
+    try {
+      const allVideos = [fTeacherVideoUrl.trim(), ...fExtraVideoUrls.map((v) => v.trim())].filter(
+        Boolean
+      );
+      const uniqueVideos = Array.from(new Set(allVideos));
+      const parsedScore = fAudioScore.trim() !== '' ? Number(fAudioScore) : undefined;
+
+      const res = await saveMarkingCorrectionToSheets(webhookUrl, {
+        submissionKey: activeSubmission.submissionKey,
+        exerciseType: activeSubmission.exerciseType,
+        studentId: activeSubmission.studentId,
+        studentName: activeSubmission.studentName,
+        lessonSubject: activeSubmission.lessonSubject,
+        itemTitle: activeSubmission.itemTitle,
+        saveMode: 'audio_only',
+        status: fAudioStatus,
+        score: parsedScore,
+        ratingLabel: fAudioRating,
+        notes: fAudioNotes.trim(),
+        audioStatus: fAudioStatus,
+        audioScore: parsedScore,
+        audioRatingLabel: fAudioRating,
+        audioNotes: fAudioNotes.trim(),
+        audioStickerSymbol: fAudioStickerSymbol || undefined,
+        audioStickerLabel: fAudioStickerLabel || undefined,
+        stickerSymbol: fAudioStickerSymbol || undefined,
+        stickerLabel: fAudioStickerLabel || undefined,
         teacherAudioUrl: !fTeacherAudioB64
           ? activeSubmission.correction?.teacherAudioUrl
           : undefined,
@@ -553,9 +720,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           fExtraAudioClips.length > 0 ? fExtraAudioClips.map((c) => c.base64) : undefined,
         teacherVideoUrl: uniqueVideos[0] || undefined,
         teacherVideos: uniqueVideos.length > 0 ? uniqueVideos : undefined,
-        stickerSymbol: fStickerSymbol || undefined,
-        stickerLabel: fStickerLabel || undefined,
-        allowRetry: fAllowRetry || fStatus === 'retry',
+        allowRetry: fAllowRetry || fAudioStatus === 'retry',
         sendTelegram: fSendTelegram,
         teacherName,
       });
@@ -563,21 +728,20 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       if (res.success && res.correction) {
         applyUpdatedCorrections([res.correction]);
         setFExtraAudioClips([]);
-        setFExtraImagesB64([]);
-        setSaveFeedback({
+        setFAudioFeedback({
           type: 'ok',
           text: res.telegramNotified
-            ? `تم حفظ التصحيح لـ ${activeSubmission.studentName} وإرسال إشعار تيليغرام للطالب بنجاح.`
-            : `تم حفظ التصحيح لـ ${activeSubmission.studentName} في الشيت بنجاح.`,
+            ? `تم حفظ تصحيح الصوت لـ ${activeSubmission.studentName} وإرسال إشعار تيليغرام.`
+            : `تم حفظ تصحيح الصوت لـ ${activeSubmission.studentName} في الشيت بنجاح.`,
         });
       } else {
-        setSaveFeedback({
+        setFAudioFeedback({
           type: 'err',
-          text: res.error || 'تعذر حفظ التصحيح.',
+          text: res.error || 'تعذر حفظ تصحيح الصوت.',
         });
       }
     } finally {
-      setSaving(false);
+      setFAudioSaving(false);
     }
   };
 
@@ -685,30 +849,47 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     <div
       className={`${
         isStandalonePage ? 'min-h-screen bg-slate-50' : ''
-      } font-cairo text-right text-slate-800 flex flex-col gap-4`}
+      } font-cairo text-right text-slate-800 flex flex-col gap-3`}
     >
+      {/* Hidden File Inputs for Board Upload & Audio File Upload */}
+      <input
+        ref={boardUploadInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleUploadImageToBoard}
+      />
+      <input
+        ref={audioUploadInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        className="hidden"
+        onChange={handleUploadAudioFile}
+      />
+
       {/* Standalone Top Header */}
       {isStandalonePage && (
         <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
               {homeLogoUrl ? (
                 <img
                   src={getDirectImageUrl(homeLogoUrl)}
                   alt={platformTitle || 'الشعار'}
-                  className="w-10 h-10 rounded-xl object-cover border border-slate-700 shrink-0"
+                  className="w-9 h-9 rounded-xl object-cover border border-slate-700 shrink-0"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-extrabold shrink-0">
-                  <PenTool className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-xl bg-emerald-500 text-slate-950 flex items-center justify-center font-extrabold shrink-0">
+                  <PenTool className="w-4 h-4" />
                 </div>
               )}
               <div className="min-w-0">
-                <h1 className="text-sm sm:text-base font-extrabold truncate">
+                <h1 className="text-sm font-extrabold truncate">
                   بوابة تصحيح واجبات الفيديو التفاعلي
                 </h1>
                 <div className="text-[11px] text-slate-400 truncate">
-                  المعلم: {teacherName} · استوديو السبورة والصوت وكاميرا OBS
+                  المعلم: {teacherName}
                 </div>
               </div>
             </div>
@@ -741,6 +922,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 onClick={handleTeacherLogout}
                 className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 cursor-pointer"
                 title="تسجيل خروج المعلم"
+                aria-label="تسجيل خروج المعلم"
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -752,17 +934,83 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       <div
         className={
           isStandalonePage
-            ? 'max-w-7xl w-full mx-auto px-4 sm:px-6 pb-10 space-y-4'
-            : 'space-y-4'
+            ? 'max-w-7xl w-full mx-auto px-4 sm:px-6 pb-10 space-y-3'
+            : 'space-y-3'
         }
       >
-        {/* Top Action & Stats Bar */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="text-sm font-extrabold text-slate-900">
-              استوديو تصحيح الفيديو التفاعلي (الصورة والصوت)
-            </div>
-            <div className="text-xs text-slate-500 font-semibold flex flex-wrap items-center gap-2">
+        {/* Compact Top Collapsible Triggers Bar (Card 1 Button + Card 2 Button) */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Card 1 Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setAdminCardOpen((o) => !o)}
+              className={`px-3.5 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                adminCardOpen
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5 text-emerald-500" />
+              <span>أدوات الإدارة</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform ${adminCardOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {/* Card 2 Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setSubmissionsCardOpen((o) => !o)}
+              className={`px-3.5 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                submissionsCardOpen
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>
+                واجب الطلاب ({filteredSubmissions.length})
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform ${
+                  submissionsCardOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {/* Quick Eye Icon-only Toggle (Show/Hide Corrected Lessons) */}
+            <button
+              type="button"
+              onClick={() => setHideCorrected((h) => !h)}
+              title={
+                hideCorrected
+                  ? `إظهار الدروس المصحّحة (${stats.corrected})`
+                  : `إخفاء الدروس المصحّحة (${stats.corrected})`
+              }
+              aria-label={hideCorrected ? 'إظهار الدروس المصحّحة' : 'إخفاء الدروس المصحّحة'}
+              className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                !hideCorrected
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {hideCorrected ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {loading && (
+            <span className="text-xs font-bold text-slate-500 inline-flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+              <span>جاري التحميل...</span>
+            </span>
+          )}
+        </div>
+
+        {/* COLLAPSIBLE CARD 1: Admin Tools & Bulk Actions */}
+        {adminCardOpen && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-slate-600 font-semibold flex flex-wrap items-center gap-2 tabular-nums">
               <span>إجمالي التسليمات: {stats.total}</span>
               <span>·</span>
               <span className="text-amber-700 font-bold">بانتظار التصحيح: {stats.pending}</span>
@@ -771,263 +1019,421 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               <span>·</span>
               <span className="text-rose-700 font-bold">مطلوب إعادة: {stats.retry}</span>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setBatchModalState({ open: true, mode: 'bulk' })}
-              disabled={submissions.length === 0}
-              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Users className="w-4 h-4" />
-              <span>التصحيح الجماعي للدرس</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setBatchModalState({ open: true, mode: 'queue' })}
-              disabled={filteredSubmissions.length === 0}
-              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Layers className="w-4 h-4 text-emerald-400" />
-              <span>طابور التصحيح السريع</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setBatchModalState({ open: true, mode: 'sheet' })}
-              disabled={submissions.length === 0}
-              className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-900 border border-indigo-200 text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <ClipboardList className="w-4 h-4 text-indigo-600" />
-              <span>جدول التصحيحات</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleCopyShareUrl}
-              className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-              title="نسخ الرابط المستقل لبوابة المعلم"
-            >
-              {copiedPortalUrl ? (
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-              <span>{copiedPortalUrl ? 'تم النسخ' : 'نسخ رابط الصفحة'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={loadWorkspaceData}
-              disabled={loading}
-              className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>تحديث</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Clean Filters + Floating Submissions Dropdown Bar */}
-        <div
-          ref={dropdownContainerRef}
-          className="relative bg-white rounded-2xl border border-slate-200 p-3.5 space-y-3"
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
-            {/* Floating Collapsible Queue Trigger */}
-            <div className="lg:col-span-5 flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setDropdownOpen((o) => !o)}
-                className={`flex-1 min-w-0 px-3.5 py-2 rounded-xl border text-xs font-extrabold flex items-center justify-between gap-2 cursor-pointer transition-colors ${
-                  dropdownOpen
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
-                }`}
+                onClick={() => setBatchModalState({ open: true, mode: 'bulk' })}
+                disabled={submissions.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                <span className="truncate flex items-center gap-2">
-                  <Users className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="truncate">
-                    {activeSubmission
-                      ? `${activeSubmission.studentName} · ${activeSubmission.itemTitle}`
-                      : `قائمة واجبات الطلاب (${filteredSubmissions.length})`}
+                <Users className="w-4 h-4" />
+                <span>التصحيح الجماعي للدرس</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBatchModalState({ open: true, mode: 'queue' })}
+                disabled={filteredSubmissions.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Layers className="w-4 h-4 text-emerald-400" />
+                <span>طابور التصحيح السريع</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBatchModalState({ open: true, mode: 'sheet' })}
+                disabled={submissions.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 text-indigo-900 border border-indigo-200 text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <ClipboardList className="w-4 h-4 text-indigo-600" />
+                <span>جدول التصحيحات</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyShareUrl}
+                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                title="نسخ الرابط المستقل لبوابة المعلم"
+              >
+                {copiedPortalUrl ? (
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                <span>{copiedPortalUrl ? 'تم النسخ' : 'نسخ رابط الصفحة'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={loadWorkspaceData}
+                disabled={loading}
+                className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>تحديث</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* COLLAPSIBLE CARD 2: Student Submissions Dropdown + Filters + Quick Capture Tools */}
+        {submissionsCardOpen && (
+          <div
+            ref={dropdownContainerRef}
+            className="relative bg-white rounded-2xl border border-slate-200 p-3.5 space-y-3"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
+              {/* Floating Queue Dropdown Trigger + Prev/Next */}
+              <div className="lg:col-span-5 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen((o) => !o)}
+                  className={`flex-1 min-w-0 px-3.5 py-2 rounded-xl border text-xs font-extrabold flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                    dropdownOpen
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="truncate flex items-center gap-2">
+                    <Users className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="truncate">
+                      {activeSubmission
+                        ? `${activeSubmission.studentName} · ${activeSubmission.itemTitle}`
+                        : `قائمة واجبات الطلاب (${filteredSubmissions.length})`}
+                    </span>
                   </span>
-                </span>
-                <span className="flex items-center gap-1.5 shrink-0">
-                  <span className="px-1.5 py-0.5 rounded bg-white/15 font-mono text-[10px] tabular-nums">
-                    {filteredSubmissions.length}
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <span className="px-1.5 py-0.5 rounded bg-white/15 font-mono text-[10px] tabular-nums">
+                      {filteredSubmissions.length}
+                    </span>
+                    <ChevronDown
+                      className={`w-4 h-4 transition-transform ${
+                        dropdownOpen ? 'rotate-180' : ''
+                      }`}
+                    />
                   </span>
-                  <ChevronDown
-                    className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
-                  />
-                </span>
-              </button>
+                </button>
 
-              <button
-                type="button"
-                disabled={activeIndex <= 0}
-                onClick={() => {
-                  if (activeIndex > 0) {
-                    setSelectedKey(filteredSubmissions[activeIndex - 1].submissionKey);
-                    setDropdownOpen(false);
-                  }
-                }}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 cursor-pointer shrink-0"
-                title="الطالب السابق"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+                <button
+                  type="button"
+                  disabled={activeIndex <= 0}
+                  onClick={() => {
+                    if (activeIndex > 0) {
+                      setSelectedKey(filteredSubmissions[activeIndex - 1].submissionKey);
+                      setDropdownOpen(false);
+                    }
+                  }}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 cursor-pointer shrink-0"
+                  title="الطالب السابق"
+                  aria-label="الطالب السابق"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
 
-              <button
-                type="button"
-                disabled={activeIndex < 0 || activeIndex >= filteredSubmissions.length - 1}
-                onClick={() => {
-                  if (activeIndex >= 0 && activeIndex + 1 < filteredSubmissions.length) {
-                    setSelectedKey(filteredSubmissions[activeIndex + 1].submissionKey);
-                    setDropdownOpen(false);
-                  }
-                }}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 cursor-pointer shrink-0"
-                title="الطالب التالي"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="lg:col-span-3 relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="بحث باسم الطالب أو رقمه..."
-                className="w-full pr-8 pl-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-emerald-500"
-              />
-            </div>
-
-            {/* Interactive Video Lesson Filter */}
-            <div className="lg:col-span-2">
-              <select
-                value={filterLesson}
-                onChange={(e) => setFilterLesson(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
-              >
-                <option value="all">كل دروس الفيديو</option>
-                {lessonOptions.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div className="lg:col-span-2">
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as 'all' | MarkingStatus)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
-              >
-                {(Object.keys(STATUS_FILTER_LABELS) as Array<'all' | MarkingStatus>).map((k) => (
-                  <option key={k} value={k}>
-                    {STATUS_FILTER_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Floating Overlay Submissions Menu (Auto-closes on student selection) */}
-          {dropdownOpen && (
-            <div className="absolute right-0 left-0 sm:left-auto sm:w-[480px] top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-extrabold text-slate-800">
-                <span>اختر واجب الطالب للتصحيح ({filteredSubmissions.length})</span>
-                <span className="text-[11px] font-semibold text-slate-500">
-                  تُغلق القائمة تلقائياً بعد الاختيار
-                </span>
+                <button
+                  type="button"
+                  disabled={activeIndex < 0 || activeIndex >= filteredSubmissions.length - 1}
+                  onClick={() => {
+                    if (activeIndex >= 0 && activeIndex + 1 < filteredSubmissions.length) {
+                      setSelectedKey(filteredSubmissions[activeIndex + 1].submissionKey);
+                      setDropdownOpen(false);
+                    }
+                  }}
+                  className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 cursor-pointer shrink-0"
+                  title="الطالب التالي"
+                  aria-label="الطالب التالي"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
               </div>
 
-              {filteredSubmissions.length === 0 ? (
-                <div className="p-6 text-center text-xs font-bold text-slate-500">
-                  لا توجد تسليمات مطابقة للفلاتر الحالية.
-                </div>
-              ) : (
-                <div className="max-h-[62vh] overflow-y-auto divide-y divide-slate-100">
-                  {filteredSubmissions.map((sub) => {
-                    const isActive = activeSubmission?.submissionKey === sub.submissionKey;
-                    const st = sub.correction?.status || 'pending';
-                    return (
-                      <button
-                        key={sub.submissionKey}
-                        type="button"
-                        onClick={() => {
-                          setSelectedKey(sub.submissionKey);
-                          setDropdownOpen(false);
-                        }}
-                        className={`w-full text-right px-4 py-3 transition-colors cursor-pointer flex items-start justify-between gap-2 ${
-                          isActive ? 'bg-emerald-50 border-r-4 border-emerald-600' : 'hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="min-w-0 space-y-1">
-                          <div className="text-xs font-extrabold text-slate-900 truncate">
-                            {sub.studentName || sub.studentId}
-                            {sub.studentId ? ` · #${sub.studentId}` : ''}
-                          </div>
-                          <div className="text-[11px] font-semibold text-slate-600 truncate">
-                            {sub.itemTitle}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold">
-                            {sub.studentImageUrl && (
-                              <span className="inline-flex items-center gap-1 text-emerald-700">
-                                <ImageIcon className="w-3 h-3" />
-                                <span>صورة</span>
-                              </span>
-                            )}
-                            {sub.studentAudioUrl && (
-                              <span className="inline-flex items-center gap-1 text-indigo-700">
-                                <Mic className="w-3 h-3" />
-                                <span>صوت</span>
-                              </span>
-                            )}
-                            {!sub.studentImageUrl && sub.studentAudioUrl && (
-                              <span className="text-slate-400">· صوتي فقط</span>
-                            )}
-                          </div>
-                        </div>
+              {/* Search */}
+              <div className="lg:col-span-3 relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="بحث باسم الطالب أو رقمه..."
+                  className="w-full pr-8 pl-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-hidden focus:border-emerald-500"
+                />
+              </div>
 
-                        <div className="shrink-0 text-left space-y-0.5">
-                          <div
-                            className={`text-[11px] font-extrabold ${
-                              st === 'corrected'
-                                ? 'text-emerald-700'
-                                : st === 'retry'
-                                ? 'text-amber-700'
-                                : 'text-slate-400'
-                            }`}
-                          >
-                            {st === 'corrected'
-                              ? 'مصحّح ✓'
-                              : st === 'retry'
-                              ? 'إعادة'
-                              : 'جديد'}
-                          </div>
-                          {sub.videoScore !== undefined && (
-                            <div className="text-[10px] font-mono font-bold text-slate-500 tabular-nums">
-                              الاختبار: {sub.videoScore}%
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+              {/* Lesson Filter */}
+              <div className="lg:col-span-2">
+                <select
+                  value={filterLesson}
+                  onChange={(e) => setFilterLesson(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                >
+                  <option value="all">كل دروس الفيديو</option>
+                  {lessonOptions.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter + Eye Toggle */}
+              <div className="lg:col-span-2 flex items-center gap-1.5">
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as 'all' | MarkingStatus)}
+                  className="flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                >
+                  {(Object.keys(STATUS_FILTER_LABELS) as Array<'all' | MarkingStatus>).map((k) => (
+                    <option key={k} value={k}>
+                      {STATUS_FILTER_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setHideCorrected((h) => !h)}
+                  title={
+                    hideCorrected
+                      ? `إظهار الدروس المصحّحة (${stats.corrected})`
+                      : `إخفاء الدروس المصحّحة (${stats.corrected})`
+                  }
+                  aria-label={hideCorrected ? 'إظهار الدروس المصحّحة' : 'إخفاء الدروس المصحّحة'}
+                  className={`p-2 rounded-xl border cursor-pointer shrink-0 ${
+                    !hideCorrected
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  {hideCorrected ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Media Tools inside Card 2: Video Capture, Photo Capture, Upload Photo */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowVideoPanel((p) => !p)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                    showVideoPanel
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                  }`}
+                >
+                  <Video className="w-3.5 h-3.5" />
+                  <span>تصوير فيديو</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPhotoPanel((p) => !p)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                    showPhotoPanel
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                  }`}
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>تصوير صورة</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => boardUploadInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>رفع صورة للسبورة</span>
+                </button>
+              </div>
+
+              {boardOverrideImageUrl && (
+                <button
+                  type="button"
+                  onClick={() => setBoardOverrideImageUrl('')}
+                  className="text-xs font-bold text-rose-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>إزالة الصورة المرفوعة</span>
+                </button>
               )}
             </div>
-          )}
-        </div>
+
+            {/* Floating Overlay Submissions Menu (Auto-closes on student selection) */}
+            {dropdownOpen && (
+              <div className="absolute right-0 left-0 sm:left-auto sm:w-[480px] top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-extrabold text-slate-800">
+                  <span>اختر واجب الطالب للتصحيح ({filteredSubmissions.length})</span>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    تُغلق القائمة تلقائياً بعد الاختيار
+                  </span>
+                </div>
+
+                {filteredSubmissions.length === 0 ? (
+                  <div className="p-6 text-center text-xs font-bold text-slate-500">
+                    {hideCorrected
+                      ? 'لا توجد واجبات غير مصحّحة حالياً — اضغط أيقونة العين لإظهار الدروس المصحّحة.'
+                      : 'لا توجد تسليمات مطابقة للفلاتر الحالية.'}
+                  </div>
+                ) : (
+                  <div className="max-h-[62vh] overflow-y-auto divide-y divide-slate-100">
+                    {filteredSubmissions.map((sub) => {
+                      const isActive = activeSubmission?.submissionKey === sub.submissionKey;
+                      const st = sub.correction?.status || 'pending';
+                      return (
+                        <button
+                          key={sub.submissionKey}
+                          type="button"
+                          onClick={() => {
+                            setSelectedKey(sub.submissionKey);
+                            setDropdownOpen(false);
+                          }}
+                          className={`w-full text-right px-4 py-3 transition-colors cursor-pointer flex items-start justify-between gap-2 ${
+                            isActive
+                              ? 'bg-emerald-50 border-r-4 border-emerald-600'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="min-w-0 space-y-1">
+                            <div className="text-xs font-extrabold text-slate-900 truncate">
+                              {sub.studentName || sub.studentId}
+                              {sub.studentId ? ` · #${sub.studentId}` : ''}
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-600 truncate">
+                              {sub.itemTitle}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] font-bold">
+                              {sub.studentImageUrl && (
+                                <span className="inline-flex items-center gap-1 text-emerald-700">
+                                  <ImageIcon className="w-3 h-3" />
+                                  <span>صورة</span>
+                                </span>
+                              )}
+                              {sub.studentAudioUrl && (
+                                <span className="inline-flex items-center gap-1 text-indigo-700">
+                                  <Mic className="w-3 h-3" />
+                                  <span>صوت</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 text-left space-y-0.5">
+                            <div
+                              className={`text-[11px] font-extrabold ${
+                                st === 'corrected'
+                                  ? 'text-emerald-700'
+                                  : st === 'retry'
+                                  ? 'text-amber-700'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {st === 'corrected'
+                                ? 'مصحّح ✓'
+                                : st === 'retry'
+                                ? 'إعادة'
+                                : 'جديد'}
+                            </div>
+                            {sub.videoScore !== undefined && (
+                              <div className="text-[10px] font-mono font-bold text-slate-500 tabular-nums">
+                                الاختبار: {sub.videoScore}%
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Optional Camera Photo Capture Panel (toggled from Card 2) */}
+        {showPhotoPanel && (
+          <div className="space-y-2">
+            <MarkingPhotoCapture
+              images={fExtraImagesB64}
+              onChangeImages={(imgs) => {
+                const nextImgs = typeof imgs === 'function' ? imgs(fExtraImagesB64) : imgs;
+                setFExtraImagesB64(nextImgs);
+                if (nextImgs.length > 0 && !boardOverrideImageUrl) {
+                  setBoardOverrideImageUrl(nextImgs[nextImgs.length - 1]);
+                  setForceShowBlackboard(true);
+                }
+              }}
+              watermarkSettings={markingConfig.watermark}
+              studentInfo={{
+                studentId: activeSubmission?.studentId,
+                studentName: activeSubmission?.studentName,
+                lessonTitle: activeSubmission?.itemTitle || 'التصحيح التفاعلي',
+              }}
+              fallbackLogoUrl={homeLogoUrl}
+              stitchOnSave={stitchExtraImages}
+              onChangeStitchOnSave={setStitchExtraImages}
+              title="التقاط صورة بالكاميرا أو رفع مرفقات"
+            />
+          </div>
+        )}
+
+        {/* Optional Video Recorder Panel (toggled from Card 2) */}
+        {showVideoPanel && (
+          <div className="space-y-2">
+            <MarkingVideoRecorder
+              markingConfig={markingConfig}
+              webhookUrl={webhookUrl}
+              existingVideoUrl={fTeacherVideoUrl}
+              onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
+              onVideoUploaded={(url) => {
+                if (!fTeacherVideoUrl) {
+                  setFTeacherVideoUrl(url);
+                } else if (url && url !== fTeacherVideoUrl) {
+                  setFExtraVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
+                }
+              }}
+            />
+
+            {fExtraVideoUrls.length > 0 && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
+                <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                  <Video className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>فيديوهات إضافية مرفقة ({fExtraVideoUrls.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {fExtraVideoUrls.map((vUrl, idx) => (
+                    <div
+                      key={`${vUrl}-${idx}`}
+                      className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                    >
+                      <a
+                        href={vUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-indigo-700 underline truncate"
+                      >
+                        {vUrl}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFExtraVideoUrls((prev) => prev.filter((_, i) => i !== idx))
+                        }
+                        className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer shrink-0"
+                        title="حذف الفيديو"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {loadError && (
           <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold flex items-center gap-2">
@@ -1036,120 +1442,64 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           </div>
         )}
 
-        {/* Full-Width Single Workspace */}
-        {loading && submissions.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 flex flex-col items-center justify-center gap-2 text-slate-500">
-            <Loader2 className="w-7 h-7 animate-spin text-emerald-600" />
-            <span className="text-xs font-bold">جاري تحميل تسليمات الفيديو التفاعلي من Google Sheets...</span>
-          </div>
-        ) : !activeSubmission ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-2">
-            <BookOpen className="w-8 h-8 text-slate-400 mx-auto" />
-            <div className="text-sm font-extrabold text-slate-800">
-              لا توجد تسليمات مطابقة للفلاتر الحالية
+        {/* Streamlined Card 3 (Active Student Summary: Strictly Name + ID + Lesson + Achievement Report Button) */}
+        {activeSubmission && (
+          <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+              <span className="text-sm sm:text-base font-extrabold text-slate-900">
+                {activeSubmission.studentName}
+              </span>
+              {activeSubmission.studentId && (
+                <span className="text-xs font-mono font-bold text-slate-500">
+                  #{activeSubmission.studentId}
+                </span>
+              )}
+              <span className="text-slate-300">|</span>
+              <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                {activeSubmission.itemTitle}
+              </span>
             </div>
-            <p className="text-xs text-slate-500">
-              جرّب تغيير الفلتر أو اضغط «تحديث» لجلب أحدث واجبات الفيديو التفاعلي (الصورة والصوت).
-            </p>
+
+            <button
+              type="button"
+              onClick={() => setAchievementModalOpen(true)}
+              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span>تقرير الإنجاز</span>
+            </button>
           </div>
+        )}
+
+        {/* LARGE BLACKBOARD: Opens Blank on initial load; shows integrated Image Grading when active student is chosen */}
+        {!activeSubmission ? (
+          <MarkingBlackboard
+            ref={blackboardRef}
+            studentImageUrl={boardOverrideImageUrl || undefined}
+            lessonTitle={
+              boardOverrideImageUrl
+                ? 'صورة مرفوعة على السبورة'
+                : 'السبورة جاهزة — افتح «واجب الطلاب» لاختيار طالب للتصحيح'
+            }
+            stickers={stickersList}
+            presetTexts={presetTexts}
+            imageGrading={{
+              visible: false,
+              score: fImgScore,
+              onChangeScore: setFImgScore,
+              status: fImgStatus,
+              onChangeStatus: setFImgStatus,
+              ratingLabel: fImgRating,
+              onChangeRatingLabel: setFImgRating,
+              notes: fImgNotes,
+              onChangeNotes: setFImgNotes,
+              saving: fImgSaving,
+              feedback: fImgFeedback,
+              onSubmit: handleSaveImageCorrection,
+            }}
+          />
         ) : (
           <section className="space-y-4">
-            {/* Active Student Summary Header */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm sm:text-base font-extrabold text-slate-900">
-                    {activeSubmission.studentName}
-                  </span>
-                  {activeSubmission.studentId && (
-                    <span className="text-xs font-mono font-bold text-slate-500">
-                      #{activeSubmission.studentId}
-                    </span>
-                  )}
-                  <span
-                    className={`text-xs font-extrabold ${
-                      activeSubmission.correction?.status === 'corrected'
-                        ? 'text-emerald-700'
-                        : activeSubmission.correction?.status === 'retry'
-                        ? 'text-amber-700'
-                        : 'text-slate-400'
-                    }`}
-                  >
-                    ·{' '}
-                    {activeSubmission.correction?.status === 'corrected'
-                      ? 'مصحّح ✓'
-                      : activeSubmission.correction?.status === 'retry'
-                      ? 'مطلوب إعادة'
-                      : 'بانتظار التصحيح'}
-                  </span>
-                </div>
-
-                <div className="text-xs text-slate-500 font-semibold flex flex-wrap items-center gap-2">
-                  <span className="text-slate-900 font-bold">{activeSubmission.itemTitle}</span>
-                  {activeSubmission.videoScore !== undefined && (
-                    <>
-                      <span>·</span>
-                      <span className="text-indigo-700 font-extrabold tabular-nums">
-                        نتيجة أسئلة الفيديو: {activeSubmission.videoScore}%
-                      </span>
-                    </>
-                  )}
-                  <span>·</span>
-                  <span>
-                    {activeSubmission.studentImageUrl && activeSubmission.studentAudioUrl
-                      ? 'واجب صورة + صوت'
-                      : activeSubmission.studentImageUrl
-                      ? 'واجب صورة'
-                      : activeSubmission.studentAudioUrl
-                      ? 'واجب صوتي فقط'
-                      : 'مشاركة درس'}
-                  </span>
-                  {activeSubmission.timestamp && (
-                    <>
-                      <span>·</span>
-                      <span className="font-mono">{activeSubmission.timestamp}</span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setAchievementModalOpen(true)}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  <span>تقرير إنجاز الطالب</span>
-                </button>
-
-                {activeSubmission.studentImageUrl && (
-                  <a
-                    href={activeSubmission.studentImageUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                  >
-                    <span>صورة الطالب</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-
-                {activeSubmission.referenceImageUrl && (
-                  <a
-                    href={getDirectImageUrl(activeSubmission.referenceImageUrl)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                  >
-                    <span>النموذج الأصلي</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Smart Blackboard: Full-width & LARGE when image exists; automatically hidden on audio-only */}
             {shouldShowBlackboard ? (
               <div className="space-y-2">
                 {!hasStudentImage && (
@@ -1165,21 +1515,40 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 )}
                 <MarkingBlackboard
                   ref={blackboardRef}
-                  studentImageUrl={activeSubmission.studentImageUrl}
-                  previousCorrectedImageUrl={activeSubmission.correction?.correctedImageUrl}
+                  studentImageUrl={boardOverrideImageUrl || activeSubmission.studentImageUrl}
+                  previousCorrectedImageUrl={
+                    !boardOverrideImageUrl
+                      ? activeSubmission.correction?.correctedImageUrl
+                      : undefined
+                  }
                   studentAudioUrl={activeSubmission.studentAudioUrl}
                   studentName={activeSubmission.studentName}
-                  referenceImageUrl={activeSubmission.referenceImageUrl}
                   lessonTitle={activeSubmission.itemTitle}
                   stickers={stickersList}
                   presetTexts={presetTexts}
+                  imageGrading={{
+                    visible: true,
+                    score: fImgScore,
+                    onChangeScore: setFImgScore,
+                    status: fImgStatus,
+                    onChangeStatus: setFImgStatus,
+                    ratingLabel: fImgRating,
+                    onChangeRatingLabel: setFImgRating,
+                    notes: fImgNotes,
+                    onChangeNotes: setFImgNotes,
+                    saving: fImgSaving,
+                    feedback: fImgFeedback,
+                    onSubmit: handleSaveImageCorrection,
+                  }}
                 />
               </div>
             ) : (
               <div className="px-4 py-3 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-wrap items-center justify-between gap-2">
                 <div className="text-xs font-extrabold text-indigo-950 flex items-center gap-2">
                   <Mic className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>هذا التسليم واجب صوتي فقط (بدون صورة مرفقة) — تم إخفاء السبورة تلقائياً للتركيز على التصحيح الصوتي.</span>
+                  <span>
+                    هذا التسليم واجب صوتي فقط (بدون صورة مرفقة) — يمكنك التركيز على بطاقة الصوت أدناه.
+                  </span>
                 </div>
                 <button
                   type="button"
@@ -1191,75 +1560,91 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               </div>
             )}
 
-            {/* Audio Correction Studio */}
-            <MarkingAudioStudio
-              studentAudioUrl={activeSubmission.studentAudioUrl}
-              studentName={activeSubmission.studentName}
-              referenceAudioUrl={activeSubmission.referenceAudioUrl}
-              referenceAutoReadText={
-                activeSubmission.referenceAutoReadText || activeSubmission.itemTitle
-              }
-              existingTeacherAudioUrl={activeSubmission.correction?.teacherAudioUrl}
-              onTeacherAudioRecorded={setFTeacherAudioB64}
-            />
-
-            {/* Camera Photo Capture + Extra Media Strip */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-              <div className="lg:col-span-7">
-                <MarkingPhotoCapture
-                  images={fExtraImagesB64}
-                  onChangeImages={setFExtraImagesB64}
-                  watermarkSettings={markingConfig.watermark}
-                  studentInfo={{
-                    studentId: activeSubmission.studentId,
-                    studentName: activeSubmission.studentName,
-                    lessonTitle: activeSubmission.itemTitle,
-                  }}
-                  fallbackLogoUrl={homeLogoUrl}
-                  stitchOnSave={stitchExtraImages}
-                  onChangeStitchOnSave={setStitchExtraImages}
-                  title="صور التدريس والتقاط الكاميرا (مرفقات إضافية)"
-                />
-              </div>
-
-              <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
-                    <Mic className="w-4 h-4 text-rose-600" />
-                    <span>مقاطع صوتية إضافية ({fExtraAudioClips.length})</span>
+            {/* ONE UNIFIED AUDIO CORRECTION CARD */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                    <Mic className="w-4 h-4" />
                   </div>
-
-                  {!extraAudRecording ? (
-                    <button
-                      type="button"
-                      onClick={startExtraAudioRecord}
-                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5 text-rose-600" />
-                      <span>+ تسجيل صوت إضافي</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={stopExtraAudioRecord}
-                      className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <Square className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-                      <span>إيقاف وحفظ المقطع</span>
-                    </button>
-                  )}
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      تصحيح واجب الصوت (مستقل عن الصورة)
+                    </h3>
+                    <div className="text-[11px] text-slate-500 font-semibold">
+                      استمع لتسجيل الطالب، سجل أو ارفع صوت التصحيح، وأرسل التقييم الصوتي مستقلاً
+                    </div>
+                  </div>
                 </div>
 
-                {fExtraAudioClips.length === 0 ? (
-                  <p className="text-[11px] text-slate-500 font-medium">
-                    يمكنك تسجيل تعليقات صوتية إضافية سريعة لتصل مع التصحيح الرئيسي.
-                  </p>
-                ) : (
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                {activeSubmission.correction?.audioStatus && (
+                  <span className="text-xs font-extrabold text-emerald-700 tabular-nums">
+                    محفوظ سابقاً:{' '}
+                    {activeSubmission.correction.audioScore !== undefined
+                      ? `${activeSubmission.correction.audioScore}/100`
+                      : activeSubmission.correction.audioStatus}
+                  </span>
+                )}
+              </div>
+
+              {/* Student & Reference Audio Players + Primary Teacher Voice Recorder */}
+              <MarkingAudioStudio
+                studentAudioUrl={activeSubmission.studentAudioUrl}
+                studentName={activeSubmission.studentName}
+                referenceAudioUrl={activeSubmission.referenceAudioUrl}
+                referenceAutoReadText={
+                  activeSubmission.referenceAutoReadText || activeSubmission.itemTitle
+                }
+                existingTeacherAudioUrl={activeSubmission.correction?.teacherAudioUrl}
+                onTeacherAudioRecorded={setFTeacherAudioB64}
+              />
+
+              {/* Additional Audio Recording + Audio File Upload */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                    <Mic className="w-4 h-4 text-rose-600" />
+                    <span>مقاطع صوتية إضافية / رفع ملف صوت ({fExtraAudioClips.length})</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => audioUploadInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>رفع ملف صوتي</span>
+                    </button>
+
+                    {!extraAudRecording ? (
+                      <button
+                        type="button"
+                        onClick={startExtraAudioRecord}
+                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-rose-600" />
+                        <span>تسجيل مقطع إضافي</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={stopExtraAudioRecord}
+                        className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
+                        <span>إيقاف وحفظ المقطع</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {fExtraAudioClips.length > 0 && (
+                  <div className="space-y-1.5 max-h-44 overflow-y-auto">
                     {fExtraAudioClips.map((clip, idx) => (
                       <div
                         key={clip.id}
-                        className="flex items-center gap-2 p-2 rounded-xl bg-slate-50 border border-slate-200"
+                        className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200"
                       >
                         <span className="text-[11px] font-bold text-slate-600 shrink-0 tabular-nums">
                           #{idx + 1}
@@ -1271,6 +1656,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                             setFExtraAudioClips((prev) => prev.filter((c) => c.id !== clip.id))
                           }
                           className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer shrink-0"
+                          title="حذف المقطع"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1279,121 +1665,20 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   </div>
                 )}
               </div>
-            </div>
 
-            {/* Direct OBS / Device Camera Recorder -> Cloudinary MP4 */}
-            <div className="space-y-2">
-              <MarkingVideoRecorder
-                markingConfig={markingConfig}
-                webhookUrl={webhookUrl}
-                existingVideoUrl={fTeacherVideoUrl}
-                onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
-                onVideoUploaded={(url) => {
-                  if (!fTeacherVideoUrl) {
-                    setFTeacherVideoUrl(url);
-                  } else if (url && url !== fTeacherVideoUrl) {
-                    setFExtraVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
-                  }
-                }}
-              />
-
-              {fExtraVideoUrls.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
-                  <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                    <Video className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>فيديوهات إضافية مرفقة ({fExtraVideoUrls.length})</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {fExtraVideoUrls.map((vUrl, idx) => (
-                      <div
-                        key={`${vUrl}-${idx}`}
-                        className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
-                      >
-                        <a
-                          href={vUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-mono text-indigo-700 underline truncate"
-                        >
-                          {vUrl}
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFExtraVideoUrls((prev) => prev.filter((_, i) => i !== idx))
-                          }
-                          className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer shrink-0"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Evaluation Rubric, Big Stickers, Custom Preset Texts & Telegram Send */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    حالة التصحيح:
-                  </label>
-                  <select
-                    value={fStatus}
-                    onChange={(e) => setFStatus(e.target.value as MarkingStatus)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                  >
-                    <option value="corrected">مصحّح ومعتمد</option>
-                    <option value="retry">مطلوب إعادة المحاولة</option>
-                    <option value="pending">قيد الانتظار</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    الدرجة النهائية (من 100):
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={fScore}
-                    onChange={(e) => setFScore(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">التقدير:</label>
-                  <select
-                    value={fRating}
-                    onChange={(e) => setFRating(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                  >
-                    {RATING_LABELS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Big Sticker / Badge Selector for Student Card (especially great for Audio-only!) */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+              {/* Audio-only Stickers */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
                     <Sticker className="w-4 h-4 text-amber-600" />
-                    <span>ملصق تشجيعي أو علامة تنبيه تظهر للطالب مع النتيجة:</span>
+                    <span>ملصق التقييم الصوتي (يظهر بحجم واضح مع نتيجة الصوت):</span>
                   </div>
-                  {fStickerSymbol && (
+                  {fAudioStickerSymbol && (
                     <button
                       type="button"
                       onClick={() => {
-                        setFStickerSymbol('');
-                        setFStickerLabel('');
+                        setFAudioStickerSymbol('');
+                        setFAudioStickerLabel('');
                       }}
                       className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
                     >
@@ -1403,22 +1688,22 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {stickersList.map((st) => {
-                    const isSelected = fStickerSymbol === st.symbol;
+                  {audioStickersList.map((st) => {
+                    const isSelected = fAudioStickerSymbol === st.symbol;
                     return (
                       <button
                         key={st.id}
                         type="button"
                         onClick={() => {
                           if (isSelected) {
-                            setFStickerSymbol('');
-                            setFStickerLabel('');
+                            setFAudioStickerSymbol('');
+                            setFAudioStickerLabel('');
                           } else {
-                            setFStickerSymbol(st.symbol);
-                            setFStickerLabel(st.label);
+                            setFAudioStickerSymbol(st.symbol);
+                            setFAudioStickerLabel(st.label);
                           }
                         }}
-                        className={`px-3 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
                           isSelected
                             ? 'bg-slate-900 text-white border-slate-900'
                             : 'bg-white text-slate-800 border-slate-200 hover:border-slate-400'
@@ -1431,35 +1716,87 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   })}
                 </div>
 
-                {fStickerSymbol && (
-                  <div className="p-3 rounded-xl bg-white border border-amber-200 flex items-center gap-3">
-                    <span className="text-3xl leading-none">{fStickerSymbol}</span>
+                {fAudioStickerSymbol && (
+                  <div className="p-2.5 rounded-xl bg-white border border-amber-200 flex items-center gap-3">
+                    <span className="text-3xl leading-none">{fAudioStickerSymbol}</span>
                     <div>
                       <div className="text-xs font-extrabold text-slate-900">
-                        الملصق المختار: {fStickerLabel}
+                        الملصق المختار: {fAudioStickerLabel}
                       </div>
                       <div className="text-[11px] text-slate-500 font-semibold">
-                        سيظهر بحجم واضح للطالب داخل بطاقة النتيجة وإشعار تيليغرام.
+                        سيظهر للطالب داخل بطاقة التقييم الصوتي وفي رسالة تيليغرام.
                       </div>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Custom Preset Texts & Notes */}
+              {/* Audio Score, Status, Rating & Audio-only Preset Texts */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                <div className="sm:col-span-3">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    درجة الصوت (من 100):
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={fAudioScore}
+                    onChange={(e) =>
+                      setFAudioScore(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))
+                    }
+                    placeholder="95"
+                    className="w-24 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-extrabold text-slate-900 text-center tabular-nums"
+                  />
+                </div>
+
+                <div className="sm:col-span-5">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    حالة تصحيح الصوت:
+                  </label>
+                  <select
+                    value={fAudioStatus}
+                    onChange={(e) => setFAudioStatus(e.target.value as MarkingStatus)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    <option value="corrected">صوت مصحّح ومعتمد ✓</option>
+                    <option value="retry">مطلوب إعادة تسجيل الصوت</option>
+                    <option value="pending">قيد الانتظار</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-4">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    التقدير الصوتي:
+                  </label>
+                  <select
+                    value={fAudioRating}
+                    onChange={(e) => setFAudioRating(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    {RATING_LABELS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Audio-only Preset Texts & Notes */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-700">
-                  النصوص الجاهزة من الإعدادات (اضغط لإضافة العبارة):
+                  نصوص جاهزة خاصة بالتصحيح الصوتي (اضغط لإضافتها):
                 </label>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {presetTexts.map((preset) => (
+                  {audioPresetTexts.map((preset) => (
                     <button
                       key={preset.id}
                       type="button"
                       onClick={() =>
-                        setFNotes((prev) => (prev ? `${prev}\n${preset.text}` : preset.text))
+                        setFAudioNotes((prev) => (prev ? `${prev}\n${preset.text}` : preset.text))
                       }
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
                     >
                       + {preset.text}
                     </button>
@@ -1467,28 +1804,14 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 </div>
                 <textarea
                   rows={3}
-                  value={fNotes}
-                  onChange={(e) => setFNotes(e.target.value)}
-                  placeholder="اكتب ملاحظتك التفصيلية للطالب..."
+                  value={fAudioNotes}
+                  onChange={(e) => setFAudioNotes(e.target.value)}
+                  placeholder="اكتب ملاحظتك الصوتية وتوجيهك لنطق الطالب..."
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
                 />
               </div>
 
-              {activeSubmission.correction?.correctedImageUrl && (
-                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700">صورة تصحيح محفوظة سابقاً:</span>
-                  <a
-                    href={activeSubmission.correction.correctedImageUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-emerald-700 font-extrabold underline inline-flex items-center gap-1"
-                  >
-                    <span>عرض الصورة المصحّحة</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-
+              {/* Audio Submit Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
                 <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-700">
                   <label className="flex items-center gap-1.5 cursor-pointer">
@@ -1516,33 +1839,33 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
                 <button
                   type="button"
-                  disabled={saving}
-                  onClick={handleSaveSingleCorrection}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+                  disabled={fAudioSaving}
+                  onClick={handleSaveAudioCorrection}
+                  className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  {saving ? (
+                  {fAudioSaving ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Sparkles className="w-4 h-4" />
+                    <Send className="w-4 h-4" />
                   )}
-                  <span>حفظ التصحيح وإرسال تيليغرام</span>
+                  <span>إرسال تصحيح الصوت</span>
                 </button>
               </div>
 
-              {saveFeedback && (
+              {fAudioFeedback && (
                 <div
                   className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                    saveFeedback.type === 'ok'
+                    fAudioFeedback.type === 'ok'
                       ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
                       : 'bg-rose-50 text-rose-900 border border-rose-200'
                   }`}
                 >
-                  {saveFeedback.type === 'ok' ? (
+                  {fAudioFeedback.type === 'ok' ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   ) : (
                     <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                   )}
-                  <span>{saveFeedback.text}</span>
+                  <span>{fAudioFeedback.text}</span>
                 </div>
               )}
             </div>

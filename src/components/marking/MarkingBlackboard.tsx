@@ -17,8 +17,6 @@ import {
   ZoomOut,
   RotateCcw,
   RotateCw,
-  Layers,
-  Grid,
   Check,
   Image as ImageIcon,
   Sticker,
@@ -33,8 +31,19 @@ import {
   Volume2,
   Feather,
   Loader2,
+  Palette,
+  SlidersHorizontal,
+  ChevronDown,
+  Send,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
-import { MarkingPresetText, MarkingSticker, WatermarkSettings } from '../../types';
+import {
+  MarkingPresetText,
+  MarkingStatus,
+  MarkingSticker,
+  WatermarkSettings,
+} from '../../types';
 import { DEFAULT_MARKING_PRESETS, DEFAULT_MARKING_STICKERS } from '../../utils/markingSheets';
 import {
   CanvasPoint,
@@ -45,6 +54,21 @@ import {
   simplifyCanvasPoints,
   toSafeCanvasImageSrc,
 } from '../../utils/markingCanvasUtils';
+
+export interface BlackboardImageGradingProps {
+  visible: boolean;
+  score: string;
+  onChangeScore: (val: string) => void;
+  status: MarkingStatus;
+  onChangeStatus: (val: MarkingStatus) => void;
+  ratingLabel: string;
+  onChangeRatingLabel: (val: string) => void;
+  notes: string;
+  onChangeNotes: (val: string) => void;
+  saving: boolean;
+  feedback?: { type: 'ok' | 'err'; text: string } | null;
+  onSubmit: () => void;
+}
 
 export interface MarkingBlackboardHandle {
   exportCompositeDataUrl: () => string;
@@ -69,6 +93,7 @@ interface MarkingBlackboardProps {
   presetTexts?: MarkingPresetText[];
   compact?: boolean;
   onAnnotationChange?: (hasMarks: boolean) => void;
+  imageGrading?: BlackboardImageGradingProps;
 }
 
 type ToolGroup = 'draw' | 'textSticker' | 'controls';
@@ -134,6 +159,8 @@ const INITIAL_TOOL_CONFIGS: Record<string, { size: number; color: string }> = {
   text: { size: 32, color: '#0f172a' },
 };
 
+const IMAGE_RATING_OPTIONS = ['ممتاز', 'جيد جداً', 'جيد', 'يحتاج تحسين', 'إعادة المحاولة'];
+
 export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlackboardProps>(
   (
     {
@@ -141,19 +168,23 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       previousCorrectedImageUrl,
       studentAudioUrl,
       studentName,
-      referenceImageUrl,
       lessonTitle,
       stickers,
       presetTexts,
       compact = false,
       onAnnotationChange,
+      imageGrading,
     },
     ref
   ) => {
-    const availableStickers =
-      stickers && stickers.length > 0 ? stickers : DEFAULT_MARKING_STICKERS;
-    const availablePresets =
-      presetTexts && presetTexts.length > 0 ? presetTexts : DEFAULT_MARKING_PRESETS;
+    const rawStickers = stickers && stickers.length > 0 ? stickers : DEFAULT_MARKING_STICKERS;
+    const rawPresets = presetTexts && presetTexts.length > 0 ? presetTexts : DEFAULT_MARKING_PRESETS;
+
+    const boardStickers = rawStickers.filter((s) => !s.scope || s.scope === 'board' || s.scope === 'both');
+    const availableStickers = boardStickers.length > 0 ? boardStickers : rawStickers;
+
+    const boardPresets = rawPresets.filter((p) => !p.scope || p.scope === 'board' || p.scope === 'both');
+    const availablePresets = boardPresets.length > 0 ? boardPresets : rawPresets;
 
     const displayCanvasRef = useRef<HTMLCanvasElement>(null);
     const annotationCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -171,7 +202,6 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
     const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
     const [bgLoading, setBgLoading] = useState<boolean>(false);
     const [bgLoadError, setBgLoadError] = useState<boolean>(false);
-    const [refImage, setRefImage] = useState<HTMLImageElement | null>(null);
 
     const [boardDims, setBoardDims] = useState<{ width: number; height: number }>({
       width: DEFAULT_BOARD_W,
@@ -187,6 +217,12 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
     const [penSize, setPenSize] = useState<number>(5);
     const [nibAngle, setNibAngle] = useState<number>(45);
 
+    // Popover states floating above the board
+    const [activePopover, setActivePopover] = useState<
+      null | 'color' | 'width' | 'quickStamp' | 'stickerScale'
+    >(null);
+    const toolbarWrapRef = useRef<HTMLDivElement | null>(null);
+
     // Text & Sticker State
     const [textFontFamily, setTextFontFamily] = useState<string>('Cairo');
     const [textFontSize, setTextFontSize] = useState<number>(32);
@@ -197,10 +233,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
     );
     const [stickerScale, setStickerScale] = useState<number>(1);
 
-    // View & Theme Controls
-    const [boardTheme, setBoardTheme] = useState<'paper' | 'chalkboard'>('paper');
-    const [showRuledLines, setShowRuledLines] = useState<boolean>(true);
-    const [showReferenceOverlay, setShowReferenceOverlay] = useState<boolean>(false);
+    // View & Theme Controls (clean paper defaults, zoom/pan/expand)
     const [zoom, setZoom] = useState<number>(1);
     const [panOffset, setPanOffset] = useState<CanvasPoint>({ x: 0, y: 0 });
     const [expanded, setExpanded] = useState<boolean>(false);
@@ -214,6 +247,25 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
     const isPanningRef = useRef(false);
     const panStartRef = useRef<CanvasPoint>({ x: 0, y: 0 });
 
+    // Close active floating popover when clicking outside or pressing Escape
+    useEffect(() => {
+      if (!activePopover) return;
+      const onDown = (e: MouseEvent) => {
+        if (toolbarWrapRef.current && !toolbarWrapRef.current.contains(e.target as Node)) {
+          setActivePopover(null);
+        }
+      };
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setActivePopover(null);
+      };
+      document.addEventListener('mousedown', onDown);
+      document.addEventListener('keydown', onKey);
+      return () => {
+        document.removeEventListener('mousedown', onDown);
+        document.removeEventListener('keydown', onKey);
+      };
+    }, [activePopover]);
+
     // Sync edit mode toggle when switching submissions
     useEffect(() => {
       setUseCorrectedAsBase(Boolean(previousCorrectedImageUrl?.trim()));
@@ -222,6 +274,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       setZoom(1);
       setPanOffset({ x: 0, y: 0 });
       setImageRotation(0);
+      setActivePopover(null);
     }, [studentImageUrl, previousCorrectedImageUrl, lessonTitle]);
 
     useEffect(() => {
@@ -316,24 +369,6 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         cancelled = true;
       };
     }, [activeBaseImageUrl]);
-
-    // Load optional reference image
-    useEffect(() => {
-      setRefImage(null);
-      if (!referenceImageUrl) return;
-      const proxied = toSafeCanvasImageSrc(referenceImageUrl);
-      if (!proxied) return;
-      let cancelled = false;
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (!cancelled) setRefImage(img);
-      };
-      img.src = proxied;
-      return () => {
-        cancelled = true;
-      };
-    }, [referenceImageUrl]);
 
     // Keep offscreen annotation canvas matched to boardDims
     useEffect(() => {
@@ -565,21 +600,8 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       const H = boardDims.height;
 
       ctx.save();
-      ctx.fillStyle = boardTheme === 'chalkboard' ? '#0f2922' : '#ffffff';
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, W, H);
-
-      if (showRuledLines) {
-        ctx.strokeStyle =
-          boardTheme === 'chalkboard' ? 'rgba(255,255,255,0.08)' : 'rgba(148,163,184,0.22)';
-        ctx.lineWidth = 1;
-        const step = 52;
-        for (let y = step; y < H; y += step) {
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(W, y);
-          ctx.stroke();
-        }
-      }
 
       if (bgImage) {
         ctx.save();
@@ -592,27 +614,13 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         ctx.restore();
       }
 
-      if (showReferenceOverlay && refImage) {
-        ctx.save();
-        ctx.globalAlpha = 0.28;
-        const padding = 24;
-        const availW = W - padding * 2;
-        const availH = H - padding * 2;
-        const ratio = Math.min(availW / refImage.width, availH / refImage.height);
-        const drawW = refImage.width * ratio;
-        const drawH = refImage.height * ratio;
-        ctx.drawImage(refImage, (W - drawW) / 2, (H - drawH) / 2, drawW, drawH);
-        ctx.restore();
-      }
-
       if (annotationCanvasRef.current) {
         ctx.drawImage(annotationCanvasRef.current, 0, 0);
       }
 
       if (!bgImage && lessonTitle) {
         ctx.save();
-        ctx.fillStyle =
-          boardTheme === 'chalkboard' ? 'rgba(255,255,255,0.45)' : 'rgba(15,23,42,0.22)';
+        ctx.fillStyle = 'rgba(15,23,42,0.22)';
         ctx.font = 'bold 22px Cairo, sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(lessonTitle, W - 28, 40);
@@ -622,13 +630,9 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       ctx.restore();
     }, [
       bgImage,
-      refImage,
       boardDims.width,
       boardDims.height,
       imageRotation,
-      boardTheme,
-      showRuledLines,
-      showReferenceOverlay,
       lessonTitle,
     ]);
 
@@ -829,519 +833,591 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
           expanded ? 'fixed inset-2 sm:inset-4 z-50 rounded-2xl shadow-2xl' : 'rounded-2xl'
         }`}
       >
-        {/* Top Row: Tool Groups + Edit Base Mode + Original Preview */}
-        <div className="px-3 py-2 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2 shrink-0">
-          <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-xl">
-            <button
-              type="button"
-              onClick={() => {
-                setToolGroup('draw');
-                if (tool === 'text' || tool === 'sticker' || tool === 'hand') {
-                  selectTool('pen', 'draw');
-                }
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
-                toolGroup === 'draw'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              أدوات الرسم
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setToolGroup('textSticker');
-                if (tool !== 'text' && tool !== 'sticker') {
-                  selectTool('sticker', 'textSticker');
-                }
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
-                toolGroup === 'textSticker'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              النصوص والملصقات
-            </button>
-            <button
-              type="button"
-              onClick={() => setToolGroup('controls')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
-                toolGroup === 'controls'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-300 hover:text-white'
-              }`}
-            >
-              التحكم والعرض
-            </button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            {previousCorrectedImageUrl && studentImageUrl && (
-              <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg text-[11px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setUseCorrectedAsBase(true)}
-                  className={`px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap shrink-0 ${
-                    useCorrectedAsBase ? 'bg-emerald-600 text-white' : 'text-slate-300'
-                  }`}
-                >
-                  متابعة على المصحّحة
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUseCorrectedAsBase(false)}
-                  className={`px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap shrink-0 ${
-                    !useCorrectedAsBase ? 'bg-white text-slate-900' : 'text-slate-300'
-                  }`}
-                >
-                  صورة الطالب الأصلية
-                </button>
-              </div>
-            )}
-
-            {(studentImageUrl || studentAudioUrl) && (
+        {/* Toolbars Container with Floating Popovers Over Board */}
+        <div ref={toolbarWrapRef} className="relative z-30 shrink-0">
+          {/* Top Row: Tool Groups + Edit Base Mode + Quick Stamp Button + Undo/Redo */}
+          <div className="px-3 py-2 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-xl">
               <button
                 type="button"
-                onClick={() => setShowOriginalModal(true)}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                onClick={() => {
+                  setToolGroup('draw');
+                  setActivePopover(null);
+                  if (tool === 'text' || tool === 'sticker' || tool === 'hand') {
+                    selectTool('pen', 'draw');
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  toolGroup === 'draw'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-300 hover:text-white'
+                }`}
               >
-                <Eye className="w-3.5 h-3.5 text-emerald-400" />
-                <span>عرض الأصلي</span>
+                أدوات الرسم
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => {
+                  setToolGroup('textSticker');
+                  setActivePopover(null);
+                  if (tool !== 'text' && tool !== 'sticker') {
+                    selectTool('sticker', 'textSticker');
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  toolGroup === 'textSticker'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                النصوص والملصقات
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setToolGroup('controls');
+                  setActivePopover(null);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap shrink-0 cursor-pointer transition-colors ${
+                  toolGroup === 'controls'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                التحكم والعرض
+              </button>
+            </div>
 
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={actions.length === 0}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white cursor-pointer"
-              title="تراجع"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleRedo}
-              disabled={redoStack.length === 0}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white cursor-pointer"
-              title="إعادة"
-            >
-              <Redo2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Sub-Toolbar Per Group */}
-        <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-          {toolGroup === 'draw' && (
-            <div className="flex flex-wrap items-center gap-1.5 w-full justify-between">
-              <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* Quick Stamp Dropdown Trigger */}
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={() => selectTool('pen', 'draw')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'pen'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  onClick={() =>
+                    setActivePopover((p) => (p === 'quickStamp' ? null : 'quickStamp'))
+                  }
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer border ${
+                    activePopover === 'quickStamp' || tool === 'sticker'
+                      ? 'bg-amber-500 text-slate-950 border-amber-400'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700'
                   }`}
                 >
-                  <PenTool className="w-3.5 h-3.5" />
-                  <span>قلم عادي</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => selectTool('chisel', 'draw')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'chisel'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <Feather className="w-3.5 h-3.5" />
-                  <span>قلم مائل</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => selectTool('highlighter', 'draw')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'highlighter'
-                      ? 'bg-amber-500 text-slate-950'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <Highlighter className="w-3.5 h-3.5" />
-                  <span>تظليل</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => selectTool('circle', 'draw')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'circle'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <Circle className="w-3.5 h-3.5" />
-                  <span>دائرة</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => selectTool('arrow', 'draw')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'arrow'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                  <span>سهم</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => selectTool('eraser', 'draw')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'eraser'
-                      ? 'bg-rose-600 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                  title="يمسح تصحيح المعلم فقط دون المساس بصورة الطالب"
-                >
-                  <Eraser className="w-3.5 h-3.5" />
-                  <span>ممحاة</span>
+                  <Sticker className="w-3.5 h-3.5" />
+                  <span>ختم سريع</span>
+                  {selectedSticker && (
+                    <span className="text-sm leading-none">{selectedSticker.symbol}</span>
+                  )}
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      activePopover === 'quickStamp' ? 'rotate-180' : ''
+                    }`}
+                  />
                 </button>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Color Swatches + Custom Color Picker */}
-                <div className="flex items-center gap-1">
-                  {PEN_COLORS.map((c) => (
-                    <button
-                      key={c.color}
-                      type="button"
-                      onClick={() => handleColorChange(c.color)}
-                      title={c.label}
-                      className={`w-6 h-6 rounded-full border cursor-pointer flex items-center justify-center transition-transform ${
-                        penColor === c.color && tool !== 'eraser'
-                          ? 'ring-2 ring-slate-900 ring-offset-1 scale-110'
-                          : 'border-slate-300'
-                      }`}
-                      style={{ backgroundColor: c.color }}
-                    >
-                      {penColor === c.color && tool !== 'eraser' && (
-                        <Check
-                          className={`w-3 h-3 ${
-                            c.color === '#ffffff' ? 'text-slate-900' : 'text-white'
-                          }`}
-                        />
-                      )}
-                    </button>
-                  ))}
-                  <input
-                    type="color"
-                    value={penColor}
-                    onChange={(e) => handleColorChange(e.target.value)}
-                    className="w-6 h-6 rounded-md border border-slate-300 cursor-pointer p-0 bg-white"
-                    title="اختيار أي لون مخصص"
-                  />
+              {previousCorrectedImageUrl && studentImageUrl && (
+                <div className="flex items-center gap-1 p-0.5 bg-slate-800 rounded-lg text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setUseCorrectedAsBase(true)}
+                    className={`px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap shrink-0 ${
+                      useCorrectedAsBase ? 'bg-emerald-600 text-white' : 'text-slate-300'
+                    }`}
+                  >
+                    المصحّحة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUseCorrectedAsBase(false)}
+                    className={`px-2.5 py-1 rounded-md cursor-pointer whitespace-nowrap shrink-0 ${
+                      !useCorrectedAsBase ? 'bg-white text-slate-900' : 'text-slate-300'
+                    }`}
+                  >
+                    الأصلية
+                  </button>
+                </div>
+              )}
+
+              {(studentImageUrl || studentAudioUrl) && (
+                <button
+                  type="button"
+                  onClick={() => setShowOriginalModal(true)}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 cursor-pointer"
+                  title="معاينة الملف الأصلي"
+                  aria-label="معاينة الملف الأصلي"
+                >
+                  <Eye className="w-4 h-4 text-emerald-400" />
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={actions.length === 0}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white cursor-pointer"
+                title="تراجع"
+                aria-label="تراجع"
+              >
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleRedo}
+                disabled={redoStack.length === 0}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white cursor-pointer"
+                title="إعادة"
+                aria-label="إعادة"
+              >
+                <Redo2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-Toolbar Per Group */}
+          <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            {toolGroup === 'draw' && (
+              <div className="flex flex-wrap items-center gap-1.5 w-full justify-between">
+                {/* Icon-only Drawing Tools + Clear All */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => selectTool('pen', 'draw')}
+                    title="قلم عادي"
+                    aria-label="قلم عادي"
+                    className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                      tool === 'pen'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <PenTool className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectTool('chisel', 'draw')}
+                    title="قلم خط مائل"
+                    aria-label="قلم خط مائل"
+                    className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                      tool === 'chisel'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Feather className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectTool('highlighter', 'draw')}
+                    title="قلم تظليل"
+                    aria-label="قلم تظليل"
+                    className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                      tool === 'highlighter'
+                        ? 'bg-amber-500 text-slate-950 border-amber-500'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Highlighter className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectTool('circle', 'draw')}
+                    title="رسم دائرة"
+                    aria-label="رسم دائرة"
+                    className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                      tool === 'circle'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Circle className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectTool('arrow', 'draw')}
+                    title="رسم سهم"
+                    aria-label="رسم سهم"
+                    className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                      tool === 'arrow'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ArrowUpRight className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectTool('eraser', 'draw')}
+                    title="ممحاة التصحيح"
+                    aria-label="ممحاة التصحيح"
+                    className={`p-2 rounded-xl border cursor-pointer transition-colors ${
+                      tool === 'eraser'
+                        ? 'bg-rose-600 text-white border-rose-600'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Eraser className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActions([]);
+                      setRedoStack([]);
+                    }}
+                    disabled={actions.length === 0}
+                    title="مسح كامل الرسومات والتعديلات"
+                    aria-label="مسح كامل"
+                    className="p-2 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-40 cursor-pointer transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
 
-                {/* Line Width */}
-                <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                  <span>السُمك:</span>
-                  <input
-                    type="range"
-                    min={1}
-                    max={60}
-                    value={penSize}
-                    onChange={(e) => handleSizeChange(Number(e.target.value))}
-                    className="w-20 accent-slate-900 cursor-pointer"
-                  />
-                  <span className="w-7 text-center font-mono tabular-nums">{penSize}px</span>
-                </div>
-
-                {/* Nib Angle when Chisel active */}
-                {tool === 'chisel' && (
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                    <span>زاوية القطّة:</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={180}
-                      step={5}
-                      value={nibAngle}
-                      onChange={(e) => setNibAngle(Number(e.target.value))}
-                      className="w-16 accent-emerald-600 cursor-pointer"
+                {/* Color Popover Trigger + Pen Width Popover Trigger */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActivePopover((p) => (p === 'color' ? null : 'color'))}
+                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                      activePopover === 'color'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                    }`}
+                    title="اختيار اللون"
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full border border-slate-300 shrink-0"
+                      style={{ backgroundColor: penColor }}
                     />
-                    <span className="w-8 text-center font-mono tabular-nums">{nibAngle}°</span>
+                    <Palette className="w-3.5 h-3.5" />
+                    <span>اللون</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActivePopover((p) => (p === 'width' ? null : 'width'))}
+                    className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                      activePopover === 'width'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                    }`}
+                    title="سمك القلم"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span className="font-mono tabular-nums">{penSize}px</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {toolGroup === 'textSticker' && (
+              <div className="w-full space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => selectTool('text', 'textSticker')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      tool === 'text'
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Type className="w-3.5 h-3.5" />
+                    <span>كتابة نص على السبورة</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectTool('sticker', 'textSticker')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                      tool === 'sticker'
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Sticker className="w-3.5 h-3.5" />
+                    <span>ختم ملصق</span>
+                  </button>
+
+                  {tool === 'text' ? (
+                    <>
+                      <select
+                        value={textFontFamily}
+                        onChange={(e) => setTextFontFamily(e.target.value)}
+                        className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800"
+                      >
+                        <option value="Cairo">Cairo</option>
+                        <option value="Amiri">Amiri (خط نسخ)</option>
+                        <option value="Tajawal">Tajawal</option>
+                      </select>
+
+                      <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700">
+                        <span>الحجم:</span>
+                        <input
+                          type="range"
+                          min={18}
+                          max={84}
+                          value={textFontSize}
+                          onChange={(e) => setTextFontSize(Number(e.target.value))}
+                          className="w-16 accent-slate-900 cursor-pointer"
+                        />
+                        <span className="font-mono tabular-nums">{textFontSize}px</span>
+                      </div>
+
+                      <input
+                        type="color"
+                        value={penColor}
+                        onChange={(e) => handleColorChange(e.target.value)}
+                        className="w-6 h-6 rounded border border-slate-300 cursor-pointer bg-white"
+                        title="لون النص"
+                      />
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActivePopover((p) => (p === 'stickerScale' ? null : 'stickerScale'))
+                      }
+                      className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
+                        activePopover === 'stickerScale'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>حجم الملصق ({stickerScale.toFixed(1)}x)</span>
+                    </button>
+                  )}
+                </div>
+
+                {tool === 'text' && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <select
+                      value={selectedPhrase}
+                      onChange={(e) => {
+                        setSelectedPhrase(e.target.value);
+                        setCustomText(e.target.value);
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800 max-w-xs"
+                    >
+                      {availablePresets.map((p) => (
+                        <option key={p.id} value={p.text}>
+                          {p.text}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={customText}
+                      onChange={(e) => setCustomText(e.target.value)}
+                      placeholder="اكتب النص ثم انقر على أي مكان بالسبورة لوضعه..."
+                      className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-900"
+                    />
                   </div>
                 )}
+              </div>
+            )}
+
+            {toolGroup === 'controls' && (
+              <div className="flex flex-wrap items-center gap-1.5 w-full justify-between">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => selectTool('hand', 'controls')}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer ${
+                      tool === 'hand'
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Hand className="w-3.5 h-3.5" />
+                    <span>تحريك (يد)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.2).toFixed(1))))}
+                    className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+                    title="تصغير"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setZoom(1);
+                      setPanOffset({ x: 0, y: 0 });
+                    }}
+                    className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[11px] font-mono font-bold text-slate-700 cursor-pointer tabular-nums"
+                    title="إرجاع الحجم والموضع"
+                  >
+                    {Math.round(zoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoom((z) => Math.min(4.0, Number((z + 0.25).toFixed(2))))}
+                    className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+                    title="تكبير"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleRotate90}
+                    className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <RotateCw className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>تدوير 90°</span>
+                  </button>
+                </div>
+
+                {!compact && (
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((e) => !e)}
+                    className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                    title={expanded ? 'تصغير السبورة' : 'ملء الشاشة'}
+                  >
+                    {expanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    <span>{expanded ? 'إغلاق الملء' : 'ملء الشاشة'}</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Floating Popover Over the Blackboard */}
+          {activePopover === 'color' && (
+            <div className="absolute left-3 top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl p-3 space-y-2 w-64">
+              <div className="text-[11px] font-extrabold text-slate-700">اختر لون القلم</div>
+              <div className="flex flex-wrap items-center gap-2">
+                {PEN_COLORS.map((c) => (
+                  <button
+                    key={c.color}
+                    type="button"
+                    onClick={() => {
+                      handleColorChange(c.color);
+                      setActivePopover(null);
+                    }}
+                    title={c.label}
+                    className={`w-7 h-7 rounded-full border cursor-pointer flex items-center justify-center transition-transform ${
+                      penColor === c.color && tool !== 'eraser'
+                        ? 'ring-2 ring-slate-900 ring-offset-1 scale-110'
+                        : 'border-slate-300'
+                    }`}
+                    style={{ backgroundColor: c.color }}
+                  >
+                    {penColor === c.color && tool !== 'eraser' && (
+                      <Check
+                        className={`w-3.5 h-3.5 ${
+                          c.color === '#ffffff' ? 'text-slate-900' : 'text-white'
+                        }`}
+                      />
+                    )}
+                  </button>
+                ))}
+                <input
+                  type="color"
+                  value={penColor}
+                  onChange={(e) => handleColorChange(e.target.value)}
+                  className="w-7 h-7 rounded-lg border border-slate-300 cursor-pointer p-0 bg-white"
+                  title="لون مخصص"
+                />
               </div>
             </div>
           )}
 
-          {toolGroup === 'textSticker' && (
-            <div className="w-full space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => selectTool('text', 'textSticker')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'text'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <Type className="w-3.5 h-3.5" />
-                  <span>كتابة نص على السبورة</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => selectTool('sticker', 'textSticker')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                    tool === 'sticker'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <Sticker className="w-3.5 h-3.5" />
-                  <span>ختم ملصق</span>
-                </button>
-
-                {tool === 'text' ? (
-                  <>
-                    <select
-                      value={textFontFamily}
-                      onChange={(e) => setTextFontFamily(e.target.value)}
-                      className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800"
-                    >
-                      <option value="Cairo">Cairo</option>
-                      <option value="Amiri">Amiri (خط نسخ)</option>
-                      <option value="Tajawal">Tajawal</option>
-                    </select>
-
-                    <div className="flex items-center gap-1 text-[11px] font-bold text-slate-700">
-                      <span>الحجم:</span>
-                      <input
-                        type="range"
-                        min={18}
-                        max={84}
-                        value={textFontSize}
-                        onChange={(e) => setTextFontSize(Number(e.target.value))}
-                        className="w-16 accent-slate-900 cursor-pointer"
-                      />
-                      <span className="font-mono tabular-nums">{textFontSize}px</span>
-                    </div>
-
-                    <input
-                      type="color"
-                      value={penColor}
-                      onChange={(e) => handleColorChange(e.target.value)}
-                      className="w-6 h-6 rounded border border-slate-300 cursor-pointer bg-white"
-                      title="لون النص"
-                    />
-                  </>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                    <span>حجم الملصق:</span>
-                    <input
-                      type="range"
-                      min={0.6}
-                      max={2.4}
-                      step={0.1}
-                      value={stickerScale}
-                      onChange={(e) => setStickerScale(Number(e.target.value))}
-                      className="w-20 accent-emerald-600 cursor-pointer"
-                    />
-                    <span className="font-mono tabular-nums">{stickerScale.toFixed(1)}x</span>
-                  </div>
-                )}
+          {activePopover === 'width' && (
+            <div className="absolute left-3 top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl p-3 space-y-2.5 w-64">
+              <div className="flex items-center justify-between text-xs font-extrabold text-slate-800">
+                <span>سمك الخط</span>
+                <span className="font-mono tabular-nums text-emerald-700">{penSize}px</span>
               </div>
-
-              {tool === 'text' && (
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <select
-                    value={selectedPhrase}
-                    onChange={(e) => {
-                      setSelectedPhrase(e.target.value);
-                      setCustomText(e.target.value);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-800 max-w-xs"
-                  >
-                    {availablePresets.map((p) => (
-                      <option key={p.id} value={p.text}>
-                        {p.text}
-                      </option>
-                    ))}
-                  </select>
+              <input
+                type="range"
+                min={1}
+                max={60}
+                value={penSize}
+                onChange={(e) => handleSizeChange(Number(e.target.value))}
+                className="w-full accent-slate-900 cursor-pointer"
+              />
+              {tool === 'chisel' && (
+                <div className="pt-2 border-t border-slate-100 space-y-1">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-800">
+                    <span>زاوية القلم المائل</span>
+                    <span className="font-mono tabular-nums">{nibAngle}°</span>
+                  </div>
                   <input
-                    type="text"
-                    value={customText}
-                    onChange={(e) => setCustomText(e.target.value)}
-                    placeholder="اكتب النص ثم انقر على أي مكان بالسبورة لوضعه..."
-                    className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-900"
+                    type="range"
+                    min={0}
+                    max={180}
+                    step={5}
+                    value={nibAngle}
+                    onChange={(e) => setNibAngle(Number(e.target.value))}
+                    className="w-full accent-emerald-600 cursor-pointer"
                   />
                 </div>
               )}
             </div>
           )}
 
-          {toolGroup === 'controls' && (
-            <div className="flex flex-wrap items-center gap-1.5 w-full justify-between">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => selectTool('hand', 'controls')}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer ${
-                    tool === 'hand'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <Hand className="w-3.5 h-3.5" />
-                  <span>تحريك (يد)</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setZoom((z) => Math.max(0.4, Number((z - 0.2).toFixed(1))))}
-                  className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
-                  title="تصغير"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setZoom(1);
-                    setPanOffset({ x: 0, y: 0 });
-                  }}
-                  className="px-2 py-1 rounded-lg bg-white border border-slate-200 text-[11px] font-mono font-bold text-slate-700 cursor-pointer tabular-nums"
-                  title="إرجاع الحجم والموضع"
-                >
-                  {Math.round(zoom * 100)}%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoom((z) => Math.min(4.0, Number((z + 0.25).toFixed(2))))}
-                  className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
-                  title="تكبير"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleRotate90}
-                  className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <RotateCw className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>تدوير 90°</span>
-                </button>
+          {activePopover === 'quickStamp' && (
+            <div className="absolute left-3 top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl p-3 space-y-2 w-72 max-h-72 overflow-y-auto">
+              <div className="text-[11px] font-extrabold text-slate-700">
+                اختر ختماً ثم انقر على السبورة لوضعه
               </div>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setBoardTheme((p) => (p === 'paper' ? 'chalkboard' : 'paper'))}
-                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border whitespace-nowrap shrink-0 cursor-pointer ${
-                    boardTheme === 'chalkboard'
-                      ? 'bg-emerald-900 text-white border-emerald-900'
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {boardTheme === 'chalkboard' ? 'سبورة خضراء' : 'ورق أبيض'}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowRuledLines((p) => !p)}
-                  className={`p-1.5 rounded-lg border cursor-pointer ${
-                    showRuledLines
-                      ? 'bg-slate-800 text-white border-slate-800'
-                      : 'bg-white text-slate-700 border-slate-200'
-                  }`}
-                  title="تسطير السبورة"
-                >
-                  <Grid className="w-3.5 h-3.5" />
-                </button>
-
-                {refImage && (
-                  <button
-                    type="button"
-                    onClick={() => setShowReferenceOverlay((p) => !p)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer ${
-                      showReferenceOverlay
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>شفافية النموذج</span>
-                  </button>
-                )}
-
-                {!compact && (
-                  <button
-                    type="button"
-                    onClick={() => setExpanded((e) => !e)}
-                    className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
-                    title={expanded ? 'تصغير السبورة' : 'ملء الشاشة'}
-                  >
-                    {expanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActions([]);
-                    setRedoStack([]);
-                  }}
-                  disabled={actions.length === 0}
-                  className="px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 disabled:opacity-40 text-[11px] font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>مسح</span>
-                </button>
+              <div className="grid grid-cols-2 gap-1.5">
+                {availableStickers.map((st) => {
+                  const isSelected = tool === 'sticker' && selectedSticker?.id === st.id;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedSticker(st);
+                        selectTool('sticker', 'textSticker');
+                        setActivePopover(null);
+                      }}
+                      className={`px-2.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer border transition-colors ${
+                        isSelected
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="text-base leading-none">{st.symbol}</span>
+                      <span className="truncate">{st.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
-        </div>
 
-        {/* Sticker Quick Bar (always handy) */}
-        <div className="px-3 py-1.5 bg-slate-50/70 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto shrink-0">
-          <span className="text-[11px] font-extrabold text-slate-500 whitespace-nowrap shrink-0 pl-1">
-            ختم سريع:
-          </span>
-          {availableStickers.map((st) => {
-            const isSelected = tool === 'sticker' && selectedSticker?.id === st.id;
-            return (
-              <button
-                key={st.id}
-                type="button"
-                onClick={() => {
-                  setSelectedSticker(st);
-                  selectTool('sticker', 'textSticker');
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer border transition-all ${
-                  isSelected
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
-                }`}
-              >
-                <span className="text-sm leading-none">{st.symbol}</span>
-                <span>{st.label}</span>
-              </button>
-            );
-          })}
+          {activePopover === 'stickerScale' && (
+            <div className="absolute right-3 top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl p-3 space-y-2 w-64">
+              <div className="flex items-center justify-between text-xs font-extrabold text-slate-800">
+                <span>حجم الملصق على السبورة</span>
+                <span className="font-mono tabular-nums text-emerald-700">
+                  {stickerScale.toFixed(1)}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.6}
+                max={2.4}
+                step={0.1}
+                value={stickerScale}
+                onChange={(e) => setStickerScale(Number(e.target.value))}
+                className="w-full accent-emerald-600 cursor-pointer"
+              />
+            </div>
+          )}
         </div>
 
         {/* Canvas Viewport */}
@@ -1500,6 +1576,110 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Integrated Image Correction Grading & Send Bar at Bottom of Blackboard Card */}
+        {imageGrading?.visible && !compact && (
+          <div className="px-3.5 py-3 bg-slate-50 border-t border-slate-200 space-y-2.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-extrabold text-slate-700 whitespace-nowrap">
+                  درجة الصورة:
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={imageGrading.score}
+                  onChange={(e) =>
+                    imageGrading.onChangeScore(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))
+                  }
+                  placeholder="95"
+                  className="w-24 px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-mono font-extrabold text-slate-900 text-center tabular-nums focus:outline-hidden focus:border-emerald-500"
+                />
+              </div>
+
+              <select
+                value={imageGrading.status}
+                onChange={(e) => imageGrading.onChangeStatus(e.target.value as MarkingStatus)}
+                className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900"
+              >
+                <option value="corrected">صورة مصحّحة ✓</option>
+                <option value="retry">مطلوب إعادة الصورة</option>
+                <option value="pending">قيد الانتظار</option>
+              </select>
+
+              <select
+                value={imageGrading.ratingLabel}
+                onChange={(e) => imageGrading.onChangeRatingLabel(e.target.value)}
+                className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900"
+              >
+                {IMAGE_RATING_OPTIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="text"
+                value={imageGrading.notes}
+                onChange={(e) => imageGrading.onChangeNotes(e.target.value)}
+                placeholder="ملاحظة مختصرة على الصورة (اختياري)..."
+                className="flex-1 min-w-[180px] px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-semibold text-slate-900 focus:outline-hidden focus:border-emerald-500"
+              />
+
+              <button
+                type="button"
+                disabled={imageGrading.saving}
+                onClick={imageGrading.onSubmit}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                {imageGrading.saving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>إرسال تصحيح الصورة</span>
+              </button>
+            </div>
+
+            {availablePresets.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {availablePresets.slice(0, 5).map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() =>
+                      imageGrading.onChangeNotes(
+                        imageGrading.notes ? `${imageGrading.notes} — ${preset.text}` : preset.text
+                      )
+                    }
+                    className="px-2 py-1 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 text-[11px] font-bold text-slate-700 cursor-pointer"
+                  >
+                    + {preset.text}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {imageGrading.feedback && (
+              <div
+                className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                  imageGrading.feedback.type === 'ok'
+                    ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                    : 'bg-rose-50 text-rose-900 border border-rose-200'
+                }`}
+              >
+                {imageGrading.feedback.type === 'ok' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                )}
+                <span>{imageGrading.feedback.text}</span>
+              </div>
+            )}
           </div>
         )}
       </div>

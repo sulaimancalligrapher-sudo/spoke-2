@@ -35,6 +35,7 @@ interface VideoLessonsModalProps {
   webhookUrl: string;
   onSelectLesson: (lessonId: string, isRetry?: boolean) => void;
   onOpenCorrections: () => void;
+  onOpenLessonCorrection?: (lessonTitle: string) => void;
   onRefreshLessons: () => void;
   onUpdateProgress: (lessonId: string, nextProgress: VideoStudentProgress) => void;
   t?: (id: string, fallback?: string) => string;
@@ -52,6 +53,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
   webhookUrl,
   onSelectLesson,
   onOpenCorrections,
+  onOpenLessonCorrection,
   onRefreshLessons,
   onUpdateProgress,
   t,
@@ -356,6 +358,22 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
                               </span>
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onClose();
+                              if (onOpenLessonCorrection) {
+                                onOpenLessonCorrection(lesson.title);
+                              } else {
+                                onOpenCorrections();
+                              }
+                            }}
+                            className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer min-h-[38px] whitespace-nowrap shrink-0"
+                          >
+                            <Award className="w-3.5 h-3.5 text-amber-600" />
+                            <span>{tr('video_teacher_corrections_btn', 'تصحيح المعلم')}</span>
+                          </button>
 
                           <button
                             type="button"
