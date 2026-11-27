@@ -77,8 +77,13 @@ export const StudentAchievementModal: React.FC<StudentAchievementModalProps> = (
   const videoModule = summary?.modules?.find((m) => m.key === 'video');
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 font-cairo text-right">
-      <div className="bg-slate-50 rounded-3xl w-full max-w-5xl max-h-[92vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[110] bg-slate-950/75 backdrop-blur-xs overflow-y-auto flex items-start sm:items-center justify-center p-2 sm:p-4 font-cairo text-right"
+    >
+      <div className="my-auto bg-slate-50 rounded-3xl w-full max-w-5xl max-h-[calc(100dvh-16px)] sm:max-h-[92dvh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
         {/* Header */}
         <header className="px-5 py-4 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -129,7 +134,7 @@ export const StudentAchievementModal: React.FC<StudentAchievementModalProps> = (
         </header>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5">
           {/* Active Video Lesson Answers Breakdown (if provided from current workspace item) */}
           {activeAnsEntries.length > 0 && (
             <section className="bg-white rounded-2xl border border-indigo-200 p-4 space-y-2.5">

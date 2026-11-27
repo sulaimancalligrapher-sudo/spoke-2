@@ -123,8 +123,13 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs font-cairo animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[105] overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/60 backdrop-blur-xs font-cairo animate-in fade-in duration-150"
+    >
+      <div className="my-auto bg-white rounded-3xl max-w-3xl w-full max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-[#0c3868] text-white px-5 py-4 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -224,7 +229,7 @@ export const VideoLessonsModal: React.FC<VideoLessonsModalProps> = ({
         </div>
 
         {/* Lessons List */}
-        <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-2.5 sm:space-y-3">
+        <div className="p-3 sm:p-5 overflow-y-auto flex-1 min-h-0 space-y-2.5 sm:space-y-3">
           {filteredLessons.length === 0 ? (
             <div className="text-center py-12 px-4 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
               <div>

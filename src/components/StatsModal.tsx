@@ -323,55 +323,64 @@ export const StatsModal: React.FC<StatsModalProps> = ({
       : 0;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[90dvh] flex flex-col overflow-hidden">
-        <button
-          onClick={onClose}
-          className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
-        >
-          <X className="w-5 h-5" />
-        </button>
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-xs overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-4 animate-in fade-in duration-200"
+    >
+      <div className="my-auto bg-white rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl border border-slate-100 max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] flex flex-col overflow-hidden">
+        {/* Header & Close Button */}
+        <div className="flex items-start justify-between gap-3 mb-4 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 shadow-xs">
+              <Award className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-slate-900 truncate">
+                {tr('stats_modal_title', 'سجل التقييمات والإنجاز')}
+              </h3>
+              {currentStudent ? (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 font-bold mt-0.5">
+                  <span className="text-emerald-700 font-extrabold flex items-center gap-1">
+                    <User className="w-3.5 h-3.5" />
+                    <span>{currentStudent.name}</span>
+                  </span>
+                  <span className="text-[10px] bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md text-slate-700 font-mono">
+                    ID: {currentStudent.id}
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-normal">
+                    {activeTab === 'video'
+                      ? '(موثق في ورقة تصحيح_الواجبات)'
+                      : activeTab === 'catch'
+                      ? tr('stats_catch_verified_sheet', '(موثق في ورقة اجابات صيد)')
+                      : activeTab === 'dictation'
+                      ? tr('stats_dictation_verified_sheet', '(موثق في ورقة answers 3)')
+                      : activeTab === 'matching'
+                      ? tr('stats_matching_verified_sheet', '(موثق في ورقة answers 2)')
+                      : tr('stats_verified_in_sheet', '(موثق في ورقة answers 1)')}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  {tr('nav_platform_subtitle', 'متابعة إتقان مخارج الحروف والكلمات')}
+                </p>
+              )}
+            </div>
+          </div>
 
-        {/* Title */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 shadow-xs">
-            <Award className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-900">
-              {tr('stats_modal_title', 'سجل التقييمات والإنجاز')}
-            </h3>
-            {currentStudent ? (
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 font-bold mt-0.5">
-                <span className="text-emerald-700 font-extrabold flex items-center gap-1">
-                  <User className="w-3.5 h-3.5" />
-                  <span>{currentStudent.name}</span>
-                </span>
-                <span className="text-[10px] bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md text-slate-700 font-mono">
-                  ID: {currentStudent.id}
-                </span>
-                <span className="text-[10px] text-emerald-600 font-normal">
-                  {activeTab === 'video'
-                    ? '(موثق في ورقة تصحيح_الواجبات)'
-                    : activeTab === 'catch'
-                    ? tr('stats_catch_verified_sheet', '(موثق في ورقة اجابات صيد)')
-                    : activeTab === 'dictation'
-                    ? tr('stats_dictation_verified_sheet', '(موثق في ورقة answers 3)')
-                    : activeTab === 'matching'
-                    ? tr('stats_matching_verified_sheet', '(موثق في ورقة answers 2)')
-                    : tr('stats_verified_in_sheet', '(موثق في ورقة answers 1)')}
-                </span>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">
-                {tr('nav_platform_subtitle', 'متابعة إتقان مخارج الحروف والكلمات')}
-              </p>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="إغلاق"
+            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer shrink-0"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Five Tabs: [ 🎙️ سجل النطق ] | [ 🔗 سجل التوصيل ] | [ 📝 سجل الإملاء ] | [ 🎯 سجل الصيد ] | [ 🎬 الفيديو والتصحيح ] */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-4 border border-slate-200/80">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1.5 bg-slate-100 rounded-2xl mb-4 border border-slate-200/80 shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('pronunciation')}
@@ -485,7 +494,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               </h4>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
               {history.length === 0 ? (
                 isSyncingFromSheets ? (
                   <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
@@ -610,7 +619,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               </h4>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-0.5">
               {matchingHistory.length === 0 ? (
                 isSyncingMatching ? (
                   <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
@@ -768,7 +777,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               </h4>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-0.5">
               {dictationHistory.length === 0 ? (
                 isSyncingDictation ? (
                   <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
@@ -924,7 +933,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               </h4>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-3 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-0.5">
               {catchHistory.length === 0 ? (
                 isSyncingCatch ? (
                   <div className="text-center py-12 text-slate-500 text-xs flex flex-col items-center justify-center gap-2">
@@ -1083,7 +1092,7 @@ export const StatsModal: React.FC<StatsModalProps> = ({
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-0.5">
               {videoCorrectionRows.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
                   لا توجد دروس فيديو تفاعلي مكتملة أو مصحّحة حتى الآن.
@@ -1162,6 +1171,16 @@ export const StatsModal: React.FC<StatsModalProps> = ({
             </div>
           </>
         )}
+
+        <div className="pt-3 mt-3 border-t border-slate-100 flex justify-end shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </div>
       </div>
     </div>
   );

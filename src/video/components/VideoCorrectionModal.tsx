@@ -288,8 +288,13 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-950/65 backdrop-blur-xs font-cairo animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/65 backdrop-blur-xs font-cairo animate-in fade-in duration-150"
+    >
+      <div className="my-auto bg-white rounded-3xl max-w-2xl w-full max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-[#0c3868] text-white px-5 py-4 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -391,7 +396,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="p-4 sm:p-5 overflow-y-auto flex-1 min-h-0 space-y-4">
           {!studentId ? (
             <div className="text-center py-10 text-slate-500 text-sm font-bold">
               {tr('video_corr_login_prompt', 'يرجى تسجيل دخول الطالب أولاً لعرض تصحيحات المعلم.')}
@@ -423,7 +428,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                         <h4 className="font-extrabold text-slate-900 text-sm">
                           {matchedLesson ? tr(`video_title_${matchedLesson.id}`, entry.lessonTitle) : entry.lessonTitle}
                         </h4>
-                        <div className="flex items-center gap-2 text-xs font-bold">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
                           {entry.imageStatus && (
                             <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
                               {entry.imageStatus}
@@ -432,6 +437,11 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                           {entry.imageScore && (
                             <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200">
                               {tr('video_score_label', 'الدرجة:')} {entry.imageScore}
+                            </span>
+                          )}
+                          {entry.imageRatingLabel && (
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+                              {entry.imageRatingLabel}
                             </span>
                           )}
                         </div>
@@ -545,7 +555,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                         <h4 className="font-extrabold text-slate-900 text-sm">
                           {matchedLesson ? tr(`video_title_${matchedLesson.id}`, entry.lessonTitle) : entry.lessonTitle}
                         </h4>
-                        <div className="flex items-center gap-2 text-xs font-bold">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-bold">
                           {entry.audioStatus && (
                             <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
                               {entry.audioStatus}
@@ -554,6 +564,11 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                           {entry.audioScore && (
                             <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200 tabular-nums">
                               {tr('video_score_label', 'الدرجة:')} {entry.audioScore}
+                            </span>
+                          )}
+                          {entry.audioRatingLabel && (
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+                              {entry.audioRatingLabel}
                             </span>
                           )}
                         </div>

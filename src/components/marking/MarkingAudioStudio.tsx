@@ -21,6 +21,22 @@ interface MarkingAudioStudioProps {
   referenceAutoReadText?: string;
   existingTeacherAudioUrl?: string;
   onTeacherAudioRecorded?: (base64Data: string | null) => void;
+  hideReference?: boolean;
+  hideRecorder?: boolean;
+}
+
+function createSafeAudioRecorder(stream: MediaStream): MediaRecorder {
+  const candidates = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'];
+  const supported =
+    typeof MediaRecorder.isTypeSupported === 'function'
+      ? candidates.find((m) => MediaRecorder.isTypeSupported(m))
+      : undefined;
+  if (supported) {
+    try {
+      return new MediaRecorder(stream, { mimeType: supported });
+    } catch {}
+  }
+  return new MediaRecorder(stream);
 }
 
 const SingleAudioDeck: React.FC<{
@@ -248,6 +264,8 @@ export const MarkingAudioStudio: React.FC<MarkingAudioStudioProps> = ({
   referenceAutoReadText,
   existingTeacherAudioUrl,
   onTeacherAudioRecorded,
+  hideReference = false,
+  hideRecorder = false,
 }) => {
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -275,7 +293,7 @@ export const MarkingAudioStudio: React.FC<MarkingAudioStudioProps> = ({
     setMicError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
+      const mr = createSafeAudioRecorder(stream);
       chunksRef.current = [];
       mr.ondataavailable = (ev) => {
         if (ev.data.size > 0) chunksRef.current.push(ev.data);
@@ -292,7 +310,7 @@ export const MarkingAudioStudio: React.FC<MarkingAudioStudioProps> = ({
         reader.readAsDataURL(blob);
       };
       mediaRecorderRef.current = mr;
-      mr.start();
+      mr.start(500);
       setRecording(true);
       setRecordSeconds(0);
       timerRef.current = window.setInterval(() => {
@@ -323,22 +341,25 @@ export const MarkingAudioStudio: React.FC<MarkingAudioStudioProps> = ({
 
   return (
     <div className="space-y-2.5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+      <div className={`grid grid-cols-1 ${hideReference ? '' : 'md:grid-cols-2'} gap-2.5`}>
         <SingleAudioDeck
           title={`تسجيل الطالب${studentName ? ` (${studentName})` : ''}`}
           url={studentAudioUrl}
           accent="emerald"
         />
-        <SingleAudioDeck
-          title="النموذج المرجعي للمعلم"
-          url={referenceAudioUrl}
-          fallbackText={referenceAutoReadText}
-          accent="indigo"
-        />
+        {!hideReference && (
+          <SingleAudioDeck
+            title="النموذج المرجعي للمعلم"
+            url={referenceAudioUrl}
+            fallbackText={referenceAutoReadText}
+            accent="indigo"
+          />
+        )}
       </div>
 
       {/* Teacher Voice Note Recorder */}
-      <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2">
+      {!hideRecorder && (
+        <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
             <Mic className="w-4 h-4 text-rose-600" />
@@ -395,7 +416,8 @@ export const MarkingAudioStudio: React.FC<MarkingAudioStudioProps> = ({
             accent="indigo"
           />
         )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

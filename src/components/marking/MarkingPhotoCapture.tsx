@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera,
   Image as ImageIcon,
@@ -26,6 +26,10 @@ interface MarkingPhotoCaptureProps {
   onChangeStitchOnSave?: (val: boolean) => void;
   compact?: boolean;
   title?: string;
+  /** Incrementing this counter immediately opens the Camera Preview & Capture modal */
+  openCameraTrigger?: number;
+  /** Hides the inline header bar (used when triggered from Blackboard buttons) */
+  hideInlineBar?: boolean;
 }
 
 export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
@@ -38,6 +42,8 @@ export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
   onChangeStitchOnSave,
   compact = false,
   title = 'صور التدريس والتقاط الكاميرا',
+  openCameraTrigger,
+  hideInlineBar = false,
 }) => {
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -47,6 +53,7 @@ export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const nativeCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const prevTriggerRef = useRef<number | undefined>(openCameraTrigger);
 
   const stopCameraStream = () => {
     if (streamRef.current) {
@@ -84,12 +91,14 @@ export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
     ];
 
     let stream: MediaStream | null = null;
-    for (const c of constraintsList) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(c);
-        if (stream) break;
-      } catch {
-        // try next fallback constraint
+    if (navigator.mediaDevices?.getUserMedia) {
+      for (const c of constraintsList) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(c);
+          if (stream) break;
+        } catch {
+          // try next fallback constraint
+        }
       }
     }
 
@@ -107,6 +116,21 @@ export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
       );
     }
   };
+
+  useEffect(() => {
+    if (
+      openCameraTrigger !== undefined &&
+      openCameraTrigger > 0 &&
+      openCameraTrigger !== prevTriggerRef.current
+    ) {
+      prevTriggerRef.current = openCameraTrigger;
+      startLiveCamera(facingMode);
+    }
+  }, [openCameraTrigger]);
+
+  useEffect(() => {
+    return () => stopCameraStream();
+  }, []);
 
   const handleFlipCamera = async () => {
     const next = facingMode === 'environment' ? 'user' : 'environment';
@@ -195,49 +219,51 @@ export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
         }}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
-          <ImageIcon className="w-4 h-4 text-emerald-600" />
-          <span>
-            {title} ({images.length})
-          </span>
+      {!hideInlineBar && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
+            <ImageIcon className="w-4 h-4 text-emerald-600" />
+            <span>
+              {title} ({images.length})
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => startLiveCamera('environment')}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>تصوير بالكاميرا</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => nativeCameraInputRef.current?.click()}
+              className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Camera className="w-3.5 h-3.5 text-emerald-600" />
+              <span>كاميرا الجهاز</span>
+            </button>
+
+            <label className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
+              <ImageIcon className="w-3.5 h-3.5 text-slate-700" />
+              <span>رفع صور</span>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  processFilesList(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => startLiveCamera('environment')}
-            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>تصوير بالكاميرا</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => nativeCameraInputRef.current?.click()}
-            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Camera className="w-3.5 h-3.5 text-emerald-600" />
-            <span>كاميرا الجهاز</span>
-          </button>
-
-          <label className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
-            <ImageIcon className="w-3.5 h-3.5 text-slate-700" />
-            <span>رفع صور</span>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                processFilesList(e.target.files);
-                e.target.value = '';
-              }}
-            />
-          </label>
-        </div>
-      </div>
+      )}
 
       {processingPhoto && (
         <div className="text-xs font-bold text-emerald-700 flex items-center gap-1.5">
@@ -294,120 +320,129 @@ export const MarkingPhotoCapture: React.FC<MarkingPhotoCaptureProps> = ({
 
       {/* Live WebRTC Photo Capture Modal */}
       {cameraModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 font-cairo">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-5 shadow-2xl border border-slate-200 space-y-4 text-right">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !processingPhoto) handleCloseModal();
+          }}
+          className="fixed inset-0 z-[115] bg-slate-950/80 backdrop-blur-xs overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-4 font-cairo"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-2xl w-full max-h-[calc(100dvh-20px)] flex flex-col overflow-hidden shadow-2xl border border-slate-200 text-right">
+            <header className="px-4 sm:px-5 py-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 truncate">
                   التقاط صور بالكاميرا (صفحة واحدة أو عدة صفحات)
                 </h3>
-                <p className="text-xs text-slate-500">
-                  تُختم كل لقطة تلقائياً بالعلامة المائية وتُضاف إلى شريط المعاينة بالأسفل
+                <p className="text-[11px] text-slate-500 truncate">
+                  تُختم كل لقطة تلقائياً بالعلامة المائية وتُضاف للمعاينة
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleCloseModal}
-                className="p-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                className="p-2 rounded-xl bg-white hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer shrink-0"
+                title="إغلاق"
+                aria-label="إغلاق"
               >
                 <X className="w-4 h-4" />
               </button>
-            </div>
+            </header>
 
-            {cameraError ? (
-              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold">
-                {cameraError}
-              </div>
-            ) : (
-              <div className="relative rounded-xl overflow-hidden bg-slate-950 aspect-video border border-slate-800">
-                <video
-                  ref={liveVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={`w-full h-full object-contain ${
-                    facingMode === 'user' ? 'scale-x-[-1]' : ''
-                  }`}
-                />
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
-              {!cameraError && (
-                <button
-                  type="button"
-                  disabled={processingPhoto}
-                  onClick={handleCaptureFrame}
-                  className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>
-                    {images.length > 0
-                      ? `التقاط صورة إضافية (#${images.length + 1})`
-                      : 'التقاط الصورة المباشرة'}
-                  </span>
-                </button>
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-3.5">
+              {cameraError ? (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold">
+                  {cameraError}
+                </div>
+              ) : (
+                <div className="relative rounded-2xl overflow-hidden bg-slate-950 aspect-video max-h-[45dvh] border border-slate-800 mx-auto w-full">
+                  <video
+                    ref={liveVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`w-full h-full object-contain ${
+                      facingMode === 'user' ? 'scale-x-[-1]' : ''
+                    }`}
+                  />
+                </div>
               )}
 
-              <button
-                type="button"
-                onClick={handleFlipCamera}
-                className="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <RotateCw className="w-3.5 h-3.5 text-emerald-600" />
-                <span>{facingMode === 'environment' ? 'الكاميرا الأمامية' : 'الكاميرا الخلفية'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {!cameraError && (
+                  <button
+                    type="button"
+                    disabled={processingPhoto}
+                    onClick={handleCaptureFrame}
+                    className="flex-1 min-w-[160px] py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>
+                      {images.length > 0
+                        ? `التقاط صورة إضافية (#${images.length + 1})`
+                        : 'التقاط الصورة المباشرة'}
+                    </span>
+                  </button>
+                )}
 
-              <button
-                type="button"
-                onClick={() => nativeCameraInputRef.current?.click()}
-                className="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Camera className="w-3.5 h-3.5 text-indigo-600" />
-                <span>كاميرا الجهاز المباشرة</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleFlipCamera}
+                  className="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCw className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{facingMode === 'environment' ? 'الكاميرا الأمامية' : 'الكاميرا الخلفية'}</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleCloseModal}
-                className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>اعتماد وإغلاق ({images.length})</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => nativeCameraInputRef.current?.click()}
+                  className="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>كاميرا الجهاز المباشرة</span>
+                </button>
 
-            {images.length > 0 && (
-              <div className="pt-2 border-t border-slate-100">
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {images.map((imgSrc, idx) => (
-                    <div
-                      key={idx}
-                      className="relative shrink-0 w-28 aspect-video rounded-lg overflow-hidden border border-slate-200 bg-slate-100"
-                    >
-                      <img
-                        src={imgSrc}
-                        alt={`لقطة ${idx + 1}`}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover"
-                      />
-                      <span className="absolute top-1 right-1 bg-slate-900/80 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded">
-                        #{idx + 1}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onChangeImages((prev) => prev.filter((_, i) => i !== idx))
-                        }
-                        className="absolute top-1 left-1 p-1 rounded bg-rose-600 text-white cursor-pointer"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>اعتماد وإغلاق ({images.length})</span>
+                </button>
               </div>
-            )}
+
+              {images.length > 0 && (
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {images.map((imgSrc, idx) => (
+                      <div
+                        key={idx}
+                        className="relative shrink-0 w-28 aspect-video rounded-lg overflow-hidden border border-slate-200 bg-slate-100"
+                      >
+                        <img
+                          src={imgSrc}
+                          alt={`لقطة ${idx + 1}`}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                        <span className="absolute top-1 right-1 bg-slate-900/80 text-white text-[10px] font-mono font-bold px-1.5 py-0.5 rounded">
+                          #{idx + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onChangeImages((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                          className="absolute top-1 left-1 p-1 rounded bg-rose-600 text-white cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

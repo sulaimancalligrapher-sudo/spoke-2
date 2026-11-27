@@ -35,6 +35,7 @@ import {
   Camera,
   Upload,
   X,
+  MessageSquare,
 } from 'lucide-react';
 import {
   AdminUserRecord,
@@ -55,6 +56,7 @@ import {
   fetchMarkingWorkspaceData,
   getLocalMarkingConfig,
   saveMarkingCorrectionToSheets,
+  toCloudinaryMp4Url,
 } from '../../utils/markingSheets';
 import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
 import { getDirectImageUrl } from '../../utils/mediaUrl';
@@ -64,6 +66,8 @@ import { MarkingPhotoCapture } from './MarkingPhotoCapture';
 import { MarkingVideoRecorder } from './MarkingVideoRecorder';
 import { BatchCorrectionModal } from './BatchCorrectionModal';
 import { StudentAchievementModal } from './StudentAchievementModal';
+import { AudioRecorderModal } from './AudioRecorderModal';
+import { StarRatingInput, parseStarCount, formatStarValue } from './StarRatingInput';
 
 interface MarkingWorkspaceProps {
   webhookUrl: string;
@@ -135,8 +139,14 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   const [adminCardOpen, setAdminCardOpen] = useState<boolean>(false);
   const [submissionsCardOpen, setSubmissionsCardOpen] = useState<boolean>(false);
   const [hideCorrected, setHideCorrected] = useState<boolean>(true);
-  const [showPhotoPanel, setShowPhotoPanel] = useState<boolean>(false);
-  const [showVideoPanel, setShowVideoPanel] = useState<boolean>(false);
+  const [videoModalTrigger, setVideoModalTrigger] = useState<number>(0);
+  const [photoModalTrigger, setPhotoModalTrigger] = useState<number>(0);
+  const [audioRecorderOpen, setAudioRecorderOpen] = useState<boolean>(false);
+
+  // Audio card expandable drawers
+  const [audioExplainOpen, setAudioExplainOpen] = useState<boolean>(false);
+  const [audioNotesOpen, setAudioNotesOpen] = useState<boolean>(false);
+  const [audioStickersOpen, setAudioStickersOpen] = useState<boolean>(false);
 
   // Filters + Floating Dropdown
   const [filterLesson, setFilterLesson] = useState<string>('all');
@@ -144,7 +154,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dropdownOpen, setDropdownOpen] = useState<boolean>(false);
   const dropdownContainerRef = useRef<HTMLDivElement | null>(null);
-  const boardUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const extraImageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const audioUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // Blank Blackboard on launch (empty until teacher explicitly selects or uses initialSubmissionKey)
@@ -156,7 +166,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   // Independent Image Correction State
   const [fImgStatus, setFImgStatus] = useState<MarkingStatus>('corrected');
   const [fImgScore, setFImgScore] = useState<string>('95');
-  const [fImgRating, setFImgRating] = useState<string>('ممتاز');
+  const [fImgRating, setFImgRating] = useState<string>('');
   const [fImgNotes, setFImgNotes] = useState<string>('');
   const [fImgSaving, setFImgSaving] = useState(false);
   const [fImgFeedback, setFImgFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -164,7 +174,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   // Independent Audio Correction State
   const [fAudioStatus, setFAudioStatus] = useState<MarkingStatus>('corrected');
   const [fAudioScore, setFAudioScore] = useState<string>('95');
-  const [fAudioRating, setFAudioRating] = useState<string>('ممتاز');
+  const [fAudioRating, setFAudioRating] = useState<string>('');
   const [fAudioNotes, setFAudioNotes] = useState<string>('');
   const [fAudioStickerSymbol, setFAudioStickerSymbol] = useState<string>('');
   const [fAudioStickerLabel, setFAudioStickerLabel] = useState<string>('');
@@ -174,16 +184,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   );
 
   // Multi-media attachments
-  const [fTeacherAudioB64, setFTeacherAudioB64] = useState<string | null>(null);
   const [fExtraAudioClips, setFExtraAudioClips] = useState<
     Array<{ id: string; blobUrl: string; base64: string; name?: string }>
   >([]);
-  const [extraAudRecording, setExtraAudRecording] = useState(false);
-  const extraAudRecorderRef = useRef<MediaRecorder | null>(null);
-  const extraAudChunksRef = useRef<Blob[]>([]);
 
   const [fExtraImagesB64, setFExtraImagesB64] = useState<string[]>([]);
-  const [stitchExtraImages, setStitchExtraImages] = useState<boolean>(true);
+  const [stitchExtraImages, setStitchExtraImages] = useState<boolean>(false);
   const [fTeacherVideoUrl, setFTeacherVideoUrl] = useState<string>('');
   const [fExtraVideoUrls, setFExtraVideoUrls] = useState<string[]>([]);
 
@@ -193,7 +199,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   // Modals & Share Link
   const [batchModalState, setBatchModalState] = useState<{
     open: boolean;
-    mode: 'queue' | 'bulk' | 'sheet';
+    mode: 'bulk' | 'sheet';
   }>({ open: false, mode: 'bulk' });
   const [achievementModalOpen, setAchievementModalOpen] = useState(false);
   const [copiedPortalUrl, setCopiedPortalUrl] = useState(false);
@@ -378,7 +384,8 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         ? String(c.score)
         : fallbackScore
     );
-    setFImgRating(c?.imageRatingLabel || c?.ratingLabel || 'ممتاز');
+    const imgStars = parseStarCount(c?.imageRatingLabel || c?.ratingLabel);
+    setFImgRating(imgStars > 0 ? formatStarValue(imgStars) : '');
     setFImgNotes(c?.imageNotes !== undefined ? c.imageNotes : c?.notes || '');
     setFImgFeedback(null);
 
@@ -391,13 +398,13 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         ? String(c.score)
         : fallbackScore
     );
-    setFAudioRating(c?.audioRatingLabel || c?.ratingLabel || 'ممتاز');
+    const audStars = parseStarCount(c?.audioRatingLabel || c?.ratingLabel);
+    setFAudioRating(audStars > 0 ? formatStarValue(audStars) : '');
     setFAudioNotes(c?.audioNotes !== undefined ? c.audioNotes : c?.notes || '');
     setFAudioStickerSymbol(c?.audioStickerSymbol || c?.stickerSymbol || '');
     setFAudioStickerLabel(c?.audioStickerLabel || c?.stickerLabel || '');
     setFAudioFeedback(null);
 
-    setFTeacherAudioB64(null);
     setFExtraAudioClips([]);
     setFExtraImagesB64([]);
     setFTeacherVideoUrl(c?.teacherVideoUrl || '');
@@ -512,17 +519,17 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     );
   };
 
-  const handleUploadImageToBoard = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
-        setBoardOverrideImageUrl(reader.result);
-        setForceShowBlackboard(true);
-      }
-    };
-    reader.readAsDataURL(file);
+  const handleUploadExtraImages = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
+          setFExtraImagesB64((prev) => [...prev, reader.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
     e.target.value = '';
   };
 
@@ -547,47 +554,6 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       reader.readAsDataURL(file);
     });
     e.target.value = '';
-  };
-
-  const startExtraAudioRecord = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      extraAudChunksRef.current = [];
-      mr.ondataavailable = (ev) => {
-        if (ev.data.size > 0) extraAudChunksRef.current.push(ev.data);
-      };
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(extraAudChunksRef.current, { type: mr.mimeType || 'audio/webm' });
-        const blobUrl = URL.createObjectURL(blob);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            setFExtraAudioClips((prev) => [
-              ...prev,
-              { id: `aud-${Date.now()}`, blobUrl, base64: reader.result as string },
-            ]);
-          }
-        };
-        reader.readAsDataURL(blob);
-      };
-      extraAudRecorderRef.current = mr;
-      mr.start();
-      setExtraAudRecording(true);
-    } catch {
-      setFAudioFeedback({
-        type: 'err',
-        text: 'تعذر الوصول للميكروفون لإضافة مقطع صوتي إضافي.',
-      });
-    }
-  };
-
-  const stopExtraAudioRecord = () => {
-    if (extraAudRecorderRef.current && extraAudRecorderRef.current.state !== 'inactive') {
-      extraAudRecorderRef.current.stop();
-    }
-    setExtraAudRecording(false);
   };
 
   // Independent Save: Image Correction Only (never overwrites Audio section)
@@ -690,6 +656,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       );
       const uniqueVideos = Array.from(new Set(allVideos));
       const parsedScore = fAudioScore.trim() !== '' ? Number(fAudioScore) : undefined;
+      const existingAudUrl = (activeSubmission.correction?.teacherAudioUrl || '').trim();
+      const primaryAudioB64 =
+        !existingAudUrl && fExtraAudioClips.length > 0 ? fExtraAudioClips[0].base64 : undefined;
+      const extraAudioB64s = !existingAudUrl
+        ? fExtraAudioClips.slice(1).map((c) => c.base64)
+        : fExtraAudioClips.map((c) => c.base64);
 
       const res = await saveMarkingCorrectionToSheets(webhookUrl, {
         submissionKey: activeSubmission.submissionKey,
@@ -711,13 +683,10 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         audioStickerLabel: fAudioStickerLabel || undefined,
         stickerSymbol: fAudioStickerSymbol || undefined,
         stickerLabel: fAudioStickerLabel || undefined,
-        teacherAudioUrl: !fTeacherAudioB64
-          ? activeSubmission.correction?.teacherAudioUrl
-          : undefined,
-        teacherAudioBase64: fTeacherAudioB64 || undefined,
+        teacherAudioUrl: existingAudUrl || undefined,
+        teacherAudioBase64: primaryAudioB64,
         teacherAudios: activeSubmission.correction?.teacherAudios,
-        teacherAudiosBase64:
-          fExtraAudioClips.length > 0 ? fExtraAudioClips.map((c) => c.base64) : undefined,
+        teacherAudiosBase64: extraAudioB64s.length > 0 ? extraAudioB64s : undefined,
         teacherVideoUrl: uniqueVideos[0] || undefined,
         teacherVideos: uniqueVideos.length > 0 ? uniqueVideos : undefined,
         allowRetry: fAllowRetry || fAudioStatus === 'retry',
@@ -851,13 +820,14 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         isStandalonePage ? 'min-h-screen bg-slate-50' : ''
       } font-cairo text-right text-slate-800 flex flex-col gap-3`}
     >
-      {/* Hidden File Inputs for Board Upload & Audio File Upload */}
+      {/* Hidden File Inputs for Extra Image Upload & Audio File Upload */}
       <input
-        ref={boardUploadInputRef}
+        ref={extraImageUploadInputRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
-        onChange={handleUploadImageToBoard}
+        onChange={handleUploadExtraImages}
       />
       <input
         ref={audioUploadInputRef}
@@ -958,7 +928,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               />
             </button>
 
-            {/* Card 2 Toggle Button */}
+            {/* Card 2 Toggle Button (Eye moved inside Student Lessons dropdown!) */}
             <button
               type="button"
               onClick={() => setSubmissionsCardOpen((o) => !o)}
@@ -977,25 +947,6 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   submissionsCardOpen ? 'rotate-180' : ''
                 }`}
               />
-            </button>
-
-            {/* Quick Eye Icon-only Toggle (Show/Hide Corrected Lessons) */}
-            <button
-              type="button"
-              onClick={() => setHideCorrected((h) => !h)}
-              title={
-                hideCorrected
-                  ? `إظهار الدروس المصحّحة (${stats.corrected})`
-                  : `إخفاء الدروس المصحّحة (${stats.corrected})`
-              }
-              aria-label={hideCorrected ? 'إظهار الدروس المصحّحة' : 'إخفاء الدروس المصحّحة'}
-              className={`p-2 rounded-xl border cursor-pointer transition-colors ${
-                !hideCorrected
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              {hideCorrected ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             </button>
           </div>
 
@@ -1029,16 +980,6 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               >
                 <Users className="w-4 h-4" />
                 <span>التصحيح الجماعي للدرس</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setBatchModalState({ open: true, mode: 'queue' })}
-                disabled={filteredSubmissions.length === 0}
-                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Layers className="w-4 h-4 text-emerald-400" />
-                <span>طابور التصحيح السريع</span>
               </button>
 
               <button
@@ -1177,12 +1118,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 </select>
               </div>
 
-              {/* Status Filter + Eye Toggle */}
-              <div className="lg:col-span-2 flex items-center gap-1.5">
+              {/* Status Filter */}
+              <div className="lg:col-span-2">
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value as 'all' | MarkingStatus)}
-                  className="flex-1 min-w-0 px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
+                  className="w-full px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-800"
                 >
                   {(Object.keys(STATUS_FILTER_LABELS) as Array<'all' | MarkingStatus>).map((k) => (
                     <option key={k} value={k}>
@@ -1190,86 +1131,34 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     </option>
                   ))}
                 </select>
-
-                <button
-                  type="button"
-                  onClick={() => setHideCorrected((h) => !h)}
-                  title={
-                    hideCorrected
-                      ? `إظهار الدروس المصحّحة (${stats.corrected})`
-                      : `إخفاء الدروس المصحّحة (${stats.corrected})`
-                  }
-                  aria-label={hideCorrected ? 'إظهار الدروس المصحّحة' : 'إخفاء الدروس المصحّحة'}
-                  className={`p-2 rounded-xl border cursor-pointer shrink-0 ${
-                    !hideCorrected
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                  }`}
-                >
-                  {hideCorrected ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                </button>
               </div>
             </div>
 
-            {/* Quick Media Tools inside Card 2: Video Capture, Photo Capture, Upload Photo */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowVideoPanel((p) => !p)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                    showVideoPanel
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                  }`}
-                >
-                  <Video className="w-3.5 h-3.5" />
-                  <span>تصوير فيديو</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowPhotoPanel((p) => !p)}
-                  className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
-                    showPhotoPanel
-                      ? 'bg-emerald-600 text-white border-emerald-600'
-                      : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                  }`}
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>تصوير صورة</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => boardUploadInputRef.current?.click()}
-                  className="px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>رفع صورة للسبورة</span>
-                </button>
-              </div>
-
-              {boardOverrideImageUrl && (
-                <button
-                  type="button"
-                  onClick={() => setBoardOverrideImageUrl('')}
-                  className="text-xs font-bold text-rose-600 hover:underline inline-flex items-center gap-1 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                  <span>إزالة الصورة المرفوعة</span>
-                </button>
-              )}
-            </div>
-
-            {/* Floating Overlay Submissions Menu (Auto-closes on student selection) */}
+            {/* Floating Overlay Submissions Menu (Eye show/hide corrected lives inside header) */}
             {dropdownOpen && (
-              <div className="absolute right-0 left-0 sm:left-auto sm:w-[480px] top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-extrabold text-slate-800">
+              <div className="absolute right-0 left-0 sm:left-auto sm:w-[490px] top-full mt-2 z-40 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 text-xs font-extrabold text-slate-800">
                   <span>اختر واجب الطالب للتصحيح ({filteredSubmissions.length})</span>
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    تُغلق القائمة تلقائياً بعد الاختيار
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setHideCorrected((h) => !h)}
+                      title={
+                        hideCorrected
+                          ? `إظهار الدروس المصحّحة (${stats.corrected})`
+                          : `إخفاء الدروس المصحّحة (${stats.corrected})`
+                      }
+                      aria-label={hideCorrected ? 'إظهار الدروس المصحّحة' : 'إخفاء الدروس المصحّحة'}
+                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-extrabold inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                        !hideCorrected
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      {hideCorrected ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                      <span>{hideCorrected ? `إظهار المصحّحة (${stats.corrected})` : 'إخفاء المصحّحة'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {filteredSubmissions.length === 0 ? (
@@ -1353,87 +1242,38 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           </div>
         )}
 
-        {/* Optional Camera Photo Capture Panel (toggled from Card 2) */}
-        {showPhotoPanel && (
-          <div className="space-y-2">
-            <MarkingPhotoCapture
-              images={fExtraImagesB64}
-              onChangeImages={(imgs) => {
-                const nextImgs = typeof imgs === 'function' ? imgs(fExtraImagesB64) : imgs;
-                setFExtraImagesB64(nextImgs);
-                if (nextImgs.length > 0 && !boardOverrideImageUrl) {
-                  setBoardOverrideImageUrl(nextImgs[nextImgs.length - 1]);
-                  setForceShowBlackboard(true);
-                }
-              }}
-              watermarkSettings={markingConfig.watermark}
-              studentInfo={{
-                studentId: activeSubmission?.studentId,
-                studentName: activeSubmission?.studentName,
-                lessonTitle: activeSubmission?.itemTitle || 'التصحيح التفاعلي',
-              }}
-              fallbackLogoUrl={homeLogoUrl}
-              stitchOnSave={stitchExtraImages}
-              onChangeStitchOnSave={setStitchExtraImages}
-              title="التقاط صورة بالكاميرا أو رفع مرفقات"
-            />
-          </div>
-        )}
+        {/* Headless Modal Capture Helpers (triggered from Blackboard -> "توضيح إضافي") */}
+        <MarkingPhotoCapture
+          hideInlineBar
+          openCameraTrigger={photoModalTrigger}
+          images={fExtraImagesB64}
+          onChangeImages={setFExtraImagesB64}
+          watermarkSettings={markingConfig.watermark}
+          studentInfo={{
+            studentId: activeSubmission?.studentId,
+            studentName: activeSubmission?.studentName,
+            lessonTitle: activeSubmission?.itemTitle || 'التصحيح التفاعلي',
+          }}
+          fallbackLogoUrl={homeLogoUrl}
+          stitchOnSave={stitchExtraImages}
+          onChangeStitchOnSave={setStitchExtraImages}
+        />
 
-        {/* Optional Video Recorder Panel (toggled from Card 2) */}
-        {showVideoPanel && (
-          <div className="space-y-2">
-            <MarkingVideoRecorder
-              markingConfig={markingConfig}
-              webhookUrl={webhookUrl}
-              existingVideoUrl={fTeacherVideoUrl}
-              onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
-              onVideoUploaded={(url) => {
-                if (!fTeacherVideoUrl) {
-                  setFTeacherVideoUrl(url);
-                } else if (url && url !== fTeacherVideoUrl) {
-                  setFExtraVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
-                }
-              }}
-            />
-
-            {fExtraVideoUrls.length > 0 && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
-                <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                  <Video className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>فيديوهات إضافية مرفقة ({fExtraVideoUrls.length})</span>
-                </div>
-                <div className="space-y-1.5">
-                  {fExtraVideoUrls.map((vUrl, idx) => (
-                    <div
-                      key={`${vUrl}-${idx}`}
-                      className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs"
-                    >
-                      <a
-                        href={vUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-mono text-indigo-700 underline truncate"
-                      >
-                        {vUrl}
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setFExtraVideoUrls((prev) => prev.filter((_, i) => i !== idx))
-                        }
-                        className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer shrink-0"
-                        title="حذف الفيديو"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <MarkingVideoRecorder
+          hideInlineTrigger
+          openTrigger={videoModalTrigger}
+          markingConfig={markingConfig}
+          webhookUrl={webhookUrl}
+          existingVideoUrl={fTeacherVideoUrl}
+          onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
+          onVideoUploaded={(url) => {
+            if (!fTeacherVideoUrl) {
+              setFTeacherVideoUrl(url);
+            } else if (url && url !== fTeacherVideoUrl) {
+              setFExtraVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
+            }
+          }}
+        />
 
         {loadError && (
           <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold flex items-center gap-2">
@@ -1539,6 +1379,99 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     saving: fImgSaving,
                     feedback: fImgFeedback,
                     onSubmit: handleSaveImageCorrection,
+                    onTriggerVideo: () => setVideoModalTrigger((c) => c + 1),
+                    onTriggerPhoto: () => setPhotoModalTrigger((c) => c + 1),
+                    onTriggerUploadImage: () => extraImageUploadInputRef.current?.click(),
+                    extraPhotosCount: fExtraImagesB64.length,
+                    extraVideosCount:
+                      (fTeacherVideoUrl ? 1 : 0) + fExtraVideoUrls.length,
+                    extraAttachmentsPreview: (
+                      fExtraImagesB64.length > 0 || fTeacherVideoUrl || fExtraVideoUrls.length > 0
+                    ) ? (
+                      <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                        {fExtraImagesB64.length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-700">
+                              <span>صور التوضيح المرفقة ({fExtraImagesB64.length}):</span>
+                              {fExtraImagesB64.length > 1 && (
+                                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={stitchExtraImages}
+                                    onChange={(e) => setStitchExtraImages(e.target.checked)}
+                                    className="accent-emerald-600"
+                                  />
+                                  <span>دمج الصور الإضافية في صورة واحدة</span>
+                                </label>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                              {fExtraImagesB64.map((src, idx) => (
+                                <div
+                                  key={idx}
+                                  className="relative group rounded-xl overflow-hidden border border-slate-200 bg-slate-50 aspect-square"
+                                >
+                                  <img
+                                    src={src}
+                                    alt={`مرفق ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFExtraImagesB64((p) => p.filter((_, i) => i !== idx))
+                                    }
+                                    className="absolute top-1 left-1 p-1 rounded-lg bg-rose-600 text-white cursor-pointer"
+                                    title="حذف الصورة"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {(fTeacherVideoUrl || fExtraVideoUrls.length > 0) && (
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-bold text-slate-700">
+                              فيديوهات التوضيح المرفقة:
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {[fTeacherVideoUrl, ...fExtraVideoUrls]
+                                .filter(Boolean)
+                                .map((vUrl, idx) => (
+                                  <div
+                                    key={`${vUrl}-${idx}`}
+                                    className="p-2 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5"
+                                  >
+                                    <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
+                                      <span className="text-indigo-900">فيديو #{idx + 1}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (vUrl === fTeacherVideoUrl) setFTeacherVideoUrl('');
+                                          else
+                                            setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                                        }}
+                                        className="p-1 rounded text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                    <video
+                                      src={toCloudinaryMp4Url(vUrl)}
+                                      controls
+                                      playsInline
+                                      className="w-full max-h-28 rounded-lg bg-slate-950"
+                                    />
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : null,
                   }}
                 />
               </div>
@@ -1572,7 +1505,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                       تصحيح واجب الصوت (مستقل عن الصورة)
                     </h3>
                     <div className="text-[11px] text-slate-500 font-semibold">
-                      استمع لتسجيل الطالب، سجل أو ارفع صوت التصحيح، وأرسل التقييم الصوتي مستقلاً
+                      استمع لتسجيل الطالب، قيّم وأرسل التوضيح الصوتي والملاحظات
                     </div>
                   </div>
                 </div>
@@ -1587,155 +1520,19 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                 )}
               </div>
 
-              {/* Student & Reference Audio Players + Primary Teacher Voice Recorder */}
+              {/* Student Audio Player ONLY (No Reference Audio Deck) */}
               <MarkingAudioStudio
                 studentAudioUrl={activeSubmission.studentAudioUrl}
                 studentName={activeSubmission.studentName}
-                referenceAudioUrl={activeSubmission.referenceAudioUrl}
-                referenceAutoReadText={
-                  activeSubmission.referenceAutoReadText || activeSubmission.itemTitle
-                }
-                existingTeacherAudioUrl={activeSubmission.correction?.teacherAudioUrl}
-                onTeacherAudioRecorded={setFTeacherAudioB64}
+                hideReference
+                hideRecorder
               />
 
-              {/* Additional Audio Recording + Audio File Upload */}
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                    <Mic className="w-4 h-4 text-rose-600" />
-                    <span>مقاطع صوتية إضافية / رفع ملف صوت ({fExtraAudioClips.length})</span>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => audioUploadInputRef.current?.click()}
-                      className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                    >
-                      <Upload className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>رفع ملف صوتي</span>
-                    </button>
-
-                    {!extraAudRecording ? (
-                      <button
-                        type="button"
-                        onClick={startExtraAudioRecord}
-                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                      >
-                        <Plus className="w-3.5 h-3.5 text-rose-600" />
-                        <span>تسجيل مقطع إضافي</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={stopExtraAudioRecord}
-                        className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                      >
-                        <Square className="w-3.5 h-3.5 fill-rose-500 text-rose-500" />
-                        <span>إيقاف وحفظ المقطع</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {fExtraAudioClips.length > 0 && (
-                  <div className="space-y-1.5 max-h-44 overflow-y-auto">
-                    {fExtraAudioClips.map((clip, idx) => (
-                      <div
-                        key={clip.id}
-                        className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200"
-                      >
-                        <span className="text-[11px] font-bold text-slate-600 shrink-0 tabular-nums">
-                          #{idx + 1}
-                        </span>
-                        <audio controls src={clip.blobUrl} className="flex-1 h-8 min-w-0" />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setFExtraAudioClips((prev) => prev.filter((c) => c.id !== clip.id))
-                          }
-                          className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer shrink-0"
-                          title="حذف المقطع"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Audio-only Stickers */}
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-                    <Sticker className="w-4 h-4 text-amber-600" />
-                    <span>ملصق التقييم الصوتي (يظهر بحجم واضح مع نتيجة الصوت):</span>
-                  </div>
-                  {fAudioStickerSymbol && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFAudioStickerSymbol('');
-                        setFAudioStickerLabel('');
-                      }}
-                      className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
-                    >
-                      إزالة الملصق
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {audioStickersList.map((st) => {
-                    const isSelected = fAudioStickerSymbol === st.symbol;
-                    return (
-                      <button
-                        key={st.id}
-                        type="button"
-                        onClick={() => {
-                          if (isSelected) {
-                            setFAudioStickerSymbol('');
-                            setFAudioStickerLabel('');
-                          } else {
-                            setFAudioStickerSymbol(st.symbol);
-                            setFAudioStickerLabel(st.label);
-                          }
-                        }}
-                        className={`px-3 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
-                          isSelected
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-800 border-slate-200 hover:border-slate-400'
-                        }`}
-                      >
-                        <span className="text-lg leading-none">{st.symbol}</span>
-                        <span>{st.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {fAudioStickerSymbol && (
-                  <div className="p-2.5 rounded-xl bg-white border border-amber-200 flex items-center gap-3">
-                    <span className="text-3xl leading-none">{fAudioStickerSymbol}</span>
-                    <div>
-                      <div className="text-xs font-extrabold text-slate-900">
-                        الملصق المختار: {fAudioStickerLabel}
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-semibold">
-                        سيظهر للطالب داخل بطاقة التقييم الصوتي وفي رسالة تيليغرام.
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Audio Score, Status, Rating & Audio-only Preset Texts */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-                <div className="sm:col-span-3">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    درجة الصوت (من 100):
+              {/* Directly Below Student Player: 1. درجة الصوت 2. حالة تصحيح الصوت 3. التقدير بالنجوم 0-10 */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                <div className="sm:col-span-3 flex items-center gap-2">
+                  <label className="text-xs font-extrabold text-slate-700 whitespace-nowrap">
+                    درجة الصوت:
                   </label>
                   <input
                     type="text"
@@ -1746,18 +1543,15 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                       setFAudioScore(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))
                     }
                     placeholder="95"
-                    className="w-24 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-extrabold text-slate-900 text-center tabular-nums"
+                    className="w-20 px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-mono font-extrabold text-slate-900 text-center tabular-nums"
                   />
                 </div>
 
-                <div className="sm:col-span-5">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    حالة تصحيح الصوت:
-                  </label>
+                <div className="sm:col-span-4">
                   <select
                     value={fAudioStatus}
                     onChange={(e) => setFAudioStatus(e.target.value as MarkingStatus)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                    className="w-full px-3 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900"
                   >
                     <option value="corrected">صوت مصحّح ومعتمد ✓</option>
                     <option value="retry">مطلوب إعادة تسجيل الصوت</option>
@@ -1765,51 +1559,274 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   </select>
                 </div>
 
-                <div className="sm:col-span-4">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    التقدير الصوتي:
-                  </label>
-                  <select
+                <div className="sm:col-span-5">
+                  <StarRatingInput
+                    label="التقدير:"
                     value={fAudioRating}
-                    onChange={(e) => setFAudioRating(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                  >
-                    {RATING_LABELS.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setFAudioRating}
+                    compact
+                  />
                 </div>
               </div>
 
-              {/* Audio-only Preset Texts & Notes */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-700">
-                  نصوص جاهزة خاصة بالتصحيح الصوتي (اضغط لإضافتها):
-                </label>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {audioPresetTexts.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() =>
-                        setFAudioNotes((prev) => (prev ? `${prev}\n${preset.text}` : preset.text))
-                      }
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
-                    >
-                      + {preset.text}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  rows={3}
-                  value={fAudioNotes}
-                  onChange={(e) => setFAudioNotes(e.target.value)}
-                  placeholder="اكتب ملاحظتك الصوتية وتوجيهك لنطق الطالب..."
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
-                />
+              {/* Collapsible Action Triggers Row: شرح توضيحية + ملاحظات */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAudioExplainOpen((p) => !p);
+                    setAudioNotesOpen(false);
+                  }}
+                  className={`px-4 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    audioExplainOpen
+                      ? 'bg-rose-600 text-white border-rose-600'
+                      : fExtraAudioClips.length > 0 || activeSubmission.correction?.teacherAudioUrl
+                      ? 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100'
+                      : 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <Mic className="w-4 h-4" />
+                  <span>شرح توضيحية</span>
+                  {(fExtraAudioClips.length > 0 || activeSubmission.correction?.teacherAudioUrl) && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono">
+                      {fExtraAudioClips.length + (activeSubmission.correction?.teacherAudioUrl ? 1 : 0)}
+                    </span>
+                  )}
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      audioExplainOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAudioNotesOpen((p) => !p);
+                    setAudioExplainOpen(false);
+                  }}
+                  className={`px-4 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    audioNotesOpen
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : fAudioNotes.trim() || fAudioStickerSymbol
+                      ? 'bg-indigo-50 text-indigo-900 border-indigo-300 hover:bg-indigo-100'
+                      : 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>ملاحظات</span>
+                  {fAudioStickerSymbol && (
+                    <span className="text-sm leading-none">{fAudioStickerSymbol}</span>
+                  )}
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      audioNotesOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
               </div>
+
+              {/* Drawer 1: شرح توضيحية (تسجيل صوتي + رفع ملف صوتي + قائمة المقاطع) */}
+              {audioExplainOpen && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-rose-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAudioRecorderOpen(true)}
+                        className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <Mic className="w-4 h-4" />
+                        <span>تسجيل صوتي</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => audioUploadInputRef.current?.click()}
+                        className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                      >
+                        <Upload className="w-4 h-4 text-indigo-600" />
+                        <span>رفع ملف صوتي</span>
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setAudioExplainOpen(false)}
+                      className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {activeSubmission.correction?.teacherAudioUrl && (
+                    <div className="p-2.5 rounded-xl bg-white border border-indigo-200 space-y-1.5">
+                      <div className="text-[11px] font-bold text-indigo-900">
+                        تسجيل المعلم المحفوظ سابقاً:
+                      </div>
+                      <audio
+                        controls
+                        src={activeSubmission.correction.teacherAudioUrl}
+                        className="w-full h-9"
+                      />
+                    </div>
+                  )}
+
+                  {fExtraAudioClips.length > 0 && (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {fExtraAudioClips.map((clip, idx) => (
+                        <div
+                          key={clip.id}
+                          className="flex items-center gap-2 p-2 rounded-xl bg-white border border-slate-200"
+                        >
+                          <span className="text-[11px] font-bold text-slate-600 shrink-0 tabular-nums">
+                            #{idx + 1}
+                          </span>
+                          <audio controls src={clip.blobUrl} className="flex-1 h-8 min-w-0" />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFExtraAudioClips((prev) => prev.filter((c) => c.id !== clip.id))
+                            }
+                            className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer shrink-0"
+                            title="حذف المقطع"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Drawer 2: ملاحظات (الملصقات + النصوص الجاهزة + حقل النص) */}
+              {audioNotesOpen && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-indigo-200 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAudioStickersOpen((s) => !s)}
+                      className={`px-3.5 py-2 rounded-xl border text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                        audioStickersOpen || fAudioStickerSymbol
+                          ? 'bg-amber-500 text-slate-950 border-amber-500'
+                          : 'bg-white text-slate-800 border-slate-300 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Sticker className="w-4 h-4" />
+                      <span>الملصقات</span>
+                      {fAudioStickerSymbol && (
+                        <span className="text-base leading-none">{fAudioStickerSymbol}</span>
+                      )}
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${
+                          audioStickersOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                      {fAudioStickerSymbol && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFAudioStickerSymbol('');
+                            setFAudioStickerLabel('');
+                          }}
+                          className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                        >
+                          إزالة الملصق
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setAudioNotesOpen(false)}
+                        className="p-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-800 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {audioStickersOpen && (
+                    <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {audioStickersList.map((st) => {
+                          const isSelected = fAudioStickerSymbol === st.symbol;
+                          return (
+                            <button
+                              key={st.id}
+                              type="button"
+                              onClick={() => {
+                                if (isSelected) {
+                                  setFAudioStickerSymbol('');
+                                  setFAudioStickerLabel('');
+                                } else {
+                                  setFAudioStickerSymbol(st.symbol);
+                                  setFAudioStickerLabel(st.label);
+                                }
+                              }}
+                              className={`px-3 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                                isSelected
+                                  ? 'bg-slate-900 text-white border-slate-900'
+                                  : 'bg-slate-50 text-slate-800 border-slate-200 hover:border-slate-400'
+                              }`}
+                            >
+                              <span className="text-lg leading-none">{st.symbol}</span>
+                              <span>{st.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {fAudioStickerSymbol && (
+                    <div className="p-2.5 rounded-xl bg-white border border-amber-200 flex items-center gap-3">
+                      <span className="text-3xl leading-none">{fAudioStickerSymbol}</span>
+                      <div>
+                        <div className="text-xs font-extrabold text-slate-900">
+                          الملصق المختار: {fAudioStickerLabel}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-semibold">
+                          سيظهر للطالب داخل بطاقة التقييم الصوتي وفي رسالة تيليغرام.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Audio Preset Texts */}
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-700">
+                      نصوص جاهزة خاصة بالتصحيح الصوتي (اضغط لإضافتها):
+                    </label>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {audioPresetTexts.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() =>
+                            setFAudioNotes((prev) =>
+                              prev ? `${prev}\n${preset.text}` : preset.text
+                            )
+                          }
+                          className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
+                        >
+                          + {preset.text}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <textarea
+                    rows={3}
+                    value={fAudioNotes}
+                    onChange={(e) => setFAudioNotes(e.target.value)}
+                    placeholder="اكتب ملاحظتك الصوتية وتوجيهك لنطق الطالب..."
+                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-semibold text-slate-900"
+                  />
+                </div>
+              )}
 
               {/* Audio Submit Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
@@ -1872,6 +1889,24 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           </section>
         )}
       </div>
+
+      {/* Teacher Voice Recording Modal (Live Preview & Start/Stop Controls) */}
+      <AudioRecorderModal
+        isOpen={audioRecorderOpen}
+        onClose={() => setAudioRecorderOpen(false)}
+        title="تسجيل شرح صوتي توضيحي للطالب"
+        onAttachAudio={(clip) =>
+          setFExtraAudioClips((prev) => [
+            ...prev,
+            {
+              id: `aud-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+              blobUrl: clip.blobUrl,
+              base64: clip.base64,
+              name: clip.name,
+            },
+          ])
+        }
+      />
 
       {/* Student Achievement Report Modal */}
       {activeSubmission && (

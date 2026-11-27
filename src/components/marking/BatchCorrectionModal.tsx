@@ -6,17 +6,11 @@ import {
   Send,
   Loader2,
   CheckCircle2,
-  ArrowLeft,
-  ArrowRight,
   Users,
   Layers,
-  Sparkles,
-  RotateCcw,
-  Award,
   AlertCircle,
   Image as ImageIcon,
   Mic,
-  Video,
   Trash2,
   Plus,
   Sticker,
@@ -28,6 +22,8 @@ import {
   Link2,
   FileText,
   Upload,
+  ChevronDown,
+  MessageSquare,
 } from 'lucide-react';
 import {
   MarkingConfig,
@@ -35,10 +31,9 @@ import {
   TeacherCorrectionRecord,
   UnifiedMarkingSubmission,
 } from '../../types';
-import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
-import { MarkingAudioStudio } from './MarkingAudioStudio';
 import { MarkingPhotoCapture } from './MarkingPhotoCapture';
 import { MarkingVideoRecorder } from './MarkingVideoRecorder';
+import { AudioRecorderModal } from './AudioRecorderModal';
 import {
   clearMarkingBatchToSheets,
   clearMarkingCorrectionToSheets,
@@ -59,7 +54,7 @@ interface BatchCorrectionModalProps {
   webhookUrl: string;
   teacherName: string;
   homeLogoUrl?: string;
-  initialMode?: 'bulk' | 'queue' | 'sheet';
+  initialMode?: 'bulk' | 'sheet';
   onCorrectionsUpdated: (updated: TeacherCorrectionRecord[]) => void;
   onCorrectionsCleared?: (keys: string[]) => void;
 }
@@ -81,8 +76,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   onCorrectionsUpdated,
   onCorrectionsCleared,
 }) => {
-  const [workspaceMode, setWorkspaceMode] = useState<'queue' | 'bulk' | 'sheet'>(initialMode);
-  const [onlyPendingQueue, setOnlyPendingQueue] = useState(false);
+  const [workspaceMode, setWorkspaceMode] = useState<'bulk' | 'sheet'>(initialMode);
 
   const videoScopedSubmissions = useMemo(() => {
     const vids = submissions.filter((s) => s.exerciseType === 'video');
@@ -105,33 +99,6 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
     [markingConfig.stickers]
   );
 
-  // ====== QUEUE MODE STATE ======
-  const queueItems = useMemo(() => {
-    if (!onlyPendingQueue) return videoScopedSubmissions;
-    const pending = videoScopedSubmissions.filter(
-      (s) => !s.correction || s.correction.status !== 'corrected'
-    );
-    return pending.length > 0 ? pending : videoScopedSubmissions;
-  }, [videoScopedSubmissions, onlyPendingQueue]);
-
-  const [activeIndex, setActiveIndex] = useState(0);
-  const currentItem = queueItems[activeIndex] || queueItems[0] || null;
-  const queueBlackboardRef = useRef<MarkingBlackboardHandle | null>(null);
-  const [qForceShowBoard, setQForceShowBoard] = useState(false);
-
-  const [qStatus, setQStatus] = useState<MarkingStatus>('corrected');
-  const [qScore, setQScore] = useState<string>('95');
-  const [qRating, setQRating] = useState<string>('ممتاز');
-  const [qNotes, setQNotes] = useState<string>('');
-  const [qStickerSymbol, setQStickerSymbol] = useState<string>('');
-  const [qStickerLabel, setQStickerLabel] = useState<string>('');
-  const [qTeacherAudioB64, setQTeacherAudioB64] = useState<string | null>(null);
-  const [qTeacherVideoUrl, setQTeacherVideoUrl] = useState<string>('');
-  const [qAllowRetry, setQAllowRetry] = useState(false);
-  const [qSendTelegram, setQSendTelegram] = useState(true);
-  const [qSaving, setQSaving] = useState(false);
-  const [qFeedback, setQFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
-
   // ====== BULK LESSON BROADCAST STATE ======
   const lessonOptions = useMemo(() => {
     const set = new Set<string>();
@@ -145,12 +112,11 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   const [bulkSubTab, setBulkSubTab] = useState<'image' | 'audio'>('image');
   const [audienceMode, setAudienceMode] = useState<BulkAudienceMode>('corrected_only');
   const [customSelectedKeys, setCustomSelectedKeys] = useState<Set<string>>(() => new Set());
+  const [recipientsDropdownOpen, setRecipientsDropdownOpen] = useState(false);
 
   // Scoped Image Bulk State
-  const [bImgStatus, setBImgStatus] = useState<MarkingStatus>('corrected');
-  const [bImgScore, setBImgScore] = useState<string>('');
-  const [bImgRating, setBImgRating] = useState<string>('ممتاز');
   const [bImgNotes, setBImgNotes] = useState<string>('');
+  const [bImgNotesOpen, setBImgNotesOpen] = useState(false);
   const [bImgStickerSymbol, setBImgStickerSymbol] = useState<string>('');
   const [bImgStickerLabel, setBImgStickerLabel] = useState<string>('');
   const [batchImageBase64s, setBatchImageBase64s] = useState<string[]>([]);
@@ -162,10 +128,8 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   const [newVideoUrlInput, setNewVideoUrlInput] = useState('');
 
   // Scoped Audio Bulk State
-  const [bAudioStatus, setBAudioStatus] = useState<MarkingStatus>('corrected');
-  const [bAudioScore, setBAudioScore] = useState<string>('');
-  const [bAudioRating, setBAudioRating] = useState<string>('ممتاز');
   const [bAudioNotes, setBAudioNotes] = useState<string>('');
+  const [bAudioNotesOpen, setBAudioNotesOpen] = useState(false);
   const [bAudioStickerSymbol, setBAudioStickerSymbol] = useState<string>('');
   const [bAudioStickerLabel, setBAudioStickerLabel] = useState<string>('');
   const [batchAudioClips, setBatchAudioClips] = useState<
@@ -173,11 +137,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   >([]);
   const [batchAudioLinks, setBatchAudioLinks] = useState<string[]>([]);
   const [newAudioLinkInput, setNewAudioLinkInput] = useState('');
-  const [bAudioRecording, setBAudioRecording] = useState(false);
-  const [bAudioSeconds, setBAudioSeconds] = useState(0);
-  const bAudioRecorderRef = useRef<MediaRecorder | null>(null);
-  const bAudioChunksRef = useRef<Blob[]>([]);
-  const bAudioTimerRef = useRef<number | null>(null);
+  const [batchAudioModalOpen, setBatchAudioModalOpen] = useState(false);
   const bulkPdfInputRef = useRef<HTMLInputElement | null>(null);
   const bulkAudioUploadRef = useRef<HTMLInputElement | null>(null);
 
@@ -213,34 +173,12 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setWorkspaceMode(initialMode);
-    setActiveIndex(0);
-    setQFeedback(null);
+    setRecipientsDropdownOpen(false);
     setBFeedback(null);
     setSelectedLesson((prev) =>
       prev && lessonOptions.includes(prev) ? prev : lessonOptions[0] || ''
     );
   }, [isOpen, initialMode, lessonOptions]);
-
-  useEffect(() => {
-    if (!currentItem) return;
-    const c = currentItem.correction;
-    setQForceShowBoard(false);
-    setQStatus(c?.status || 'corrected');
-    setQScore(
-      c?.score !== undefined
-        ? String(c.score)
-        : currentItem.videoScore !== undefined
-        ? String(currentItem.videoScore)
-        : '95'
-    );
-    setQRating(c?.ratingLabel || 'ممتاز');
-    setQNotes(c?.notes || '');
-    setQStickerSymbol(c?.stickerSymbol || '');
-    setQStickerLabel(c?.stickerLabel || '');
-    setQTeacherAudioB64(null);
-    setQTeacherVideoUrl(c?.teacherVideoUrl || '');
-    setQAllowRetry(Boolean(c?.allowRetry));
-  }, [currentItem?.submissionKey]);
 
   const lessonSubmissions = useMemo(() => {
     return !selectedLesson
@@ -313,119 +251,6 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   }, [videoScopedSubmissions, sheetLesson, sheetStatus, sheetMedia, sheetSearch]);
 
   if (!isOpen) return null;
-
-  const handleSaveQueueItem = async (advanceNext: boolean) => {
-    if (!currentItem || qSaving) return;
-    setQSaving(true);
-    setQFeedback(null);
-    try {
-      let annotatedBase64: string | undefined;
-      const showBoard = Boolean(currentItem.studentImageUrl?.trim()) || qForceShowBoard;
-      if (showBoard && queueBlackboardRef.current?.hasAnnotations()) {
-        const exported = await queueBlackboardRef.current.exportWatermarkedDataUrl(
-          markingConfig.watermark,
-          {
-            studentId: currentItem.studentId,
-            studentName: currentItem.studentName,
-            lessonTitle: currentItem.itemTitle,
-          },
-          homeLogoUrl
-        );
-        if (exported && exported.startsWith('data:image/')) {
-          annotatedBase64 = exported;
-        }
-      }
-
-      const res = await saveMarkingCorrectionToSheets(webhookUrl, {
-        submissionKey: currentItem.submissionKey,
-        exerciseType: currentItem.exerciseType,
-        studentId: currentItem.studentId,
-        studentName: currentItem.studentName,
-        lessonSubject: currentItem.lessonSubject,
-        itemTitle: currentItem.itemTitle,
-        status: qStatus,
-        score: qScore.trim() !== '' ? Number(qScore) : undefined,
-        ratingLabel: qRating,
-        notes: qNotes.trim(),
-        correctedImageUrl: !annotatedBase64 ? currentItem.correction?.correctedImageUrl : undefined,
-        correctedImageBase64: annotatedBase64,
-        teacherAudioUrl: !qTeacherAudioB64 ? currentItem.correction?.teacherAudioUrl : undefined,
-        teacherAudioBase64: qTeacherAudioB64 || undefined,
-        teacherVideoUrl: qTeacherVideoUrl.trim() || undefined,
-        stickerSymbol: qStickerSymbol || undefined,
-        stickerLabel: qStickerLabel || undefined,
-        allowRetry: qAllowRetry || qStatus === 'retry',
-        sendTelegram: qSendTelegram,
-        teacherName,
-      });
-
-      if (res.success && res.correction) {
-        onCorrectionsUpdated([res.correction]);
-        setQFeedback({
-          type: 'ok',
-          text: res.telegramNotified
-            ? `تم حفظ تصحيح ${currentItem.studentName} وإرسال إشعار تيليغرام فوراً.`
-            : `تم حفظ تصحيح ${currentItem.studentName} في الشيت بنجاح.`,
-        });
-        if (advanceNext && activeIndex + 1 < queueItems.length) {
-          window.setTimeout(() => {
-            setActiveIndex((idx) => Math.min(queueItems.length - 1, idx + 1));
-          }, 300);
-        }
-      } else {
-        setQFeedback({
-          type: 'err',
-          text: res.error || 'تعذر حفظ التصحيح.',
-        });
-      }
-    } finally {
-      setQSaving(false);
-    }
-  };
-
-  const startBatchAudioRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      bAudioChunksRef.current = [];
-      mr.ondataavailable = (ev) => {
-        if (ev.data.size > 0) bAudioChunksRef.current.push(ev.data);
-      };
-      mr.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(bAudioChunksRef.current, { type: mr.mimeType || 'audio/webm' });
-        const blobUrl = URL.createObjectURL(blob);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (typeof reader.result === 'string') {
-            setBatchAudioClips((prev) => [
-              ...prev,
-              { id: `b-aud-${Date.now()}`, blobUrl, base64: reader.result as string },
-            ]);
-          }
-        };
-        reader.readAsDataURL(blob);
-      };
-      bAudioRecorderRef.current = mr;
-      mr.start();
-      setBAudioRecording(true);
-      setBAudioSeconds(0);
-      bAudioTimerRef.current = window.setInterval(() => setBAudioSeconds((s) => s + 1), 1000);
-    } catch {
-      setBFeedback({ type: 'err', text: 'تعذر الوصول للميكروفون لتسجيل مقطع صوتي.' });
-    }
-  };
-
-  const stopBatchAudioRecording = () => {
-    if (bAudioTimerRef.current) {
-      window.clearInterval(bAudioTimerRef.current);
-      bAudioTimerRef.current = null;
-    }
-    if (bAudioRecorderRef.current && bAudioRecorderRef.current.state !== 'inactive') {
-      bAudioRecorderRef.current.stop();
-    }
-    setBAudioRecording(false);
-  };
 
   const toggleCustomKey = (key: string) => {
     setCustomSelectedKeys((prev) => {
@@ -526,7 +351,8 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
             !Number.isNaN(Number(rawExisting))
               ? Number(rawExisting)
               : undefined;
-          const finalScore = bImgScore.trim() !== '' ? Number(bImgScore) : parsedExisting;
+          const preservedStatus = p.correction?.imageStatus || p.correction?.status || 'corrected';
+          const preservedRating = p.correction?.imageRatingLabel || p.correction?.ratingLabel;
           const finalNotes = bImgNotes.trim();
           return {
             submissionKey: p.submissionKey,
@@ -535,17 +361,17 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
             studentName: p.studentName,
             lessonSubject: p.lessonSubject,
             itemTitle: p.itemTitle,
-            status: bImgStatus,
-            score: finalScore,
-            ratingLabel: bImgRating || p.correction?.imageRatingLabel,
+            status: preservedStatus,
+            score: parsedExisting,
+            ratingLabel: preservedRating,
             notes: finalNotes,
-            imageStatus: bImgStatus,
-            imageScore: finalScore,
-            imageRatingLabel: bImgRating || p.correction?.imageRatingLabel,
+            imageStatus: preservedStatus,
+            imageScore: parsedExisting,
+            imageRatingLabel: preservedRating,
             imageNotes: finalNotes,
             imageStickerSymbol: bImgStickerSymbol || undefined,
             imageStickerLabel: bImgStickerLabel || undefined,
-            allowRetry: bAllowRetry || bImgStatus === 'retry',
+            allowRetry: bAllowRetry || preservedStatus === 'retry',
             sendTelegram: bSendTelegram,
           };
         }),
@@ -594,7 +420,8 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
             !Number.isNaN(Number(rawExisting))
               ? Number(rawExisting)
               : undefined;
-          const finalScore = bAudioScore.trim() !== '' ? Number(bAudioScore) : parsedExisting;
+          const preservedStatus = p.correction?.audioStatus || p.correction?.status || 'corrected';
+          const preservedRating = p.correction?.audioRatingLabel || p.correction?.ratingLabel;
           const finalNotes = bAudioNotes.trim();
           return {
             submissionKey: p.submissionKey,
@@ -603,17 +430,17 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
             studentName: p.studentName,
             lessonSubject: p.lessonSubject,
             itemTitle: p.itemTitle,
-            status: bAudioStatus,
-            score: finalScore,
-            ratingLabel: bAudioRating || p.correction?.audioRatingLabel,
+            status: preservedStatus,
+            score: parsedExisting,
+            ratingLabel: preservedRating,
             notes: finalNotes,
-            audioStatus: bAudioStatus,
-            audioScore: finalScore,
-            audioRatingLabel: bAudioRating || p.correction?.audioRatingLabel,
+            audioStatus: preservedStatus,
+            audioScore: parsedExisting,
+            audioRatingLabel: preservedRating,
             audioNotes: finalNotes,
             audioStickerSymbol: bAudioStickerSymbol || undefined,
             audioStickerLabel: bAudioStickerLabel || undefined,
-            allowRetry: bAllowRetry || bAudioStatus === 'retry',
+            allowRetry: bAllowRetry || preservedStatus === 'retry',
             sendTelegram: bSendTelegram,
           };
         }),
@@ -763,8 +590,13 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 font-cairo">
-      <div className="bg-slate-50 rounded-3xl w-full max-w-7xl h-[94vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden text-right">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[110] bg-slate-950/75 backdrop-blur-xs overflow-y-auto flex items-start sm:items-center justify-center p-2 sm:p-4 font-cairo"
+    >
+      <div className="my-auto bg-slate-50 rounded-3xl w-full max-w-7xl max-h-[calc(100dvh-16px)] sm:h-[92dvh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden text-right">
         {/* Top Modal Header */}
         <header className="px-4 sm:px-6 py-3.5 bg-white border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
@@ -773,7 +605,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-extrabold text-slate-900">
-                نافذة التصحيح الجماعي للدرس والطابور السريع
+                نافذة التصحيح الجماعي وإدارة التصحيحات
               </h2>
               <div className="text-xs text-slate-500 font-semibold flex items-center gap-2">
                 <span>دروس الفيديو: {lessonOptions.length}</span>
@@ -799,17 +631,6 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setWorkspaceMode('queue')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors whitespace-nowrap shrink-0 ${
-                  workspaceMode === 'queue'
-                    ? 'bg-white text-slate-900 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                طابور التصحيح المتسلسل
-              </button>
-              <button
-                type="button"
                 onClick={() => setWorkspaceMode('sheet')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-extrabold cursor-pointer transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
                   workspaceMode === 'sheet'
@@ -821,20 +642,6 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                 <span>جدول إدارة التصحيحات</span>
               </button>
             </div>
-
-            {workspaceMode === 'queue' && (
-              <button
-                type="button"
-                onClick={() => setOnlyPendingQueue((p) => !p)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${
-                  onlyPendingQueue
-                    ? 'bg-amber-50 text-amber-900 border-amber-300'
-                    : 'bg-white text-slate-700 border-slate-200'
-                }`}
-              >
-                {onlyPendingQueue ? 'غير المصحح فقط' : 'جميع التسليمات'}
-              </button>
-            )}
 
             <button
               type="button"
@@ -855,320 +662,11 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
               لا توجد تسليمات متاحة في دروس الفيديو التفاعلي.
             </div>
           </div>
-        ) : workspaceMode === 'queue' ? (
-          /* ================================================================
-             MODE 1: RAPID SEQUENTIAL QUEUE WORKSPACE
-             ================================================================ */
-          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-            <aside className="lg:w-72 bg-white border-b lg:border-b-0 lg:border-l border-slate-200 overflow-y-auto shrink-0 max-h-48 lg:max-h-none">
-              <div className="px-3.5 py-2.5 border-b border-slate-100 flex items-center justify-between text-xs font-extrabold text-slate-700 sticky top-0 bg-white z-10">
-                <span>قائمة الطابور ({queueItems.length})</span>
-                <span className="font-mono text-slate-500">
-                  {activeIndex + 1} / {queueItems.length}
-                </span>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {queueItems.map((item, idx) => {
-                  const isActive = idx === activeIndex;
-                  const cStatus = item.correction?.status;
-                  return (
-                    <button
-                      key={item.submissionKey}
-                      type="button"
-                      onClick={() => setActiveIndex(idx)}
-                      className={`w-full text-right px-3.5 py-2.5 transition-colors cursor-pointer flex items-start justify-between gap-2 ${
-                        isActive ? 'bg-emerald-50' : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-extrabold text-slate-900 truncate">
-                          {item.studentName || item.studentId}
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate">{item.itemTitle}</div>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold shrink-0 ${
-                          cStatus === 'corrected'
-                            ? 'text-emerald-700'
-                            : cStatus === 'retry'
-                            ? 'text-amber-700'
-                            : 'text-slate-400'
-                        }`}
-                      >
-                        {cStatus === 'corrected'
-                          ? 'مصحح ✓'
-                          : cStatus === 'retry'
-                          ? 'إعادة'
-                          : 'جديد'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
-
-            {currentItem && (
-              <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-                <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-extrabold text-slate-900">
-                      {currentItem.studentName} ({currentItem.studentId || 'بدون ID'})
-                    </div>
-                    <div className="text-xs text-slate-500 font-semibold flex flex-wrap items-center gap-2">
-                      <span>{currentItem.itemTitle}</span>
-                      {currentItem.videoScore !== undefined && (
-                        <>
-                          <span>·</span>
-                          <span className="text-emerald-700 font-bold tabular-nums">
-                            نتيجة أسئلة الفيديو: {currentItem.videoScore}%
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={activeIndex === 0}
-                      onClick={() => setActiveIndex((i) => Math.max(0, i - 1))}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                      <span>السابق</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={activeIndex + 1 >= queueItems.length}
-                      onClick={() => setActiveIndex((i) => Math.min(queueItems.length - 1, i + 1))}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-xs font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      <span>التالي</span>
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {Boolean(currentItem.studentImageUrl?.trim()) || qForceShowBoard ? (
-                  <MarkingBlackboard
-                    ref={queueBlackboardRef}
-                    studentImageUrl={currentItem.studentImageUrl}
-                    previousCorrectedImageUrl={currentItem.correction?.correctedImageUrl}
-                    studentAudioUrl={currentItem.studentAudioUrl}
-                    studentName={currentItem.studentName}
-                    referenceImageUrl={currentItem.referenceImageUrl}
-                    lessonTitle={currentItem.itemTitle}
-                    stickers={stickersList}
-                    presetTexts={presetTexts}
-                    compact
-                  />
-                ) : (
-                  <div className="px-4 py-2.5 rounded-xl bg-indigo-50/70 border border-indigo-200 flex items-center justify-between gap-2 text-xs">
-                    <span className="font-bold text-indigo-950">
-                      تسليم صوتي فقط — تم إخفاء السبورة تلقائياً.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setQForceShowBoard(true)}
-                      className="px-2.5 py-1 rounded-lg bg-white border border-indigo-200 text-indigo-900 font-bold cursor-pointer"
-                    >
-                      إظهار السبورة
-                    </button>
-                  </div>
-                )}
-
-                <MarkingAudioStudio
-                  studentAudioUrl={currentItem.studentAudioUrl}
-                  studentName={currentItem.studentName}
-                  referenceAudioUrl={currentItem.referenceAudioUrl}
-                  referenceAutoReadText={currentItem.referenceAutoReadText || currentItem.itemTitle}
-                  existingTeacherAudioUrl={currentItem.correction?.teacherAudioUrl}
-                  onTeacherAudioRecorded={setQTeacherAudioB64}
-                />
-
-                <MarkingVideoRecorder
-                  markingConfig={markingConfig}
-                  webhookUrl={webhookUrl}
-                  existingVideoUrl={qTeacherVideoUrl}
-                  onRemoveExistingVideo={() => setQTeacherVideoUrl('')}
-                  onVideoUploaded={setQTeacherVideoUrl}
-                />
-
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        قرار التصحيح:
-                      </label>
-                      <select
-                        value={qStatus}
-                        onChange={(e) => setQStatus(e.target.value as MarkingStatus)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                      >
-                        <option value="corrected">مصحّح ومعتمد</option>
-                        <option value="retry">مطلوب إعادة المحاولة</option>
-                        <option value="pending">قيد الانتظار</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        الدرجة (من 100):
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={qScore}
-                        onChange={(e) => setQScore(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        التقدير اللفظي:
-                      </label>
-                      <select
-                        value={qRating}
-                        onChange={(e) => setQRating(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                      >
-                        {RATING_LABELS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Stickers */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {stickersList.map((st) => (
-                      <button
-                        key={st.id}
-                        type="button"
-                        onClick={() => {
-                          if (qStickerSymbol === st.symbol) {
-                            setQStickerSymbol('');
-                            setQStickerLabel('');
-                          } else {
-                            setQStickerSymbol(st.symbol);
-                            setQStickerLabel(st.label);
-                          }
-                        }}
-                        className={`px-2.5 py-1 rounded-lg border text-xs font-bold flex items-center gap-1 cursor-pointer ${
-                          qStickerSymbol === st.symbol
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-slate-50 text-slate-700 border-slate-200'
-                        }`}
-                      >
-                        <span>{st.symbol}</span>
-                        <span>{st.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div>
-                    <div className="flex flex-wrap items-center gap-1 mb-1">
-                      {presetTexts.slice(0, 4).map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() =>
-                            setQNotes((prev) => (prev ? `${prev}\n${preset.text}` : preset.text))
-                          }
-                          className="px-2 py-0.5 rounded-lg bg-slate-100 hover:bg-emerald-50 text-[10px] font-bold text-slate-700 cursor-pointer"
-                        >
-                          + {preset.text.slice(0, 28)}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      rows={2}
-                      value={qNotes}
-                      onChange={(e) => setQNotes(e.target.value)}
-                      placeholder="اكتب ملاحظتك أو توجيهك للطالب..."
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                    <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-700">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={qAllowRetry}
-                          onChange={(e) => setQAllowRetry(e.target.checked)}
-                          className="accent-amber-600"
-                        />
-                        <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
-                        <span>فتح محاولة جديدة</span>
-                      </label>
-
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={qSendTelegram}
-                          onChange={(e) => setQSendTelegram(e.target.checked)}
-                          className="accent-sky-600"
-                        />
-                        <Send className="w-3.5 h-3.5 text-sky-600" />
-                        <span>إشعار تيليغرام</span>
-                      </label>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={qSaving}
-                        onClick={() => handleSaveQueueItem(false)}
-                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-extrabold cursor-pointer"
-                      >
-                        حفظ فقط
-                      </button>
-                      <button
-                        type="button"
-                        disabled={qSaving}
-                        onClick={() => handleSaveQueueItem(true)}
-                        className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                      >
-                        {qSaving ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-4 h-4" />
-                        )}
-                        <span>حفظ والانتقال للتالي</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {qFeedback && (
-                    <div
-                      className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                        qFeedback.type === 'ok'
-                          ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                          : 'bg-rose-50 text-rose-900 border border-rose-200'
-                      }`}
-                    >
-                      {qFeedback.type === 'ok' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      ) : (
-                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                      )}
-                      <span>{qFeedback.text}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
         ) : workspaceMode === 'bulk' ? (
           /* ================================================================
-             MODE 2: SEPARATED IMAGE & AUDIO LESSON-SCOPED BULK CORRECTION
+             MODE 1: SEPARATED IMAGE & AUDIO LESSON-SCOPED BULK CORRECTION
              ================================================================ */
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5">
             <input
               ref={bulkPdfInputRef}
               type="file"
@@ -1303,7 +801,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                 </div>
               )}
 
-              {/* Recipients List / Custom Picker */}
+              {/* Recipients List / Custom Picker (Collapsible Dropdown) */}
               {targetRecipients.length === 0 && audienceMode !== 'custom' ? (
                 <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1314,10 +812,25 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   </span>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 overflow-hidden">
-                  <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[11px] font-extrabold text-slate-700">
-                    <span>المستلمون الفعليون ({targetRecipients.length} طالب)</span>
-                    {audienceMode === 'custom' && (
+                <div className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                  <div className="px-3.5 py-2.5 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setRecipientsDropdownOpen((o) => !o)}
+                      className="flex-1 flex items-center justify-between gap-2 cursor-pointer text-right"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <span>قائمة الطلاب المستلمون ({targetRecipients.length} طالب)</span>
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 text-slate-500 transition-transform ${
+                          recipientsDropdownOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {recipientsDropdownOpen && audienceMode === 'custom' && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1329,7 +842,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                             );
                           }
                         }}
-                        className="text-indigo-700 underline cursor-pointer"
+                        className="text-[11px] text-indigo-700 underline cursor-pointer shrink-0"
                       >
                         {customSelectedKeys.size === lessonSubmissions.length
                           ? 'إلغاء تحديد الكل'
@@ -1338,59 +851,61 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                     )}
                   </div>
 
-                  <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
-                    {(audienceMode === 'custom' ? lessonSubmissions : targetRecipients).map(
-                      (item) => {
-                        const checked =
-                          audienceMode !== 'custom' || customSelectedKeys.has(item.submissionKey);
-                        const isGraded =
-                          bulkSubTab === 'image'
-                            ? item.correction?.imageStatus === 'corrected' ||
-                              item.correction?.status === 'corrected'
-                            : item.correction?.audioStatus === 'corrected' ||
-                              item.correction?.status === 'corrected';
-                        return (
-                          <div
-                            key={item.submissionKey}
-                            onClick={() =>
-                              audienceMode === 'custom' && toggleCustomKey(item.submissionKey)
-                            }
-                            className={`px-3.5 py-2 flex items-center justify-between gap-2 text-xs ${
-                              audienceMode === 'custom' ? 'cursor-pointer hover:bg-slate-50' : ''
-                            } ${checked ? 'bg-white' : 'bg-slate-50/50 opacity-60'}`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {audienceMode === 'custom' &&
-                                (checked ? (
-                                  <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" />
-                                ) : (
-                                  <Square className="w-4 h-4 text-slate-400 shrink-0" />
-                                ))}
-                              <span className="font-extrabold text-slate-900 truncate">
-                                {item.studentName}
-                              </span>
-                              {item.studentId && (
-                                <span className="text-[11px] font-mono text-slate-400">
-                                  #{item.studentId}
+                  {recipientsDropdownOpen && (
+                    <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 border-t border-slate-200">
+                      {(audienceMode === 'custom' ? lessonSubmissions : targetRecipients).map(
+                        (item) => {
+                          const checked =
+                            audienceMode !== 'custom' || customSelectedKeys.has(item.submissionKey);
+                          const isGraded =
+                            bulkSubTab === 'image'
+                              ? item.correction?.imageStatus === 'corrected' ||
+                                item.correction?.status === 'corrected'
+                              : item.correction?.audioStatus === 'corrected' ||
+                                item.correction?.status === 'corrected';
+                          return (
+                            <div
+                              key={item.submissionKey}
+                              onClick={() =>
+                                audienceMode === 'custom' && toggleCustomKey(item.submissionKey)
+                              }
+                              className={`px-3.5 py-2 flex items-center justify-between gap-2 text-xs ${
+                                audienceMode === 'custom' ? 'cursor-pointer hover:bg-slate-50' : ''
+                              } ${checked ? 'bg-white' : 'bg-slate-50/50 opacity-60'}`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {audienceMode === 'custom' &&
+                                  (checked ? (
+                                    <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" />
+                                  ) : (
+                                    <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                                  ))}
+                                <span className="font-extrabold text-slate-900 truncate">
+                                  {item.studentName}
                                 </span>
-                              )}
-                            </div>
+                                {item.studentId && (
+                                  <span className="text-[11px] font-mono text-slate-400">
+                                    #{item.studentId}
+                                  </span>
+                                )}
+                              </div>
 
-                            <div className="flex items-center gap-2 shrink-0 text-[11px] font-bold">
-                              {item.videoScore !== undefined && (
-                                <span className="font-mono text-slate-500 tabular-nums">
-                                  الاختبار: {item.videoScore}%
+                              <div className="flex items-center gap-2 shrink-0 text-[11px] font-bold">
+                                {item.videoScore !== undefined && (
+                                  <span className="font-mono text-slate-500 tabular-nums">
+                                    الاختبار: {item.videoScore}%
+                                  </span>
+                                )}
+                                <span className={isGraded ? 'text-emerald-700' : 'text-amber-700'}>
+                                  {isGraded ? 'مصحّح ✓' : 'غير مصحّح'}
                                 </span>
-                              )}
-                              <span className={isGraded ? 'text-emerald-700' : 'text-amber-700'}>
-                                {isGraded ? 'مصحّح ✓' : 'غير مصحّح'}
-                              </span>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      }
-                    )}
-                  </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1568,126 +1083,32 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Image Grading & Broadcast Footer */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
-                  <div className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                    <Award className="w-4 h-4 text-emerald-600" />
-                    <span>تقييم وملاحظات تصحيح الصورة الجماعي</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        حالة الصورة:
-                      </label>
-                      <select
-                        value={bImgStatus}
-                        onChange={(e) => setBImgStatus(e.target.value as MarkingStatus)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                      >
-                        <option value="corrected">صورة مصحّحة ✓</option>
-                        <option value="retry">طلب إعادة الصورة</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        درجة الصورة (اختياري — اتركه فارغاً لحفظ درجة كل طالب):
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={4}
-                        value={bImgScore}
-                        onChange={(e) =>
-                          setBImgScore(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))
-                        }
-                        placeholder="احتفاظ بالدرجة الحالية"
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900 tabular-nums"
+                {/* Image Notes & Broadcast Footer */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBImgNotesOpen((o) => !o)}
+                      className={`px-4 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-2 cursor-pointer transition-colors ${
+                        bImgNotesOpen
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                      }`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>ملاحظات</span>
+                      {(bImgNotes.trim() || bImgStickerSymbol) && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-white/20 text-[10px]">
+                          {bImgStickerSymbol ? bImgStickerSymbol : '✓'}
+                        </span>
+                      )}
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${
+                          bImgNotesOpen ? 'rotate-180' : ''
+                        }`}
                       />
-                    </div>
+                    </button>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">التقدير:</label>
-                      <select
-                        value={bImgRating}
-                        onChange={(e) => setBImgRating(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                      >
-                        {RATING_LABELS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Board Stickers */}
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                      <Sticker className="w-3.5 h-3.5 text-amber-600" />
-                      <span>ملصق جماعي لتصحيح الصورة (اختياري):</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {boardStickers.map((st) => {
-                        const active = bImgStickerSymbol === st.symbol;
-                        return (
-                          <button
-                            key={st.id}
-                            type="button"
-                            onClick={() => {
-                              if (active) {
-                                setBImgStickerSymbol('');
-                                setBImgStickerLabel('');
-                              } else {
-                                setBImgStickerSymbol(st.symbol);
-                                setBImgStickerLabel(st.label);
-                              }
-                            }}
-                            className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ${
-                              active
-                                ? 'bg-slate-900 text-white border-slate-900'
-                                : 'bg-slate-50 text-slate-800 border-slate-200'
-                            }`}
-                          >
-                            <span className="text-base leading-none">{st.symbol}</span>
-                            <span>{st.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Board Preset Texts & Notes */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700">
-                      ملاحظات الصورة الجماعية (تُدمج مع ملاحظات الطالب السابقة):
-                    </label>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {boardPresets.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() =>
-                            setBImgNotes((p) => (p ? `${p}\n${preset.text}` : preset.text))
-                          }
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
-                        >
-                          + {preset.text}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      rows={3}
-                      value={bImgNotes}
-                      onChange={(e) => setBImgNotes(e.target.value)}
-                      placeholder="اكتب ملاحظة جماعية لصور الدرس..."
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
                     <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-700">
                       <label className="flex items-center gap-1.5 cursor-pointer">
                         <input
@@ -1708,7 +1129,79 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                         <span>إشعار تيليغرام للمستلمين</span>
                       </label>
                     </div>
+                  </div>
 
+                  {bImgNotesOpen && (
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 animate-in fade-in duration-150">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            نصوص جاهزة:
+                          </label>
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const txt = e.target.value;
+                              if (!txt) return;
+                              setBImgNotes((p) => (p ? `${p}\n${txt}` : txt));
+                            }}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-900"
+                          >
+                            <option value="">اختر نصاً جاهزاً لإضافته...</option>
+                            {boardPresets.map((preset) => (
+                              <option key={preset.id} value={preset.text}>
+                                {preset.text}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                            <Sticker className="w-3.5 h-3.5 text-amber-600" />
+                            <span>ستيكرات:</span>
+                          </label>
+                          <select
+                            value={bImgStickerSymbol}
+                            onChange={(e) => {
+                              const sym = e.target.value;
+                              if (!sym) {
+                                setBImgStickerSymbol('');
+                                setBImgStickerLabel('');
+                              } else {
+                                const found = boardStickers.find((s) => s.symbol === sym);
+                                setBImgStickerSymbol(sym);
+                                setBImgStickerLabel(found?.label || '');
+                              }
+                            }}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-900"
+                          >
+                            <option value="">بدون ملصق</option>
+                            {boardStickers.map((st) => (
+                              <option key={st.id} value={st.symbol}>
+                                {st.symbol} {st.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          حقل النص (تُدمج مع ملاحظات الطالب السابقة):
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={bImgNotes}
+                          onChange={(e) => setBImgNotes(e.target.value)}
+                          placeholder="اكتب ملاحظة جماعية لصور الدرس..."
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-2 border-t border-slate-100">
                     <button
                       type="button"
                       disabled={targetRecipients.length === 0 || bSaving}
@@ -1749,25 +1242,14 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                           <span>رفع ملف صوتي</span>
                         </button>
 
-                        {!bAudioRecording ? (
-                          <button
-                            type="button"
-                            onClick={startBatchAudioRecording}
-                            className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
-                          >
-                            <Mic className="w-3.5 h-3.5" />
-                            <span>تسجيل صوت</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={stopBatchAudioRecording}
-                            className="px-2.5 py-1.5 rounded-xl bg-slate-900 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
-                          >
-                            <Square className="w-3 h-3 fill-rose-500 text-rose-500" />
-                            <span>إيقاف ({bAudioSeconds}ث)</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setBatchAudioModalOpen(true)}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>تسجيل صوت</span>
+                        </button>
                       </div>
                     </div>
 
@@ -1867,126 +1349,32 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                   </div>
                 </div>
 
-                {/* Audio Grading & Broadcast Footer */}
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-4">
-                  <div className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                    <Award className="w-4 h-4 text-indigo-600" />
-                    <span>تقييم وملاحظات التصحيح الصوتي الجماعي</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        حالة الصوت:
-                      </label>
-                      <select
-                        value={bAudioStatus}
-                        onChange={(e) => setBAudioStatus(e.target.value as MarkingStatus)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                      >
-                        <option value="corrected">صوت مصحّح ومعتمد ✓</option>
-                        <option value="retry">طلب إعادة الصوت</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        درجة الصوت (اختياري — اتركه فارغاً لحفظ درجة كل طالب):
-                      </label>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={4}
-                        value={bAudioScore}
-                        onChange={(e) =>
-                          setBAudioScore(e.target.value.replace(/[^\d.]/g, '').slice(0, 4))
-                        }
-                        placeholder="احتفاظ بالدرجة الحالية"
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900 tabular-nums"
+                {/* Audio Notes & Broadcast Footer */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBAudioNotesOpen((o) => !o)}
+                      className={`px-4 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-2 cursor-pointer transition-colors ${
+                        bAudioNotesOpen
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                      }`}
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>ملاحظات</span>
+                      {(bAudioNotes.trim() || bAudioStickerSymbol) && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-white/20 text-[10px]">
+                          {bAudioStickerSymbol ? bAudioStickerSymbol : '✓'}
+                        </span>
+                      )}
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${
+                          bAudioNotesOpen ? 'rotate-180' : ''
+                        }`}
                       />
-                    </div>
+                    </button>
 
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">التقدير:</label>
-                      <select
-                        value={bAudioRating}
-                        onChange={(e) => setBAudioRating(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                      >
-                        {RATING_LABELS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Audio Stickers */}
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                      <Sticker className="w-3.5 h-3.5 text-amber-600" />
-                      <span>ملصق جماعي للتقييم الصوتي (اختياري):</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {audioStickers.map((st) => {
-                        const active = bAudioStickerSymbol === st.symbol;
-                        return (
-                          <button
-                            key={st.id}
-                            type="button"
-                            onClick={() => {
-                              if (active) {
-                                setBAudioStickerSymbol('');
-                                setBAudioStickerLabel('');
-                              } else {
-                                setBAudioStickerSymbol(st.symbol);
-                                setBAudioStickerLabel(st.label);
-                              }
-                            }}
-                            className={`px-2.5 py-1.5 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ${
-                              active
-                                ? 'bg-slate-900 text-white border-slate-900'
-                                : 'bg-slate-50 text-slate-800 border-slate-200'
-                            }`}
-                          >
-                            <span className="text-base leading-none">{st.symbol}</span>
-                            <span>{st.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Audio Preset Texts & Notes */}
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-700">
-                      ملاحظات الصوت الجماعية (خاصة بالتصحيح الصوتي):
-                    </label>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {audioPresets.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() =>
-                            setBAudioNotes((p) => (p ? `${p}\n${preset.text}` : preset.text))
-                          }
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 border border-slate-200 text-[11px] font-bold text-slate-800 cursor-pointer"
-                        >
-                          + {preset.text}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      rows={3}
-                      value={bAudioNotes}
-                      onChange={(e) => setBAudioNotes(e.target.value)}
-                      placeholder="اكتب ملاحظة جماعية للتسجيلات الصوتية..."
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
                     <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-700">
                       <label className="flex items-center gap-1.5 cursor-pointer">
                         <input
@@ -2007,7 +1395,79 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                         <span>إشعار تيليغرام للمستلمين</span>
                       </label>
                     </div>
+                  </div>
 
+                  {bAudioNotesOpen && (
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 animate-in fade-in duration-150">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-700 mb-1">
+                            نصوص جاهزة:
+                          </label>
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const txt = e.target.value;
+                              if (!txt) return;
+                              setBAudioNotes((p) => (p ? `${p}\n${txt}` : txt));
+                            }}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-900"
+                          >
+                            <option value="">اختر نصاً جاهزاً لإضافته...</option>
+                            {audioPresets.map((preset) => (
+                              <option key={preset.id} value={preset.text}>
+                                {preset.text}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                            <Sticker className="w-3.5 h-3.5 text-amber-600" />
+                            <span>ستيكرات:</span>
+                          </label>
+                          <select
+                            value={bAudioStickerSymbol}
+                            onChange={(e) => {
+                              const sym = e.target.value;
+                              if (!sym) {
+                                setBAudioStickerSymbol('');
+                                setBAudioStickerLabel('');
+                              } else {
+                                const found = audioStickers.find((s) => s.symbol === sym);
+                                setBAudioStickerSymbol(sym);
+                                setBAudioStickerLabel(found?.label || '');
+                              }
+                            }}
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-900"
+                          >
+                            <option value="">بدون ملصق</option>
+                            {audioStickers.map((st) => (
+                              <option key={st.id} value={st.symbol}>
+                                {st.symbol} {st.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          حقل النص (ملاحظات التصحيح الصوتي):
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={bAudioNotes}
+                          onChange={(e) => setBAudioNotes(e.target.value)}
+                          placeholder="اكتب ملاحظة جماعية للتسجيلات الصوتية..."
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-2 border-t border-slate-100">
                     <button
                       type="button"
                       disabled={targetRecipients.length === 0 || bSaving}
@@ -2045,9 +1505,9 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
           </div>
         ) : (
           /* ================================================================
-             MODE 3: CORRECTIONS MANAGEMENT TABLE (FILTER, QUICK EDIT, RESET)
+             MODE 2: CORRECTIONS MANAGEMENT TABLE (FILTER, QUICK EDIT, RESET)
              ================================================================ */
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4">
             {/* Filters & Bulk Actions Toolbar */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
@@ -2366,9 +1826,14 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
 
       {/* Quick Inline Edit Modal for Sheet Tab */}
       {editingItem && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/70 flex items-center justify-center p-4 font-cairo text-right">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingItem(null);
+          }}
+          className="fixed inset-0 z-[115] bg-slate-950/75 overflow-y-auto flex items-start sm:items-center justify-center p-3 sm:p-4 font-cairo text-right"
+        >
+          <div className="my-auto bg-white rounded-2xl max-w-lg w-full max-h-[calc(100dvh-20px)] flex flex-col overflow-hidden shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 shrink-0">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">
                   تعديل سريع للتصحيح · {editingItem.studentName}
@@ -2386,137 +1851,156 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">الحالة:</label>
-                <select
-                  value={eStatus}
-                  onChange={(e) => setEStatus(e.target.value as MarkingStatus)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                >
-                  <option value="corrected">مصحّح ومعتمد</option>
-                  <option value="retry">إعادة المحاولة</option>
-                  <option value="pending">قيد الانتظار</option>
-                </select>
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحالة:</label>
+                  <select
+                    value={eStatus}
+                    onChange={(e) => setEStatus(e.target.value as MarkingStatus)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    <option value="corrected">مصحّح ومعتمد</option>
+                    <option value="retry">إعادة المحاولة</option>
+                    <option value="pending">قيد الانتظار</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الدرجة:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={eScore}
+                    onChange={(e) => setEScore(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">التقدير:</label>
+                  <select
+                    value={eRating}
+                    onChange={(e) => setERating(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
+                  >
+                    {RATING_LABELS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">الدرجة:</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={eScore}
-                  onChange={(e) => setEScore(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900"
+                <label className="block text-xs font-bold text-slate-700 mb-1">الملاحظات:</label>
+                <textarea
+                  rows={3}
+                  value={eNotes}
+                  onChange={(e) => setENotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">التقدير:</label>
-                <select
-                  value={eRating}
-                  onChange={(e) => setERating(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-900"
-                >
-                  {RATING_LABELS.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">الملاحظات:</label>
-              <textarea
-                rows={3}
-                value={eNotes}
-                onChange={(e) => setENotes(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-900"
-              />
-            </div>
-
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-bold text-slate-700">
-              <div className="text-[11px] text-slate-500">تنظيف المرفقات الحالية (اختياري):</div>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={eClearImage}
-                    onChange={(e) => setEClearImage(e.target.checked)}
-                    className="accent-rose-600"
-                  />
-                  <span>حذف الصور المصححة</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={eClearAudio}
-                    onChange={(e) => setEClearAudio(e.target.checked)}
-                    className="accent-rose-600"
-                  />
-                  <span>حذف صوت المعلم</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={eClearVideo}
-                    onChange={(e) => setEClearVideo(e.target.checked)}
-                    className="accent-rose-600"
-                  />
-                  <span>حذف فيديو المعلم</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <div className="flex items-center gap-3 text-xs font-bold text-slate-700">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={eAllowRetry}
-                    onChange={(e) => setEAllowRetry(e.target.checked)}
-                    className="accent-amber-600"
-                  />
-                  <span>محاولة جديدة</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={eSendTelegram}
-                    onChange={(e) => setESendTelegram(e.target.checked)}
-                    className="accent-sky-600"
-                  />
-                  <span>إشعار تيليغرام</span>
-                </label>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs font-bold text-slate-700">
+                <div className="text-[11px] text-slate-500">تنظيف المرفقات الحالية (اختياري):</div>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eClearImage}
+                      onChange={(e) => setEClearImage(e.target.checked)}
+                      className="accent-rose-600"
+                    />
+                    <span>حذف الصور المصححة</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eClearAudio}
+                      onChange={(e) => setEClearAudio(e.target.checked)}
+                      className="accent-rose-600"
+                    />
+                    <span>حذف صوت المعلم</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eClearVideo}
+                      onChange={(e) => setEClearVideo(e.target.checked)}
+                      className="accent-rose-600"
+                    />
+                    <span>حذف فيديو المعلم</span>
+                  </label>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingItem(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="button"
-                  disabled={eSaving}
-                  onClick={handleSaveQuickEdit}
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-                >
-                  {eSaving ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                  )}
-                  <span>حفظ التعديلات</span>
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-3 text-xs font-bold text-slate-700">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eAllowRetry}
+                      onChange={(e) => setEAllowRetry(e.target.checked)}
+                      className="accent-amber-600"
+                    />
+                    <span>محاولة جديدة</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={eSendTelegram}
+                      onChange={(e) => setESendTelegram(e.target.checked)}
+                      className="accent-sky-600"
+                    />
+                    <span>إشعار تيليغرام</span>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingItem(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    disabled={eSaving}
+                    onClick={handleSaveQuickEdit}
+                    className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {eSaving ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>حفظ التعديلات</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      <AudioRecorderModal
+        isOpen={batchAudioModalOpen}
+        onClose={() => setBatchAudioModalOpen(false)}
+        title="تسجيل مقطع صوتي للتصحيح الجماعي"
+        onAttachAudio={({ blobUrl, base64, name }) => {
+          setBatchAudioClips((prev) => [
+            ...prev,
+            {
+              id: `b-aud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              blobUrl,
+              base64,
+              name,
+            },
+          ]);
+        }}
+      />
     </div>
   );
 };

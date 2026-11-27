@@ -3222,8 +3222,13 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* MODAL: SUBMISSION EXERCISES DETAIL MODAL (answers 1) */}
       {selectedSubmissionDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] flex flex-col">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedSubmissionDetail(null);
+          }}
+          className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[calc(100dvh-20px)] flex flex-col overflow-hidden">
             <button
               onClick={() => setSelectedSubmissionDetail(null)}
               className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -3232,7 +3237,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             </button>
 
             {/* Header info */}
-            <div className="flex items-center gap-3 pb-4 border-b border-slate-100 mb-4">
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-100 mb-4 shrink-0">
               <div className="w-10 h-10 rounded-2xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
                 <Table className="w-5 h-5 text-teal-700" />
               </div>
@@ -3251,7 +3256,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             </div>
 
             {/* Exercises Grid */}
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
               {selectedSubmissionDetail.exercises.length === 0 ? (
                 <div className="text-center py-10 text-xs text-slate-400">
                   لا توجد تفاصيل تمارين في هذا السجل
@@ -3348,8 +3353,13 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* MODAL 1: SUBJECTS MANAGER (تعديل وحذف وإضافة مواضيع الدروس) */}
       {showSubjectManager && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[85vh] flex flex-col">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSubjectManager(false);
+          }}
+          className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[calc(100dvh-20px)] flex flex-col overflow-hidden">
             <button
               onClick={() => setShowSubjectManager(false)}
               className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
@@ -3357,7 +3367,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100">
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 shrink-0">
               <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
                 <BookOpen className="w-4 h-4" />
               </div>
@@ -3368,7 +3378,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             </div>
 
             {/* Add new subject input */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-4 shrink-0">
               <input
                 type="text"
                 value={newSubjInput}
@@ -3391,7 +3401,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             </div>
 
             {/* Subjects List with Rename and Delete */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
               {subjects.map((subj) => {
                 const count = curriculum.filter((c) => c.lessonSubject === subj).length;
                 const isEditing = editingSubjName?.old === subj;
@@ -3476,8 +3486,13 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* MODAL 2: CATEGORIES MANAGER (تعديل وحذف وإضافة الفئات) */}
       {showCategoryManager && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative max-h-[85vh] flex flex-col">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowCategoryManager(false);
+          }}
+          className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[calc(100dvh-20px)] flex flex-col overflow-hidden">
             <button
               onClick={() => setShowCategoryManager(false)}
               className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
@@ -3485,7 +3500,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100">
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 shrink-0">
               <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center font-bold">
                 <Layers className="w-4 h-4" />
               </div>
@@ -3496,7 +3511,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             </div>
 
             {/* Add new category input */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-4 shrink-0">
               <input
                 type="text"
                 value={newCatInput}
@@ -3519,7 +3534,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
             </div>
 
             {/* Categories List with Rename and Delete */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
               {categories.map((cat) => {
                 const count = curriculum.filter((c) => c.category === cat).length;
                 const isEditing = editingCatName?.old === cat;
@@ -3600,8 +3615,13 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* Sync & GitHub Deployment Guide Modal */}
       {showSyncGuideModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowSyncGuideModal(false);
+          }}
+          className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[calc(100dvh-20px)] overflow-y-auto">
             <button
               onClick={() => setShowSyncGuideModal(false)}
               className="absolute left-5 top-5 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -3707,8 +3727,13 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* Instant QR & URL Sync Modal for Mobile / Tablet */}
       {showQrSyncModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowQrSyncModal(false);
+          }}
+          className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative max-h-[calc(100dvh-20px)] overflow-y-auto">
             <button
               onClick={() => setShowQrSyncModal(false)}
               className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -3813,8 +3838,13 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* MODAL: GOOGLE CLOUD BILLING & UPGRADE GUIDE */}
       {showBillingGuideModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto font-cairo">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowBillingGuideModal(false);
+          }}
+          className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[calc(100dvh-20px)] overflow-y-auto font-cairo">
             <button
               onClick={() => setShowBillingGuideModal(false)}
               className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
@@ -3940,8 +3970,16 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
       {/* DEDICATED VOICE RECORDING & GOOGLE DRIVE MODAL (Issue 3) */}
       {showVoiceModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-slate-100 text-right space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              if (isRecordingVoiceModal) handleStopVoiceModalRecording();
+              setShowVoiceModal(false);
+            }
+          }}
+          className="fixed inset-0 z-[110] bg-slate-950/70 backdrop-blur-xs flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto"
+        >
+          <div className="my-auto bg-white rounded-3xl max-w-lg w-full p-5 sm:p-7 shadow-2xl border border-slate-100 text-right space-y-5 max-h-[calc(100dvh-20px)] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">

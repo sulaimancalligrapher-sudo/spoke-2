@@ -49,31 +49,39 @@ export const GuideModal: React.FC<GuideModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          className="absolute left-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shadow-xs">
-            <Sparkles className="w-6 h-6 text-emerald-700" />
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-5 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+    >
+      <div className="my-auto bg-white rounded-3xl max-w-2xl w-full p-4 sm:p-7 shadow-2xl border border-slate-100 max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] flex flex-col overflow-hidden">
+        <div className="flex items-start justify-between gap-3 mb-4 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shadow-xs shrink-0">
+              <Sparkles className="w-6 h-6 text-emerald-700" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                دليل ومواصفات منصة (فَصِيح)
+              </h3>
+              <p className="text-xs text-slate-500">
+                الدليل الشامل للتقنيات، خطوات التدريب، وإعدادات الصوت ومحركات التقييم
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-lg font-bold text-slate-900">
-              دليل ومواصفات منصة (فَصِيح)
-            </h3>
-            <p className="text-xs text-slate-500">
-              الدليل الشامل للتقنيات، خطوات التدريب، وإعدادات الصوت ومحركات التقييم
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 text-slate-500 hover:text-slate-700 rounded-xl bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer shrink-0"
+            title="إغلاق"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Tab switcher: 4 Unified Tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-2xl mb-3 shrink-0">
           <button
             onClick={() => setActiveTab('notes')}
             className={`py-2 px-1 text-center rounded-xl text-xs font-bold transition-all cursor-pointer truncate ${
@@ -116,6 +124,7 @@ export const GuideModal: React.FC<GuideModalProps> = ({
           </button>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">
         {/* Tab 0: Essential Notes & Important Guidelines */}
         {activeTab === 'notes' && (
           <div className="space-y-3.5 my-3 animate-in fade-in duration-200">
@@ -527,7 +536,9 @@ export const GuideModal: React.FC<GuideModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end pt-3 border-t border-slate-100">
+        </div>
+
+        <div className="flex justify-end pt-3 mt-2 border-t border-slate-100 shrink-0">
           <button
             onClick={onClose}
             className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
