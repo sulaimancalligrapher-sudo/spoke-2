@@ -121,7 +121,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
   const [bImgStickerSymbol, setBImgStickerSymbol] = useState<string>('');
   const [bImgStickerLabel, setBImgStickerLabel] = useState<string>('');
   const [batchImageBase64s, setBatchImageBase64s] = useState<string[]>([]);
-  const [batchStitchImages, setBatchStitchImages] = useState<boolean>(true);
+  const [batchStitchImages, setBatchStitchImages] = useState<boolean>(false);
   const [batchImageLinks, setBatchImageLinks] = useState<string[]>([]);
   const [newImageLinkInput, setNewImageLinkInput] = useState('');
   const [uploadingImagePdf, setUploadingImagePdf] = useState(false);
@@ -359,13 +359,33 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
         new Set([...batchAudioLinks, typedAudLink].map((u) => u.trim()).filter(Boolean))
       );
 
-      // 3. Prepare images (merge if requested)
-      let preparedImages: string[] | undefined;
+      // 3. Prepare images (merge if requested) and pre-upload to Drive one-by-one like audio clips
+      let preparedImages: string[] = [];
       if (batchImageBase64s.length > 1 && batchStitchImages) {
         const stitched = await combineImagesToSingleBase64(batchImageBase64s);
         preparedImages = stitched ? [stitched] : batchImageBase64s;
       } else if (batchImageBase64s.length > 0) {
         preparedImages = batchImageBase64s;
+      }
+
+      const uploadedImageUrls: string[] = [];
+      for (let i = 0; i < preparedImages.length; i++) {
+        const imgB64 = preparedImages[i];
+        const mimeMatch = imgB64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i);
+        const upImg = await uploadMarkingMediaToDrive(webhookUrl, {
+          mediaType: 'image',
+          mimeType: mimeMatch?.[1] || 'image/jpeg',
+          base64Data: imgB64,
+          fileName: `batch_add_img_${Date.now()}_${i + 1}`,
+        });
+        if (!upImg.success || !upImg.url) {
+          setBFeedback({
+            type: 'err',
+            text: upImg.error || `تعذر رفع الصورة رقم ${i + 1} إلى Google Drive.`,
+          });
+          return;
+        }
+        uploadedImageUrls.push(upImg.url);
       }
 
       // 4. Pre-upload batch audio clips to Drive first so URLs are guaranteed before writing Sheet rows
@@ -389,7 +409,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
       }
 
       const hasImgSection = Boolean(
-        (preparedImages && preparedImages.length > 0) ||
+        uploadedImageUrls.length > 0 ||
           effectiveImgLinks.length > 0 ||
           bImgNotes.trim() ||
           bImgStickerSymbol
@@ -425,7 +445,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
       const res = await saveMarkingBatchToSheets(webhookUrl, {
         teacherName,
         saveMode: effectiveSaveMode,
-        sharedAdditionalImagesBase64: preparedImages,
+        sharedAdditionalImages: uploadedImageUrls.length > 0 ? uploadedImageUrls : undefined,
         sharedImageLinks: effectiveImgLinks.length > 0 ? effectiveImgLinks : undefined,
         sharedTeacherAudios: uploadedAudioUrls.length > 0 ? uploadedAudioUrls : undefined,
         sharedTeacherAudioUrl: uploadedAudioUrls[0] || undefined,
@@ -519,7 +539,9 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
         setNewVideoUrlInput('');
         setNewAudioLinkInput('');
         const sentSummaryParts: string[] = [];
-        if (preparedImages?.length || effectiveImgLinks.length) sentSummaryParts.push('الصور');
+        if (uploadedImageUrls.length || effectiveImgLinks.length) {
+          sentSummaryParts.push(`الصور (${uploadedImageUrls.length + effectiveImgLinks.length})`);
+        }
         if (effectiveVideoUrls.length) sentSummaryParts.push(`الفيديو (${effectiveVideoUrls.length})`);
         if (uploadedAudioUrls.length || effectiveAudLinks.length) {
           sentSummaryParts.push(`الصوت (${uploadedAudioUrls.length + effectiveAudLinks.length})`);

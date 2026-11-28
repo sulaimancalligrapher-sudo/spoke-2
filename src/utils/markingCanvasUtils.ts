@@ -323,10 +323,21 @@ export async function combineImagesToSingleBase64(
   if (loaded.length === 0) return imageSources[0] || null;
   if (loaded.length === 1) return imageSources[0];
 
-  const targetWidth = Math.min(
+  let targetWidth = Math.min(
     maxWidth,
     Math.max(...loaded.map((img) => img.width))
   );
+
+  // Guard against exceeding browser canvas max height/pixels on mobile & tablet
+  const MAX_CANVAS_HEIGHT = 4096;
+  const rawTotalHeight =
+    loaded.reduce((sum, img) => sum + Math.round(img.height * (targetWidth / img.width)), 0) +
+    gap * (loaded.length - 1);
+  if (rawTotalHeight > MAX_CANVAS_HEIGHT) {
+    const availH = Math.max(800, MAX_CANVAS_HEIGHT - gap * (loaded.length - 1));
+    const rawImagesH = rawTotalHeight - gap * (loaded.length - 1);
+    targetWidth = Math.max(640, Math.floor(targetWidth * (availH / rawImagesH)));
+  }
 
   const scaledDims = loaded.map((img) => {
     const scale = targetWidth / img.width;
@@ -357,7 +368,11 @@ export async function combineImagesToSingleBase64(
   }
 
   try {
-    return canvas.toDataURL('image/jpeg', 0.86);
+    const exported = canvas.toDataURL('image/jpeg', 0.86);
+    if (!exported || exported === 'data:,' || !exported.startsWith('data:image/') || exported.length < 100) {
+      return imageSources[0];
+    }
+    return exported;
   } catch {
     return imageSources[0];
   }

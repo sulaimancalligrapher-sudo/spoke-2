@@ -312,6 +312,7 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
                             key={`${vidUrl}-${idx}`}
                             url={vidUrl}
                             label={allVideos.length > 1 ? `فيديو التصحيح #${idx + 1}` : 'فيديو التصحيح'}
+                            hideExternalLink
                           />
                         ))}
                       </div>

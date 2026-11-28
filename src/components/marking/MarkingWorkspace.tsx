@@ -213,6 +213,23 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   }>({ open: false, mode: 'bulk' });
   const [achievementModalOpen, setAchievementModalOpen] = useState(false);
   const [copiedPortalUrl, setCopiedPortalUrl] = useState(false);
+  const [hasBoardAnnotations, setHasBoardAnnotations] = useState(false);
+  const [exitConfirmState, setExitConfirmState] = useState<{
+    open: boolean;
+    actionLabel: string;
+    dirtyImage: boolean;
+    dirtyAudio: boolean;
+    savingAndExiting: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    actionLabel: '',
+    dirtyImage: false,
+    dirtyAudio: false,
+    savingAndExiting: false,
+    error: null,
+  });
+  const pendingExitActionRef = useRef<(() => void) | null>(null);
 
   const normalizedSchedule = useMemo(
     () => normalizeCourseScheduleData(courseSchedule),
@@ -445,6 +462,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setFExtraVideoUrls(dedupedVids.slice(1));
     setFAllowRetry(Boolean(c?.allowRetry));
     setFSendTelegram(markingConfig.notifyStudentOnCorrection !== false);
+    setHasBoardAnnotations(false);
     videoRecorderRef.current?.resetPending();
   }, [activeSubmission?.submissionKey]);
 
@@ -491,6 +509,135 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setFTeacherVideoUrl(dedupedVids[0] || '');
     setFExtraVideoUrls(dedupedVids.slice(1));
   }, [correctionSyncKey]);
+
+  const baselineValues = useMemo(() => {
+    if (!activeSubmission) return null;
+    const c = activeSubmission.correction;
+    const hasImgScore =
+      c?.imageScore !== undefined && String(c.imageScore).trim() !== '';
+    const hasLegacyImgScore =
+      !hasImgScore &&
+      (Boolean(c?.imageStatus) || Boolean(c?.correctedImageUrl)) &&
+      c?.score !== undefined &&
+      String(c.score).trim() !== '';
+    const imgStars = parseStarCount(c?.imageRatingLabel || c?.ratingLabel);
+
+    const hasAudScore =
+      c?.audioScore !== undefined && String(c.audioScore).trim() !== '';
+    const hasLegacyAudScore =
+      !hasAudScore &&
+      (Boolean(c?.audioStatus) || Boolean(c?.teacherAudioUrl)) &&
+      c?.score !== undefined &&
+      String(c.score).trim() !== '';
+    const audStars = parseStarCount(c?.audioRatingLabel || c?.ratingLabel);
+
+    const corrImgUrl = (c?.correctedImageUrl || '').trim();
+    return {
+      imgStatus: c?.imageStatus || c?.status || 'corrected',
+      imgScore: hasImgScore
+        ? String(c!.imageScore)
+        : hasLegacyImgScore
+        ? String(c!.score)
+        : '0',
+      imgRating: imgStars > 0 ? formatStarValue(imgStars) : '',
+      imgNotes: (c?.imageNotes !== undefined ? c.imageNotes : c?.notes || '').trim(),
+      savedAddImages: dedupeMediaUrls([
+        corrImgUrl,
+        ...(Array.isArray(c?.additionalImages) ? c.additionalImages : []),
+      ]).slice(corrImgUrl ? 1 : 0),
+      savedImageLinks: Array.isArray(c?.imageLinks)
+        ? Array.from(new Set(c.imageLinks.filter(Boolean)))
+        : [],
+      savedVideos: dedupeMediaUrls([c?.teacherVideoUrl, ...(c?.teacherVideos || [])]),
+      audioStatus: c?.audioStatus || c?.status || 'corrected',
+      audioScore: hasAudScore
+        ? String(c!.audioScore)
+        : hasLegacyAudScore
+        ? String(c!.score)
+        : '0',
+      audioRating: audStars > 0 ? formatStarValue(audStars) : '',
+      audioNotes: (c?.audioNotes !== undefined ? c.audioNotes : c?.notes || '').trim(),
+      audioStickerSymbol: c?.audioStickerSymbol || c?.stickerSymbol || '',
+      savedTeacherAudios: Array.from(
+        new Set(
+          [c?.teacherAudioUrl || '', ...(c?.teacherAudios || [])]
+            .map((u) => u.trim())
+            .filter(Boolean)
+        )
+      ),
+      savedAudioLinks: Array.isArray(c?.audioLinks)
+        ? Array.from(new Set(c.audioLinks.filter(Boolean)))
+        : [],
+    };
+  }, [activeSubmission]);
+
+  const hasUnsavedImageChanges = useMemo(() => {
+    if (!activeSubmission || !baselineValues) return false;
+    const currentVideos = dedupeMediaUrls([fTeacherVideoUrl, ...fExtraVideoUrls]);
+    return (
+      hasBoardAnnotations ||
+      Boolean(boardOverrideImageUrl) ||
+      fExtraImagesB64.length > 0 ||
+      fImgStatus !== baselineValues.imgStatus ||
+      fImgScore !== baselineValues.imgScore ||
+      fImgRating !== baselineValues.imgRating ||
+      fImgNotes.trim() !== baselineValues.imgNotes ||
+      JSON.stringify(fSavedAddImages) !== JSON.stringify(baselineValues.savedAddImages) ||
+      JSON.stringify(fSavedImageLinks) !== JSON.stringify(baselineValues.savedImageLinks) ||
+      JSON.stringify(currentVideos) !== JSON.stringify(baselineValues.savedVideos)
+    );
+  }, [
+    activeSubmission,
+    baselineValues,
+    hasBoardAnnotations,
+    boardOverrideImageUrl,
+    fExtraImagesB64.length,
+    fImgStatus,
+    fImgScore,
+    fImgRating,
+    fImgNotes,
+    fSavedAddImages,
+    fSavedImageLinks,
+    fTeacherVideoUrl,
+    fExtraVideoUrls,
+  ]);
+
+  const hasUnsavedAudioChanges = useMemo(() => {
+    if (!activeSubmission || !baselineValues) return false;
+    return (
+      fExtraAudioClips.length > 0 ||
+      fAudioStatus !== baselineValues.audioStatus ||
+      fAudioScore !== baselineValues.audioScore ||
+      fAudioRating !== baselineValues.audioRating ||
+      fAudioNotes.trim() !== baselineValues.audioNotes ||
+      fAudioStickerSymbol !== baselineValues.audioStickerSymbol ||
+      JSON.stringify(fSavedTeacherAudios) !== JSON.stringify(baselineValues.savedTeacherAudios) ||
+      JSON.stringify(fSavedAudioLinks) !== JSON.stringify(baselineValues.savedAudioLinks)
+    );
+  }, [
+    activeSubmission,
+    baselineValues,
+    fExtraAudioClips.length,
+    fAudioStatus,
+    fAudioScore,
+    fAudioRating,
+    fAudioNotes,
+    fAudioStickerSymbol,
+    fSavedTeacherAudios,
+    fSavedAudioLinks,
+  ]);
+
+  const hasUnsavedChanges = hasUnsavedImageChanges || hasUnsavedAudioChanges;
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Stats summary
   const stats = useMemo(() => {
@@ -650,8 +797,8 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   };
 
   // Independent Save: Image Correction Only (never overwrites Audio section)
-  const handleSaveImageCorrection = async () => {
-    if (!activeSubmission || fImgSaving) return;
+  const handleSaveImageCorrection = async (): Promise<boolean> => {
+    if (!activeSubmission || fImgSaving) return false;
     setFImgSaving(true);
     setFImgFeedback(null);
     try {
@@ -745,26 +892,38 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         setFExtraVideoUrls(syncedVids.slice(1));
         setFExtraImagesB64([]);
         setBoardOverrideImageUrl('');
+        if (annotatedBase64) {
+          blackboardRef.current?.clearAnnotations();
+        }
+        setHasBoardAnnotations(false);
         setFImgFeedback({
           type: 'ok',
           text: res.telegramNotified
             ? `تم حفظ تصحيح الصورة لـ ${activeSubmission.studentName} وإرسال إشعار تيليغرام.`
             : `تم حفظ تصحيح الصورة لـ ${activeSubmission.studentName} في الشيت بنجاح.`,
         });
+        return true;
       } else {
         setFImgFeedback({
           type: 'err',
           text: res.error || 'تعذر حفظ تصحيح الصورة.',
         });
+        return false;
       }
+    } catch {
+      setFImgFeedback({
+        type: 'err',
+        text: 'حدث خطأ غير متوقع أثناء حفظ تصحيح الصورة.',
+      });
+      return false;
     } finally {
       setFImgSaving(false);
     }
   };
 
   // Independent Save: Audio Correction Only (never overwrites Image section or explanation videos)
-  const handleSaveAudioCorrection = async () => {
-    if (!activeSubmission || fAudioSaving) return;
+  const handleSaveAudioCorrection = async (): Promise<boolean> => {
+    if (!activeSubmission || fAudioSaving) return false;
     setFAudioSaving(true);
     setFAudioFeedback(null);
     try {
@@ -828,15 +987,110 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
             ? `تم حفظ تصحيح الصوت لـ ${activeSubmission.studentName} وإرسال إشعار تيليغرام.`
             : `تم حفظ تصحيح الصوت لـ ${activeSubmission.studentName} في الشيت بنجاح.`,
         });
+        return true;
       } else {
         setFAudioFeedback({
           type: 'err',
           text: res.error || 'تعذر حفظ تصحيح الصوت.',
         });
+        return false;
       }
+    } catch {
+      setFAudioFeedback({
+        type: 'err',
+        text: 'حدث خطأ غير متوقع أثناء حفظ تصحيح الصوت.',
+      });
+      return false;
     } finally {
       setFAudioSaving(false);
     }
+  };
+
+  const requestExitOrSwitch = (actionLabel: string, action: () => void) => {
+    const dirtyImage =
+      hasUnsavedImageChanges ||
+      Boolean(activeSubmission && videoRecorderRef.current?.hasPendingRecording());
+    const dirtyAudio = hasUnsavedAudioChanges;
+    if (!dirtyImage && !dirtyAudio) {
+      action();
+      return;
+    }
+    pendingExitActionRef.current = action;
+    setExitConfirmState({
+      open: true,
+      actionLabel,
+      dirtyImage,
+      dirtyAudio,
+      savingAndExiting: false,
+      error: null,
+    });
+  };
+
+  const handleConfirmSaveAndExit = async () => {
+    setExitConfirmState((prev) => ({ ...prev, savingAndExiting: true, error: null }));
+    if (exitConfirmState.dirtyImage) {
+      const imgOk = await handleSaveImageCorrection();
+      if (!imgOk) {
+        setExitConfirmState((prev) => ({
+          ...prev,
+          savingAndExiting: false,
+          error: 'تعذر حفظ تصحيح الصورة. يرجى مراجعة البيانات أو المحاولة مرة أخرى.',
+        }));
+        return;
+      }
+    }
+    if (exitConfirmState.dirtyAudio) {
+      const audOk = await handleSaveAudioCorrection();
+      if (!audOk) {
+        setExitConfirmState((prev) => ({
+          ...prev,
+          savingAndExiting: false,
+          error: 'تعذر حفظ تصحيح الصوت. يرجى مراجعة البيانات أو المحاولة مرة أخرى.',
+        }));
+        return;
+      }
+    }
+    const nextAction = pendingExitActionRef.current;
+    pendingExitActionRef.current = null;
+    setExitConfirmState({
+      open: false,
+      actionLabel: '',
+      dirtyImage: false,
+      dirtyAudio: false,
+      savingAndExiting: false,
+      error: null,
+    });
+    nextAction?.();
+  };
+
+  const handleConfirmDiscardAndExit = () => {
+    const nextAction = pendingExitActionRef.current;
+    pendingExitActionRef.current = null;
+    blackboardRef.current?.clearAnnotations();
+    setHasBoardAnnotations(false);
+    videoRecorderRef.current?.resetPending();
+    setExitConfirmState({
+      open: false,
+      actionLabel: '',
+      dirtyImage: false,
+      dirtyAudio: false,
+      savingAndExiting: false,
+      error: null,
+    });
+    nextAction?.();
+  };
+
+  const handleCancelExitModal = () => {
+    if (exitConfirmState.savingAndExiting) return;
+    pendingExitActionRef.current = null;
+    setExitConfirmState({
+      open: false,
+      actionLabel: '',
+      dirtyImage: false,
+      dirtyAudio: false,
+      savingAndExiting: false,
+      error: null,
+    });
   };
 
   const handleCopyShareUrl = () => {
@@ -993,7 +1247,9 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               {!isStandalonePage && onOpenAdminMarkingSettings && (
                 <button
                   type="button"
-                  onClick={onOpenAdminMarkingSettings}
+                  onClick={() =>
+                    requestExitOrSwitch('الانتقال إلى الإعدادات', onOpenAdminMarkingSettings)
+                  }
                   className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Sliders className="w-3.5 h-3.5 text-emerald-400" />
@@ -1004,7 +1260,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               {onBackToHome && (
                 <button
                   type="button"
-                  onClick={onBackToHome}
+                  onClick={() => requestExitOrSwitch('الخروج إلى الصفحة العامة', onBackToHome)}
                   className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Home className="w-3.5 h-3.5" />
@@ -1014,7 +1270,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
               <button
                 type="button"
-                onClick={handleTeacherLogout}
+                onClick={() => requestExitOrSwitch('تسجيل خروج المعلم', handleTeacherLogout)}
                 className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 cursor-pointer"
                 title="تسجيل خروج المعلم"
                 aria-label="تسجيل خروج المعلم"
@@ -1189,8 +1445,11 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   disabled={activeIndex <= 0}
                   onClick={() => {
                     if (activeIndex > 0) {
-                      setSelectedKey(filteredSubmissions[activeIndex - 1].submissionKey);
-                      setDropdownOpen(false);
+                      const prevKey = filteredSubmissions[activeIndex - 1].submissionKey;
+                      requestExitOrSwitch('الانتقال إلى الطالب السابق', () => {
+                        setSelectedKey(prevKey);
+                        setDropdownOpen(false);
+                      });
                     }
                   }}
                   className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 cursor-pointer shrink-0"
@@ -1205,8 +1464,11 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   disabled={activeIndex < 0 || activeIndex >= filteredSubmissions.length - 1}
                   onClick={() => {
                     if (activeIndex >= 0 && activeIndex + 1 < filteredSubmissions.length) {
-                      setSelectedKey(filteredSubmissions[activeIndex + 1].submissionKey);
-                      setDropdownOpen(false);
+                      const nextKey = filteredSubmissions[activeIndex + 1].submissionKey;
+                      requestExitOrSwitch('الانتقال إلى الطالب التالي', () => {
+                        setSelectedKey(nextKey);
+                        setDropdownOpen(false);
+                      });
                     }
                   }}
                   className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 cursor-pointer shrink-0"
@@ -1304,8 +1566,14 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                           key={sub.submissionKey}
                           type="button"
                           onClick={() => {
-                            setSelectedKey(sub.submissionKey);
-                            setDropdownOpen(false);
+                            if (sub.submissionKey === activeSubmission?.submissionKey) {
+                              setDropdownOpen(false);
+                              return;
+                            }
+                            requestExitOrSwitch('الانتقال إلى واجب طالب آخر', () => {
+                              setSelectedKey(sub.submissionKey);
+                              setDropdownOpen(false);
+                            });
                           }}
                           className={`w-full text-right px-4 py-3 transition-colors cursor-pointer flex items-start justify-between gap-2 ${
                             isActive
@@ -1512,6 +1780,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   lessonTitle={activeSubmission.itemTitle}
                   stickers={stickersList}
                   presetTexts={presetTexts}
+                  onAnnotationChange={setHasBoardAnnotations}
                   imageGrading={{
                     visible: true,
                     score: fImgScore,
@@ -2240,6 +2509,89 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         onCorrectionsUpdated={applyUpdatedCorrections}
         onCorrectionsCleared={applyClearedCorrections}
       />
+
+      {/* Unsaved Changes Confirmation Modal */}
+      {exitConfirmState.open && (
+        <div
+          dir="rtl"
+          className="fixed inset-0 z-[125] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 bg-amber-50 border-b border-amber-200 flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  توجد تعديلات غير محفوظة
+                </h3>
+                <p className="text-[11px] font-semibold text-amber-900 truncate">
+                  {exitConfirmState.actionLabel || 'تأكيد الخروج'}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-xs sm:text-sm font-semibold text-slate-700 leading-relaxed">
+                لديك تعديلات لم تُحفظ بعد في{' '}
+                <span className="font-extrabold text-slate-900">
+                  {exitConfirmState.dirtyImage && exitConfirmState.dirtyAudio
+                    ? 'تصحيح الصورة وتصحيح الصوت'
+                    : exitConfirmState.dirtyImage
+                    ? 'تصحيح الصورة'
+                    : 'تصحيح الصوت'}
+                </span>
+                {activeSubmission ? ` للطالب «${activeSubmission.studentName}»` : ''}. هل تريد حفظها قبل الخروج؟
+              </p>
+
+              {exitConfirmState.error && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{exitConfirmState.error}</span>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={exitConfirmState.savingAndExiting}
+                  onClick={handleConfirmSaveAndExit}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {exitConfirmState.savingAndExiting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  <span>
+                    {exitConfirmState.savingAndExiting
+                      ? 'جاري الحفظ...'
+                      : 'حفظ التعديلات ثم الخروج'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={exitConfirmState.savingAndExiting}
+                  onClick={handleConfirmDiscardAndExit}
+                  className="w-full py-2.5 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 disabled:opacity-50 text-rose-800 text-xs font-extrabold cursor-pointer"
+                >
+                  الخروج بدون حفظ
+                </button>
+
+                <button
+                  type="button"
+                  disabled={exitConfirmState.savingAndExiting}
+                  onClick={handleCancelExitModal}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 text-xs font-bold cursor-pointer"
+                >
+                  إلغاء والبقاء في الدرس
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

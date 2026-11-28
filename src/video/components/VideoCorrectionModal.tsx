@@ -544,6 +544,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                                 key={`img-vid-${vIdx}`}
                                 url={vidUrl}
                                 label={`فيديو التوضيح ${entry.teacherVideos.length > 1 ? vIdx + 1 : ''}`}
+                                hideExternalLink
                               />
                             ))}
                           </div>

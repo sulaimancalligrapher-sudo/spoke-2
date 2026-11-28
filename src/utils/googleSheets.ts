@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzOu5zJF5psmaUAArVmdqEkWov1M6cjpXwbCE_E9qzNojOG7h6S3wSVOAPBSRo8VRhVPQ/exec';
+  'https://script.google.com/macros/s/AKfycby3wj41xtIDa7kvJUi_UsuFZ_c1N9gh7mv8DFNuw0GLsUop_9B6lYYeZpW-XF9QDnnEIA/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -5656,10 +5656,11 @@ function buildStudentAchievementSummaryGS(ss, studentId, studentName) {
 
 function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) {
   var folder = getOrCreateAudioFolder(folderId || "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA");
-  var cleanBase64 = String(base64Data || "");
+  var cleanBase64 = String(base64Data || "").trim();
   if (cleanBase64.indexOf("base64,") !== -1) {
     cleanBase64 = cleanBase64.split("base64,")[1];
   }
+  if (!cleanBase64 || cleanBase64.length < 20) return "";
   var resolvedMime = String(mimeType || "application/octet-stream");
   var ext = ".bin";
   if (resolvedMime.indexOf("pdf") !== -1) ext = ".pdf";
@@ -9441,7 +9442,8 @@ function doPost(e) {
         for (var biImg = 0; biImg < data.sharedAdditionalImagesBase64.length; biImg++) {
           var bImgRaw = String(data.sharedAdditionalImagesBase64[biImg] || "").trim();
           if (!bImgRaw) continue;
-          var upBImg = uploadVideoBase64ToDriveGS(bImgRaw, "batch_add_img_" + (biImg + 1), "image/png", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
+          var bImgMime = bImgRaw.indexOf("data:image/jpeg") === 0 ? "image/jpeg" : bImgRaw.indexOf("data:image/webp") === 0 ? "image/webp" : "image/png";
+          var upBImg = uploadVideoBase64ToDriveGS(bImgRaw, "batch_add_img_" + (biImg + 1), bImgMime, "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");
           if (upBImg) sharedAddImgs.push(upBImg);
         }
       }
