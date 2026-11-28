@@ -60,7 +60,7 @@ import {
   saveMarkingCorrectionToSheets,
 } from '../../utils/markingSheets';
 import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
-import { getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
+import { dedupeMediaUrls, getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
 import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
 import { MarkingAudioStudio } from './MarkingAudioStudio';
 import { MarkingPhotoCapture } from './MarkingPhotoCapture';
@@ -433,14 +433,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setFSavedAudioLinks(
       Array.isArray(c?.audioLinks) ? Array.from(new Set(c.audioLinks.filter(Boolean))) : []
     );
-    setFTeacherVideoUrl(c?.teacherVideoUrl || '');
-    setFExtraVideoUrls(
-      Array.isArray(c?.teacherVideos)
-        ? c.teacherVideos.filter((v) => v && v !== c.teacherVideoUrl)
-        : []
-    );
+    const dedupedVids = dedupeMediaUrls([c?.teacherVideoUrl, ...(c?.teacherVideos || [])]);
+    setFTeacherVideoUrl(dedupedVids[0] || '');
+    setFExtraVideoUrls(dedupedVids.slice(1));
     setFAllowRetry(Boolean(c?.allowRetry));
     setFSendTelegram(markingConfig.notifyStudentOnCorrection !== false);
+    videoRecorderRef.current?.resetPending();
   }, [activeSubmission?.submissionKey]);
 
   // Keep saved attachments synced if updated externally (e.g. Batch Correction Modal)
@@ -461,12 +459,9 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setFSavedAudioLinks(
       Array.isArray(c.audioLinks) ? Array.from(new Set(c.audioLinks.filter(Boolean))) : []
     );
-    setFTeacherVideoUrl(c.teacherVideoUrl || c.teacherVideos?.[0] || '');
-    setFExtraVideoUrls(
-      Array.isArray(c.teacherVideos)
-        ? c.teacherVideos.filter((v) => v && v !== (c.teacherVideoUrl || c.teacherVideos?.[0]))
-        : []
-    );
+    const dedupedVids = dedupeMediaUrls([c.teacherVideoUrl, ...(c.teacherVideos || [])]);
+    setFTeacherVideoUrl(dedupedVids[0] || '');
+    setFExtraVideoUrls(dedupedVids.slice(1));
   }, [activeSubmission?.correction?.updatedAt]);
 
   // Stats summary
@@ -646,12 +641,11 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         pendingVidUrl = await videoRecorderRef.current.uploadPendingVideo();
       }
 
-      const allVideos = [
-        fTeacherVideoUrl.trim(),
-        ...fExtraVideoUrls.map((v) => v.trim()),
-        pendingVidUrl ? pendingVidUrl.trim() : '',
-      ].filter(Boolean);
-      const uniqueVideos = Array.from(new Set(allVideos));
+      const uniqueVideos = dedupeMediaUrls([
+        fTeacherVideoUrl,
+        ...fExtraVideoUrls,
+        pendingVidUrl,
+      ]);
       const parsedScore = fImgScore.trim() !== '' ? Number(fImgScore) : undefined;
 
       const res = await saveMarkingCorrectionToSheets(webhookUrl, {
@@ -705,23 +699,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     }
   };
 
-  // Independent Save: Audio Correction Only (never overwrites Image section)
+  // Independent Save: Audio Correction Only (never overwrites Image section or explanation videos)
   const handleSaveAudioCorrection = async () => {
     if (!activeSubmission || fAudioSaving) return;
     setFAudioSaving(true);
     setFAudioFeedback(null);
     try {
-      let pendingVidUrl: string | null = null;
-      if (videoRecorderRef.current?.hasPendingRecording()) {
-        pendingVidUrl = await videoRecorderRef.current.uploadPendingVideo();
-      }
-
-      const allVideos = [
-        fTeacherVideoUrl.trim(),
-        ...fExtraVideoUrls.map((v) => v.trim()),
-        pendingVidUrl ? pendingVidUrl.trim() : '',
-      ].filter(Boolean);
-      const uniqueVideos = Array.from(new Set(allVideos));
       const parsedScore = fAudioScore.trim() !== '' ? Number(fAudioScore) : undefined;
       const existingAudUrl = fSavedTeacherAudios[0] || '';
       const primaryAudioB64 =
@@ -755,8 +738,6 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         teacherAudios: fSavedTeacherAudios,
         teacherAudiosBase64: extraAudioB64s.length > 0 ? extraAudioB64s : undefined,
         audioLinks: fSavedAudioLinks,
-        teacherVideoUrl: uniqueVideos[0] || '',
-        teacherVideos: uniqueVideos,
         allowRetry: fAllowRetry || fAudioStatus === 'retry',
         sendTelegram: fSendTelegram,
         teacherName,
@@ -1331,6 +1312,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
         <MarkingVideoRecorder
           ref={videoRecorderRef}
+          autoClearAfterUpload
           autoUploadOnStop
           hideInlineTrigger
           openTrigger={videoModalTrigger}
@@ -1339,11 +1321,18 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           existingVideoUrl={fTeacherVideoUrl}
           onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
           onVideoUploaded={(url) => {
-            if (!fTeacherVideoUrl) {
-              setFTeacherVideoUrl(url);
-            } else if (url && url !== fTeacherVideoUrl) {
-              setFExtraVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]));
-            }
+            const cleanUrl = (url || '').trim();
+            if (!cleanUrl) return;
+            setFTeacherVideoUrl((prevPrimary) => {
+              if (!prevPrimary) return cleanUrl;
+              const merged = dedupeMediaUrls([prevPrimary, cleanUrl]);
+              if (merged.length > 1) {
+                setFExtraVideoUrls((prevExtras) =>
+                  dedupeMediaUrls([...prevExtras, cleanUrl]).filter((u) => u !== prevPrimary)
+                );
+              }
+              return prevPrimary;
+            });
           }}
         />
 
@@ -1601,8 +1590,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                               فيديوهات التوضيح المرفقة:
                             </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {[fTeacherVideoUrl, ...fExtraVideoUrls]
-                                .filter(Boolean)
+                              {dedupeMediaUrls([fTeacherVideoUrl, ...fExtraVideoUrls])
                                 .map((vUrl, idx) => (
                                   <CorrectionVideoPlayer
                                     key={`${vUrl}-${idx}`}
@@ -1653,8 +1641,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   <span>فيديوهات الشرح والتصحيح المرفقة في هذا الدرس</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {[fTeacherVideoUrl, ...fExtraVideoUrls]
-                    .filter(Boolean)
+                  {dedupeMediaUrls([fTeacherVideoUrl, ...fExtraVideoUrls])
                     .map((vUrl, idx) => (
                       <CorrectionVideoPlayer
                         key={`inline-vid-${vUrl}-${idx}`}

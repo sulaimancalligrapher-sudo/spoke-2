@@ -28,6 +28,7 @@ import { CorrectionVideoPlayer } from './CorrectionVideoPlayer';
 export interface MarkingVideoRecorderHandle {
   hasPendingRecording: () => boolean;
   uploadPendingVideo: () => Promise<string | null>;
+  resetPending: () => void;
 }
 
 interface MarkingVideoRecorderProps {
@@ -495,16 +496,13 @@ export const MarkingVideoRecorder = React.forwardRef<
           if (res.success && (res.mp4Url || res.url)) {
             const finalUrl = res.mp4Url || res.url || '';
             onVideoUploaded(finalUrl);
-            if (autoClearAfterUpload) {
-              setPreviewUrl((prev) => {
-                if (prev) URL.revokeObjectURL(prev);
-                return null;
-              });
-              setRecordedBlob(null);
-              setUploadedUrl('');
-            } else {
-              setUploadedUrl(finalUrl);
-            }
+            // Always clear recordedBlob/preview once uploaded so subsequent saves never re-upload the same clip
+            setPreviewUrl((prev) => {
+              if (prev) URL.revokeObjectURL(prev);
+              return null;
+            });
+            setRecordedBlob(null);
+            setUploadedUrl(autoClearAfterUpload ? '' : finalUrl);
             setUploading(false);
             handleCloseModal();
             return finalUrl;
@@ -540,16 +538,13 @@ export const MarkingVideoRecorder = React.forwardRef<
         if (driveRes.success && driveRes.url) {
           setUploadProgress(100);
           onVideoUploaded(driveRes.url);
-          if (autoClearAfterUpload) {
-            setPreviewUrl((prev) => {
-              if (prev) URL.revokeObjectURL(prev);
-              return null;
-            });
-            setRecordedBlob(null);
-            setUploadedUrl('');
-          } else {
-            setUploadedUrl(driveRes.url);
-          }
+          // Always clear recordedBlob/preview once uploaded so subsequent saves never re-upload the same clip
+          setPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+          });
+          setRecordedBlob(null);
+          setUploadedUrl(autoClearAfterUpload ? '' : driveRes.url);
           handleCloseModal();
           return driveRes.url;
         }
@@ -570,6 +565,15 @@ export const MarkingVideoRecorder = React.forwardRef<
     await uploadVideoBlob(recordedBlob);
   };
 
+  const resetPending = useCallback(() => {
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setRecordedBlob(null);
+    setErrorMsg(null);
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -579,8 +583,9 @@ export const MarkingVideoRecorder = React.forwardRef<
         if (recordedBlob) return uploadVideoBlob(recordedBlob);
         return null;
       },
+      resetPending,
     }),
-    [recordedBlob, uploadVideoBlob]
+    [recordedBlob, resetPending, uploadVideoBlob]
   );
 
   const activeProvider = markingConfig.videoStorageProvider || 'drive';

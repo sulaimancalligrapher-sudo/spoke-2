@@ -45,6 +45,7 @@ import {
   uploadMarkingMediaToDrive,
 } from '../../utils/markingSheets';
 import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
+import { dedupeMediaUrls } from '../../utils/mediaUrl';
 
 interface BatchCorrectionModalProps {
   isOpen: boolean;
@@ -1118,7 +1119,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                     autoClearAfterUpload
                     autoUploadOnStop
                     onVideoUploaded={(url) =>
-                      setBatchVideoUrls((prev) => (prev.includes(url) ? prev : [...prev, url]))
+                      setBatchVideoUrls((prev) => dedupeMediaUrls([...prev, url]))
                     }
                   />
 
@@ -1137,7 +1138,7 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                         onClick={() => {
                           const clean = newVideoUrlInput.trim();
                           if (!clean) return;
-                          setBatchVideoUrls((p) => (p.includes(clean) ? p : [...p, clean]));
+                          setBatchVideoUrls((p) => dedupeMediaUrls([...p, clean]));
                           setNewVideoUrlInput('');
                         }}
                         className="px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold cursor-pointer shrink-0 whitespace-nowrap"

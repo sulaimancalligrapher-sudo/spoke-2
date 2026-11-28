@@ -42,12 +42,14 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
   const driveId = !ytId ? extractDriveFileId(cleanUrl) : null;
   const playableMp4 = toCloudinaryMp4Url(cleanUrl);
   const openExternalUrl = getViewableVideoUrl(cleanUrl);
-  const frameHeightClass = compact ? 'h-44 sm:h-48' : 'aspect-video max-h-80';
+  const frameContainerClass = compact
+    ? 'w-full aspect-video max-h-52 sm:max-h-56 bg-slate-950 flex items-center justify-center overflow-hidden'
+    : 'w-full aspect-video max-h-[55dvh] sm:max-h-80 lg:max-h-96 bg-slate-950 flex items-center justify-center overflow-hidden';
 
   return (
-    <div className={`rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-2xs ${className}`}>
-      <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 text-[11px] font-bold">
-        <div className="flex items-center gap-1.5 text-slate-800 min-w-0">
+    <div className={`rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-2xs w-full ${className}`}>
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold">
+        <div className="flex items-center gap-1.5 text-slate-800 min-w-0 flex-1">
           <Video className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span className="truncate">{label}</span>
           {driveId && (
@@ -61,7 +63,7 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
             <button
               type="button"
               onClick={() => setUseProxyStream((v) => !v)}
-              className="text-slate-600 hover:text-slate-900 inline-flex items-center gap-1 cursor-pointer"
+              className="text-slate-600 hover:text-slate-900 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap"
               title="التبديل بين المشغل المباشر ومشغل Drive"
             >
               <RefreshCw className="w-3 h-3" />
@@ -73,7 +75,7 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
               href={openExternalUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-indigo-700 hover:underline inline-flex items-center gap-1"
+              className="text-indigo-700 hover:underline inline-flex items-center gap-1 whitespace-nowrap"
               title="فتح الفيديو"
             >
               <span>فتح</span>
@@ -93,12 +95,12 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
         </div>
       </div>
 
-      <div className="bg-slate-950 w-full">
+      <div className={frameContainerClass}>
         {ytId ? (
           <iframe
             src={`https://www.youtube.com/embed/${ytId}`}
             title={label}
-            className={`w-full ${frameHeightClass}`}
+            className="w-full h-full border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
           />
@@ -111,14 +113,14 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
               playsInline
               preload="metadata"
               onError={() => setUseProxyStream(false)}
-              className={`w-full ${compact ? 'max-h-48' : 'max-h-80'} bg-slate-950`}
+              className="w-full h-full object-contain bg-slate-950"
             />
           ) : (
             <iframe
               key={`iframe-${driveId}`}
               src={`https://drive.google.com/file/d/${driveId}/preview`}
               title={label}
-              className={`w-full ${frameHeightClass}`}
+              className="w-full h-full border-0"
               allow="autoplay; fullscreen"
               allowFullScreen
             />
@@ -129,7 +131,7 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
             controls
             playsInline
             preload="metadata"
-            className={`w-full ${compact ? 'max-h-48' : 'max-h-80'} bg-slate-950`}
+            className="w-full h-full object-contain bg-slate-950"
           />
         )}
       </div>

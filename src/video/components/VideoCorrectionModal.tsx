@@ -16,6 +16,7 @@ import {
   Link2,
 } from 'lucide-react';
 import { TeacherCorrectionRecord } from '../../types';
+import { dedupeMediaUrls } from '../../utils/mediaUrl';
 import { CorrectionVideoPlayer } from '../../components/marking/CorrectionVideoPlayer';
 import {
   VideoCorrectionEntry,
@@ -195,7 +196,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
             tc.teacherAudioUrl,
             ...(tc.teacherAudios || []),
           ]),
-          teacherVideos: uniq([
+          teacherVideos: dedupeMediaUrls([
             ...(prev?.teacherVideos || []),
             tc.teacherVideoUrl,
             ...(tc.teacherVideos || []),
@@ -293,7 +294,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
       }}
       className="fixed inset-0 z-[110] overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/65 backdrop-blur-xs font-cairo animate-in fade-in duration-150"
     >
-      <div className="my-auto bg-white rounded-3xl max-w-2xl w-full max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+      <div className="my-auto bg-white rounded-3xl max-w-2xl md:max-w-3xl lg:max-w-4xl w-full max-h-[calc(100dvh-16px)] sm:max-h-[90dvh] shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="bg-[#0c3868] text-white px-5 py-4 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -530,13 +531,21 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
 
                       {entry.teacherVideos.length > 0 && (
                         <div className="space-y-2 pt-1">
-                          {entry.teacherVideos.map((vidUrl, vIdx) => (
-                            <CorrectionVideoPlayer
-                              key={`img-vid-${vIdx}`}
-                              url={vidUrl}
-                              label={`فيديو التوضيح ${entry.teacherVideos.length > 1 ? vIdx + 1 : ''}`}
-                            />
-                          ))}
+                          <div
+                            className={
+                              entry.teacherVideos.length > 1
+                                ? 'grid grid-cols-1 md:grid-cols-2 gap-3'
+                                : 'max-w-2xl'
+                            }
+                          >
+                            {entry.teacherVideos.map((vidUrl, vIdx) => (
+                              <CorrectionVideoPlayer
+                                key={`img-vid-${vIdx}`}
+                                url={vidUrl}
+                                label={`فيديو التوضيح ${entry.teacherVideos.length > 1 ? vIdx + 1 : ''}`}
+                              />
+                            ))}
+                          </div>
                         </div>
                       )}
 
@@ -551,7 +560,7 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
           ) : activeTab === 'audio' ? (
             filteredCorrections.length === 0 ? (
               <div className="text-center py-10 text-slate-500 text-sm font-bold bg-slate-50 rounded-2xl border border-slate-200">
-                {tr('video_corr_no_audio', 'لا توجد ملاحظات صوتية أو فيديو تصحيح من المعلم حالياً.')}
+                {tr('video_corr_no_audio', 'لا توجد ملاحظات أو تسجيلات صوتية من المعلم حالياً.')}
               </div>
             ) : (
               <div className="space-y-4">
@@ -608,16 +617,6 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
                           key={aIdx}
                           url={audUrl}
                           label={`${tr('video_teacher_explain_audio', 'تسجيل المعلم التوجيهي')} ${entry.teacherAudios.length > 1 ? aIdx + 1 : ''}`}
-                        />
-                      ))}
-
-                      {entry.teacherVideos.map((vidUrl, vIdx) => (
-                        <CorrectionVideoPlayer
-                          key={vIdx}
-                          url={vidUrl}
-                          label={`${tr('video_corr_audio_tab', 'فيديو التصحيح')} ${
-                            entry.teacherVideos.length > 1 ? vIdx + 1 : ''
-                          }`}
                         />
                       ))}
 

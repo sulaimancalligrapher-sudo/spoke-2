@@ -13,7 +13,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { TeacherCorrectionRecord } from '../../types';
-import { getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
+import { dedupeMediaUrls, getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
 import { CorrectionVideoPlayer } from './CorrectionVideoPlayer';
 
 interface StudentCorrectionsModalProps {
@@ -60,7 +60,7 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
       }}
       className="fixed inset-0 z-[110] bg-slate-950/70 backdrop-blur-xs overflow-y-auto flex items-start sm:items-center justify-center p-2.5 sm:p-5 font-cairo"
     >
-      <div className="my-auto bg-slate-50 rounded-3xl max-w-3xl w-full max-h-[calc(100dvh-16px)] sm:max-h-[88dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden text-right">
+      <div className="my-auto bg-slate-50 rounded-3xl max-w-3xl lg:max-w-4xl w-full max-h-[calc(100dvh-16px)] sm:max-h-[88dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden text-right">
         {/* Header */}
         <header className="px-5 py-4 bg-white border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
@@ -129,13 +129,10 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
                 )
               );
 
-              const allVideos = Array.from(
-                new Set(
-                  [c.teacherVideoUrl, ...(c.teacherVideos || [])]
-                    .map((u) => (u || '').trim())
-                    .filter(Boolean)
-                )
-              );
+              const allVideos = dedupeMediaUrls([
+                c.teacherVideoUrl,
+                ...(c.teacherVideos || []),
+              ]);
 
               return (
                 <article
@@ -303,7 +300,13 @@ export const StudentCorrectionsModal: React.FC<StudentCorrectionsModalProps> = (
                             : 'فيديو الشرح والتصحيح:'}
                         </span>
                       </div>
-                      <div className="space-y-2.5">
+                      <div
+                        className={
+                          allVideos.length > 1
+                            ? 'grid grid-cols-1 md:grid-cols-2 gap-3'
+                            : 'max-w-2xl'
+                        }
+                      >
                         {allVideos.map((vidUrl, idx) => (
                           <CorrectionVideoPlayer
                             key={`${vidUrl}-${idx}`}

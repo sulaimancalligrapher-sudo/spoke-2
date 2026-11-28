@@ -21,6 +21,25 @@ export function extractDriveFileId(url: string | undefined): string | null {
 }
 
 /**
+ * Deduplicate media URLs while treating different URL formats pointing to the
+ * same Google Drive file ID as identical.
+ */
+export function dedupeMediaUrls(urls: Array<string | undefined | null>): string[] {
+  const out: string[] = [];
+  const seenKeys = new Set<string>();
+  urls.forEach((raw) => {
+    const clean = typeof raw === 'string' ? raw.trim() : '';
+    if (!clean) return;
+    const driveId = extractDriveFileId(clean);
+    const key = driveId ? `drive:${driveId}` : clean;
+    if (seenKeys.has(key)) return;
+    seenKeys.add(key);
+    out.push(clean);
+  });
+  return out;
+}
+
+/**
  * Convert standard cloud storage share links (Google Drive, Dropbox, GitHub)
  * into direct playable audio and viewable image URLs.
  */

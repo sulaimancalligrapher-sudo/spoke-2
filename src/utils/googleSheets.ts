@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbzxrxQzzCvgmAkXqR34tY9P2jT1llG6qnMIixZRrtYl6X1t2SaOFw3IQWuXz2sxGopZ6Q/exec';
+  'https://script.google.com/macros/s/AKfycbxjOltRjg6u2pt9y1gq74w3kOEn5AQdwUMGV8Tec7XzwN01APnuEUv03cmhSdZ48YFX3Q/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4777,8 +4777,11 @@ function mergeUniqueStrArrayGS(baseArr, extraArr) {
     if (!Array.isArray(arr)) return;
     for (var i = 0; i < arr.length; i++) {
       var item = String(arr[i] || "").trim();
-      if (!item || seen[item]) continue;
-      seen[item] = true;
+      if (!item) continue;
+      var dId = extractDriveFileIdGS(item);
+      var key = dId ? ("drive:" + dId) : item;
+      if (seen[key]) continue;
+      seen[key] = true;
       out.push(item);
     }
   };
@@ -4813,8 +4816,8 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
     var addImgs = colCount >= 17 ? parseJsonStrArrayGS(row[16]) : [];
     var addAuds = colCount >= 18 ? parseJsonStrArrayGS(row[17]) : [];
     var addVids = colCount >= 19 ? parseJsonStrArrayGS(row[18]) : [];
-    if (tAud && addAuds.indexOf(tAud) === -1) addAuds.unshift(tAud);
-    if (tVid && addVids.indexOf(tVid) === -1) addVids.unshift(tVid);
+    if (tAud) addAuds = mergeUniqueStrArrayGS([tAud], addAuds);
+    if (tVid) addVids = mergeUniqueStrArrayGS([tVid], addVids);
 
     var imgStatus = colCount >= 22 ? String(row[21] || "").trim() : "";
     var imgScoreRaw = colCount >= 23 ? row[22] : "";
@@ -5163,9 +5166,9 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   if (incTAudio && incTAuds.indexOf(incTAudio) === -1) incTAuds.unshift(incTAudio);
   var incAudLinks = parseJsonStrArrayGS(item.audioLinks);
 
-  var incTVids = parseJsonStrArrayGS(item.teacherVideos);
+  var incTVids = mergeUniqueStrArrayGS([], parseJsonStrArrayGS(item.teacherVideos));
   var incTVideo = String(item.teacherVideoUrl || "").trim();
-  if (incTVideo && incTVids.indexOf(incTVideo) === -1) incTVids.unshift(incTVideo);
+  if (incTVideo) incTVids = mergeUniqueStrArrayGS([incTVideo], incTVids);
 
   var incImgStatus = String(item.imageStatus || (saveMode === "image_only" ? item.status : "") || "").trim();
   var incImgScore = (item.imageScore !== undefined && item.imageScore !== null && item.imageScore !== "") ? Number(item.imageScore) : "";
