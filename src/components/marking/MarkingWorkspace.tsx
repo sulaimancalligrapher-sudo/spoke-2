@@ -214,6 +214,25 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   const [achievementModalOpen, setAchievementModalOpen] = useState(false);
   const [copiedPortalUrl, setCopiedPortalUrl] = useState(false);
   const [hasBoardAnnotations, setHasBoardAnnotations] = useState(false);
+  const [hasPendingVideoRecording, setHasPendingVideoRecording] = useState(false);
+  const [savedImageBaseline, setSavedImageBaseline] = useState<{
+    status: MarkingStatus;
+    score: string;
+    rating: string;
+    notes: string;
+    savedAddImages: string[];
+    savedImageLinks: string[];
+    savedVideos: string[];
+  } | null>(null);
+  const [savedAudioBaseline, setSavedAudioBaseline] = useState<{
+    status: MarkingStatus;
+    score: string;
+    rating: string;
+    notes: string;
+    stickerSymbol: string;
+    savedTeacherAudios: string[];
+    savedAudioLinks: string[];
+  } | null>(null);
   const [exitConfirmState, setExitConfirmState] = useState<{
     open: boolean;
     actionLabel: string;
@@ -389,13 +408,18 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
   // Sync studio inputs whenever active submission changes
   useEffect(() => {
-    if (!activeSubmission) return;
+    if (!activeSubmission) {
+      setSavedImageBaseline(null);
+      setSavedAudioBaseline(null);
+      return;
+    }
     const c = activeSubmission.correction;
+    const isLegacyFullRecord = !c?.saveMode || c.saveMode === 'full';
     setForceShowBlackboard(false);
     setBoardOverrideImageUrl('');
 
     // Image defaults (default to 0 unless teacher already saved a score)
-    setFImgStatus(c?.imageStatus || c?.status || 'corrected');
+    const initImgStatus: MarkingStatus = c?.imageStatus || c?.status || 'corrected';
     const hasImgScore =
       c?.imageScore !== undefined && String(c.imageScore).trim() !== '';
     const hasLegacyImgScore =
@@ -403,20 +427,34 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       (Boolean(c?.imageStatus) || Boolean(c?.correctedImageUrl)) &&
       c?.score !== undefined &&
       String(c.score).trim() !== '';
-    setFImgScore(
-      hasImgScore
-        ? String(c!.imageScore)
-        : hasLegacyImgScore
-        ? String(c!.score)
-        : '0'
+    const initImgScore = hasImgScore
+      ? String(c!.imageScore)
+      : hasLegacyImgScore
+      ? String(c!.score)
+      : '0';
+    const imgStars = parseStarCount(
+      c?.imageRatingLabel !== undefined
+        ? c.imageRatingLabel
+        : isLegacyFullRecord
+        ? c?.ratingLabel
+        : ''
     );
-    const imgStars = parseStarCount(c?.imageRatingLabel || c?.ratingLabel);
-    setFImgRating(imgStars > 0 ? formatStarValue(imgStars) : '');
-    setFImgNotes(c?.imageNotes !== undefined ? c.imageNotes : c?.notes || '');
+    const initImgRating = imgStars > 0 ? formatStarValue(imgStars) : '';
+    const initImgNotes =
+      c?.imageNotes !== undefined
+        ? c.imageNotes
+        : isLegacyFullRecord && !c?.notes?.startsWith('🎙️ ')
+        ? c?.notes || ''
+        : '';
+
+    setFImgStatus(initImgStatus);
+    setFImgScore(initImgScore);
+    setFImgRating(initImgRating);
+    setFImgNotes(initImgNotes);
     setFImgFeedback(null);
 
     // Audio defaults (default to 0 unless teacher already saved a score)
-    setFAudioStatus(c?.audioStatus || c?.status || 'corrected');
+    const initAudStatus: MarkingStatus = c?.audioStatus || c?.status || 'corrected';
     const hasAudScore =
       c?.audioScore !== undefined && String(c.audioScore).trim() !== '';
     const hasLegacyAudScore =
@@ -424,46 +462,94 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       (Boolean(c?.audioStatus) || Boolean(c?.teacherAudioUrl)) &&
       c?.score !== undefined &&
       String(c.score).trim() !== '';
-    setFAudioScore(
-      hasAudScore
-        ? String(c!.audioScore)
-        : hasLegacyAudScore
-        ? String(c!.score)
-        : '0'
+    const initAudScore = hasAudScore
+      ? String(c!.audioScore)
+      : hasLegacyAudScore
+      ? String(c!.score)
+      : '0';
+    const audStars = parseStarCount(
+      c?.audioRatingLabel !== undefined
+        ? c.audioRatingLabel
+        : isLegacyFullRecord
+        ? c?.ratingLabel
+        : ''
     );
-    const audStars = parseStarCount(c?.audioRatingLabel || c?.ratingLabel);
-    setFAudioRating(audStars > 0 ? formatStarValue(audStars) : '');
-    setFAudioNotes(c?.audioNotes !== undefined ? c.audioNotes : c?.notes || '');
-    setFAudioStickerSymbol(c?.audioStickerSymbol || c?.stickerSymbol || '');
-    setFAudioStickerLabel(c?.audioStickerLabel || c?.stickerLabel || '');
+    const initAudRating = audStars > 0 ? formatStarValue(audStars) : '';
+    const initAudNotes =
+      c?.audioNotes !== undefined
+        ? c.audioNotes
+        : isLegacyFullRecord && !c?.notes?.startsWith('🖼️ ')
+        ? c?.notes || ''
+        : '';
+    const initAudStickerSymbol =
+      c?.audioStickerSymbol !== undefined
+        ? c.audioStickerSymbol
+        : isLegacyFullRecord
+        ? c?.stickerSymbol || ''
+        : '';
+    const initAudStickerLabel =
+      c?.audioStickerLabel !== undefined
+        ? c.audioStickerLabel
+        : isLegacyFullRecord
+        ? c?.stickerLabel || ''
+        : '';
+
+    setFAudioStatus(initAudStatus);
+    setFAudioScore(initAudScore);
+    setFAudioRating(initAudRating);
+    setFAudioNotes(initAudNotes);
+    setFAudioStickerSymbol(initAudStickerSymbol);
+    setFAudioStickerLabel(initAudStickerLabel);
     setFAudioFeedback(null);
 
     setFExtraAudioClips([]);
     setFExtraImagesB64([]);
     const corrImgUrl = (c?.correctedImageUrl || '').trim();
-    setFSavedAddImages(
-      dedupeMediaUrls([
-        corrImgUrl,
-        ...(Array.isArray(c?.additionalImages) ? c.additionalImages : []),
-      ]).slice(corrImgUrl ? 1 : 0)
-    );
-    setFSavedImageLinks(
-      Array.isArray(c?.imageLinks) ? Array.from(new Set(c.imageLinks.filter(Boolean))) : []
-    );
+    const initAddImages = dedupeMediaUrls([
+      corrImgUrl,
+      ...(Array.isArray(c?.additionalImages) ? c.additionalImages : []),
+    ]).slice(corrImgUrl ? 1 : 0);
+    const initImgLinks = Array.isArray(c?.imageLinks)
+      ? Array.from(new Set(c.imageLinks.filter(Boolean)))
+      : [];
     const mergedSavedAuds = Array.from(
       new Set([c?.teacherAudioUrl || '', ...(c?.teacherAudios || [])].map((u) => u.trim()).filter(Boolean))
     );
-    setFSavedTeacherAudios(mergedSavedAuds);
-    setFSavedAudioLinks(
-      Array.isArray(c?.audioLinks) ? Array.from(new Set(c.audioLinks.filter(Boolean))) : []
-    );
+    const initAudLinks = Array.isArray(c?.audioLinks)
+      ? Array.from(new Set(c.audioLinks.filter(Boolean)))
+      : [];
     const dedupedVids = dedupeMediaUrls([c?.teacherVideoUrl, ...(c?.teacherVideos || [])]);
+
+    setFSavedAddImages(initAddImages);
+    setFSavedImageLinks(initImgLinks);
+    setFSavedTeacherAudios(mergedSavedAuds);
+    setFSavedAudioLinks(initAudLinks);
     setFTeacherVideoUrl(dedupedVids[0] || '');
     setFExtraVideoUrls(dedupedVids.slice(1));
     setFAllowRetry(Boolean(c?.allowRetry));
     setFSendTelegram(markingConfig.notifyStudentOnCorrection !== false);
     setHasBoardAnnotations(false);
+    setHasPendingVideoRecording(false);
     videoRecorderRef.current?.resetPending();
+
+    setSavedImageBaseline({
+      status: initImgStatus,
+      score: initImgScore,
+      rating: initImgRating,
+      notes: initImgNotes.trim(),
+      savedAddImages: initAddImages,
+      savedImageLinks: initImgLinks,
+      savedVideos: dedupedVids,
+    });
+    setSavedAudioBaseline({
+      status: initAudStatus,
+      score: initAudScore,
+      rating: initAudRating,
+      notes: initAudNotes.trim(),
+      stickerSymbol: initAudStickerSymbol,
+      savedTeacherAudios: mergedSavedAuds,
+      savedAudioLinks: initAudLinks,
+    });
   }, [activeSubmission?.submissionKey]);
 
   const correctionSyncKey = useMemo(() => {
@@ -488,108 +574,70 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     if (!activeSubmission?.correction) return;
     const c = activeSubmission.correction;
     const corrImgUrl = (c.correctedImageUrl || '').trim();
-    setFSavedAddImages(
-      dedupeMediaUrls([
-        corrImgUrl,
-        ...(Array.isArray(c.additionalImages) ? c.additionalImages : []),
-      ]).slice(corrImgUrl ? 1 : 0)
+    const nextAddImages = dedupeMediaUrls([
+      corrImgUrl,
+      ...(Array.isArray(c.additionalImages) ? c.additionalImages : []),
+    ]).slice(corrImgUrl ? 1 : 0);
+    const nextImgLinks = Array.isArray(c.imageLinks)
+      ? Array.from(new Set(c.imageLinks.filter(Boolean)))
+      : [];
+    const nextAuds = Array.from(
+      new Set([c.teacherAudioUrl || '', ...(c.teacherAudios || [])].map((u) => u.trim()).filter(Boolean))
     );
-    setFSavedImageLinks(
-      Array.isArray(c.imageLinks) ? Array.from(new Set(c.imageLinks.filter(Boolean))) : []
-    );
-    setFSavedTeacherAudios(
-      Array.from(
-        new Set([c.teacherAudioUrl || '', ...(c.teacherAudios || [])].map((u) => u.trim()).filter(Boolean))
-      )
-    );
-    setFSavedAudioLinks(
-      Array.isArray(c.audioLinks) ? Array.from(new Set(c.audioLinks.filter(Boolean))) : []
-    );
+    const nextAudLinks = Array.isArray(c.audioLinks)
+      ? Array.from(new Set(c.audioLinks.filter(Boolean)))
+      : [];
     const dedupedVids = dedupeMediaUrls([c.teacherVideoUrl, ...(c.teacherVideos || [])]);
+
+    setFSavedAddImages(nextAddImages);
+    setFSavedImageLinks(nextImgLinks);
+    setFSavedTeacherAudios(nextAuds);
+    setFSavedAudioLinks(nextAudLinks);
     setFTeacherVideoUrl(dedupedVids[0] || '');
     setFExtraVideoUrls(dedupedVids.slice(1));
+
+    setSavedImageBaseline((prev) =>
+      prev
+        ? {
+            ...prev,
+            savedAddImages: nextAddImages,
+            savedImageLinks: nextImgLinks,
+            savedVideos: dedupedVids,
+          }
+        : prev
+    );
+    setSavedAudioBaseline((prev) =>
+      prev
+        ? {
+            ...prev,
+            savedTeacherAudios: nextAuds,
+            savedAudioLinks: nextAudLinks,
+          }
+        : prev
+    );
   }, [correctionSyncKey]);
 
-  const baselineValues = useMemo(() => {
-    if (!activeSubmission) return null;
-    const c = activeSubmission.correction;
-    const hasImgScore =
-      c?.imageScore !== undefined && String(c.imageScore).trim() !== '';
-    const hasLegacyImgScore =
-      !hasImgScore &&
-      (Boolean(c?.imageStatus) || Boolean(c?.correctedImageUrl)) &&
-      c?.score !== undefined &&
-      String(c.score).trim() !== '';
-    const imgStars = parseStarCount(c?.imageRatingLabel || c?.ratingLabel);
-
-    const hasAudScore =
-      c?.audioScore !== undefined && String(c.audioScore).trim() !== '';
-    const hasLegacyAudScore =
-      !hasAudScore &&
-      (Boolean(c?.audioStatus) || Boolean(c?.teacherAudioUrl)) &&
-      c?.score !== undefined &&
-      String(c.score).trim() !== '';
-    const audStars = parseStarCount(c?.audioRatingLabel || c?.ratingLabel);
-
-    const corrImgUrl = (c?.correctedImageUrl || '').trim();
-    return {
-      imgStatus: c?.imageStatus || c?.status || 'corrected',
-      imgScore: hasImgScore
-        ? String(c!.imageScore)
-        : hasLegacyImgScore
-        ? String(c!.score)
-        : '0',
-      imgRating: imgStars > 0 ? formatStarValue(imgStars) : '',
-      imgNotes: (c?.imageNotes !== undefined ? c.imageNotes : c?.notes || '').trim(),
-      savedAddImages: dedupeMediaUrls([
-        corrImgUrl,
-        ...(Array.isArray(c?.additionalImages) ? c.additionalImages : []),
-      ]).slice(corrImgUrl ? 1 : 0),
-      savedImageLinks: Array.isArray(c?.imageLinks)
-        ? Array.from(new Set(c.imageLinks.filter(Boolean)))
-        : [],
-      savedVideos: dedupeMediaUrls([c?.teacherVideoUrl, ...(c?.teacherVideos || [])]),
-      audioStatus: c?.audioStatus || c?.status || 'corrected',
-      audioScore: hasAudScore
-        ? String(c!.audioScore)
-        : hasLegacyAudScore
-        ? String(c!.score)
-        : '0',
-      audioRating: audStars > 0 ? formatStarValue(audStars) : '',
-      audioNotes: (c?.audioNotes !== undefined ? c.audioNotes : c?.notes || '').trim(),
-      audioStickerSymbol: c?.audioStickerSymbol || c?.stickerSymbol || '',
-      savedTeacherAudios: Array.from(
-        new Set(
-          [c?.teacherAudioUrl || '', ...(c?.teacherAudios || [])]
-            .map((u) => u.trim())
-            .filter(Boolean)
-        )
-      ),
-      savedAudioLinks: Array.isArray(c?.audioLinks)
-        ? Array.from(new Set(c.audioLinks.filter(Boolean)))
-        : [],
-    };
-  }, [activeSubmission]);
-
   const hasUnsavedImageChanges = useMemo(() => {
-    if (!activeSubmission || !baselineValues) return false;
+    if (!activeSubmission || !savedImageBaseline) return false;
     const currentVideos = dedupeMediaUrls([fTeacherVideoUrl, ...fExtraVideoUrls]);
     return (
       hasBoardAnnotations ||
+      hasPendingVideoRecording ||
       Boolean(boardOverrideImageUrl) ||
       fExtraImagesB64.length > 0 ||
-      fImgStatus !== baselineValues.imgStatus ||
-      fImgScore !== baselineValues.imgScore ||
-      fImgRating !== baselineValues.imgRating ||
-      fImgNotes.trim() !== baselineValues.imgNotes ||
-      JSON.stringify(fSavedAddImages) !== JSON.stringify(baselineValues.savedAddImages) ||
-      JSON.stringify(fSavedImageLinks) !== JSON.stringify(baselineValues.savedImageLinks) ||
-      JSON.stringify(currentVideos) !== JSON.stringify(baselineValues.savedVideos)
+      fImgStatus !== savedImageBaseline.status ||
+      fImgScore !== savedImageBaseline.score ||
+      fImgRating !== savedImageBaseline.rating ||
+      fImgNotes.trim() !== savedImageBaseline.notes ||
+      JSON.stringify(fSavedAddImages) !== JSON.stringify(savedImageBaseline.savedAddImages) ||
+      JSON.stringify(fSavedImageLinks) !== JSON.stringify(savedImageBaseline.savedImageLinks) ||
+      JSON.stringify(currentVideos) !== JSON.stringify(savedImageBaseline.savedVideos)
     );
   }, [
     activeSubmission,
-    baselineValues,
+    savedImageBaseline,
     hasBoardAnnotations,
+    hasPendingVideoRecording,
     boardOverrideImageUrl,
     fExtraImagesB64.length,
     fImgStatus,
@@ -603,20 +651,20 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   ]);
 
   const hasUnsavedAudioChanges = useMemo(() => {
-    if (!activeSubmission || !baselineValues) return false;
+    if (!activeSubmission || !savedAudioBaseline) return false;
     return (
       fExtraAudioClips.length > 0 ||
-      fAudioStatus !== baselineValues.audioStatus ||
-      fAudioScore !== baselineValues.audioScore ||
-      fAudioRating !== baselineValues.audioRating ||
-      fAudioNotes.trim() !== baselineValues.audioNotes ||
-      fAudioStickerSymbol !== baselineValues.audioStickerSymbol ||
-      JSON.stringify(fSavedTeacherAudios) !== JSON.stringify(baselineValues.savedTeacherAudios) ||
-      JSON.stringify(fSavedAudioLinks) !== JSON.stringify(baselineValues.savedAudioLinks)
+      fAudioStatus !== savedAudioBaseline.status ||
+      fAudioScore !== savedAudioBaseline.score ||
+      fAudioRating !== savedAudioBaseline.rating ||
+      fAudioNotes.trim() !== savedAudioBaseline.notes ||
+      fAudioStickerSymbol !== savedAudioBaseline.stickerSymbol ||
+      JSON.stringify(fSavedTeacherAudios) !== JSON.stringify(savedAudioBaseline.savedTeacherAudios) ||
+      JSON.stringify(fSavedAudioLinks) !== JSON.stringify(savedAudioBaseline.savedAudioLinks)
     );
   }, [
     activeSubmission,
-    baselineValues,
+    savedAudioBaseline,
     fExtraAudioClips.length,
     fAudioStatus,
     fAudioScore,
@@ -875,19 +923,19 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         const saved = res.correction;
         applyUpdatedCorrections([saved]);
         const savedCorrImg = (saved.correctedImageUrl || '').trim();
-        setFSavedAddImages(
-          dedupeMediaUrls([
-            savedCorrImg,
-            ...(Array.isArray(saved.additionalImages) ? saved.additionalImages : []),
-          ]).slice(savedCorrImg ? 1 : 0)
-        );
-        setFSavedImageLinks(
-          Array.isArray(saved.imageLinks) ? Array.from(new Set(saved.imageLinks.filter(Boolean))) : []
-        );
+        const nextSavedAddImgs = dedupeMediaUrls([
+          savedCorrImg,
+          ...(Array.isArray(saved.additionalImages) ? saved.additionalImages : []),
+        ]).slice(savedCorrImg ? 1 : 0);
+        const nextSavedImgLinks = Array.isArray(saved.imageLinks)
+          ? Array.from(new Set(saved.imageLinks.filter(Boolean)))
+          : [];
         const syncedVids = dedupeMediaUrls([
           saved.teacherVideoUrl,
           ...(Array.isArray(saved.teacherVideos) ? saved.teacherVideos : []),
         ]);
+        setFSavedAddImages(nextSavedAddImgs);
+        setFSavedImageLinks(nextSavedImgLinks);
         setFTeacherVideoUrl(syncedVids[0] || '');
         setFExtraVideoUrls(syncedVids.slice(1));
         setFExtraImagesB64([]);
@@ -896,6 +944,16 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           blackboardRef.current?.clearAnnotations();
         }
         setHasBoardAnnotations(false);
+        setHasPendingVideoRecording(false);
+        setSavedImageBaseline({
+          status: fImgStatus,
+          score: fImgScore,
+          rating: fImgRating,
+          notes: fImgNotes.trim(),
+          savedAddImages: nextSavedAddImgs,
+          savedImageLinks: nextSavedImgLinks,
+          savedVideos: syncedVids,
+        });
         setFImgFeedback({
           type: 'ok',
           text: res.telegramNotified
@@ -968,19 +1026,28 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       if (res.success && res.correction) {
         const saved = res.correction;
         applyUpdatedCorrections([saved]);
-        setFSavedTeacherAudios(
-          Array.from(
-            new Set(
-              [saved.teacherAudioUrl || '', ...(Array.isArray(saved.teacherAudios) ? saved.teacherAudios : [])]
-                .map((u) => u.trim())
-                .filter(Boolean)
-            )
+        const nextSavedAuds = Array.from(
+          new Set(
+            [saved.teacherAudioUrl || '', ...(Array.isArray(saved.teacherAudios) ? saved.teacherAudios : [])]
+              .map((u) => u.trim())
+              .filter(Boolean)
           )
         );
-        setFSavedAudioLinks(
-          Array.isArray(saved.audioLinks) ? Array.from(new Set(saved.audioLinks.filter(Boolean))) : []
-        );
+        const nextSavedAudLinks = Array.isArray(saved.audioLinks)
+          ? Array.from(new Set(saved.audioLinks.filter(Boolean)))
+          : [];
+        setFSavedTeacherAudios(nextSavedAuds);
+        setFSavedAudioLinks(nextSavedAudLinks);
         setFExtraAudioClips([]);
+        setSavedAudioBaseline({
+          status: fAudioStatus,
+          score: fAudioScore,
+          rating: fAudioRating,
+          notes: fAudioNotes.trim(),
+          stickerSymbol: fAudioStickerSymbol,
+          savedTeacherAudios: nextSavedAuds,
+          savedAudioLinks: nextSavedAudLinks,
+        });
         setFAudioFeedback({
           type: 'ok',
           text: res.telegramNotified
@@ -1391,7 +1458,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
               <button
                 type="button"
-                onClick={loadWorkspaceData}
+                onClick={() => requestExitOrSwitch('تحديث البيانات من الشيت', loadWorkspaceData)}
                 disabled={loading}
                 className="px-3 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-bold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
               >
@@ -1663,6 +1730,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           markingConfig={markingConfig}
           webhookUrl={webhookUrl}
           existingVideoUrl={fTeacherVideoUrl}
+          onPendingChange={setHasPendingVideoRecording}
           onRemoveExistingVideo={() => setFTeacherVideoUrl('')}
           onVideoUploaded={(url) => {
             const cleanUrl = (url || '').trim();
@@ -1794,6 +1862,11 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     saving: fImgSaving,
                     feedback: fImgFeedback,
                     onSubmit: handleSaveImageCorrection,
+                    hasChanges: hasUnsavedImageChanges,
+                    alreadySaved: Boolean(
+                      activeSubmission.correction?.imageStatus ||
+                        activeSubmission.correction?.correctedImageUrl
+                    ),
                     onTriggerVideo: () => setVideoModalTrigger((c) => c + 1),
                     onTriggerPhoto: () => setPhotoModalTrigger((c) => c + 1),
                     onTriggerUploadImage: () => extraImageUploadInputRef.current?.click(),
@@ -2429,19 +2502,49 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   </label>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={fAudioSaving}
-                  onClick={handleSaveAudioCorrection}
-                  className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  {fAudioSaving ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                  <span>إرسال تصحيح الصوت</span>
-                </button>
+                {(() => {
+                  const audioAlreadySaved = Boolean(
+                    activeSubmission?.correction?.audioStatus ||
+                      activeSubmission?.correction?.teacherAudioUrl
+                  );
+                  const canSendAudio = hasUnsavedAudioChanges;
+                  return (
+                    <button
+                      type="button"
+                      disabled={fAudioSaving || !canSendAudio}
+                      onClick={handleSaveAudioCorrection}
+                      title={
+                        !canSendAudio
+                          ? 'أجرِ أي تعديل أو إضافة في الصوت أو الدرجة أو الملاحظات لتفعيل زر الإرسال'
+                          : 'حفظ وإرسال تصحيح الصوت'
+                      }
+                      className={`px-6 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap shrink-0 transition-all ${
+                        fAudioSaving
+                          ? 'bg-indigo-600/70 text-white cursor-wait opacity-75'
+                          : !canSendAudio
+                          ? audioAlreadySaved
+                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-200 cursor-not-allowed opacity-90'
+                            : 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                          : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer'
+                      }`}
+                    >
+                      {fAudioSaving ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : !canSendAudio && audioAlreadySaved ? (
+                        <CheckCircle2 className="w-4 h-4 text-indigo-700" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                      <span>
+                        {fAudioSaving
+                          ? 'جاري الحفظ...'
+                          : !canSendAudio && audioAlreadySaved
+                          ? 'تم حفظ تصحيح الصوت ✓'
+                          : 'إرسال تصحيح الصوت'}
+                      </span>
+                    </button>
+                  );
+                })()}
               </div>
 
               {fAudioFeedback && (

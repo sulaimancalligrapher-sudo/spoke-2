@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   WordItem,
   GoogleSheetsConfig,
@@ -211,6 +211,7 @@ interface AdminPanelProps {
   onOpenStorePreview?: () => void;
   adminUsers?: AdminUserRecord[];
   initialTab?: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5';
+  onTabChange?: (tab: 'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5') => void;
 }
 
 const TASHKEEL_BUTTONS = [
@@ -304,8 +305,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onOpenStorePreview,
   adminUsers = [],
   initialTab = 'lessons',
+  onTabChange,
 }) => {
   const [activeTab, setActiveTab] = useState<'lessons' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video' | 'marking' | 'schedule' | 'subscribers' | 'telegram' | 'email' | 'homeContent' | 'portal' | 'pdf' | 'submissions' | 'sheets' | 'translations' | 'translations2' | 'translations3' | 'translations4' | 'translations5'>(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  const selectTab = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    onTabChange?.(tab);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [testStatus, setTestStatus] = useState<{ loading: boolean; message: string; success?: boolean } | null>(null);
@@ -1197,7 +1208,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-200">
           <button
-            onClick={() => setActiveTab('lessons')}
+            onClick={() => selectTab('lessons')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'lessons'
                 ? 'bg-emerald-600 text-white shadow-xs'
@@ -1209,7 +1220,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('matching')}
+            onClick={() => selectTab('matching')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'matching'
                 ? 'bg-purple-600 text-white shadow-xs'
@@ -1221,7 +1232,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('dictation')}
+            onClick={() => selectTab('dictation')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'dictation'
                 ? 'bg-teal-600 text-white shadow-xs'
@@ -1233,7 +1244,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('writing')}
+            onClick={() => selectTab('writing')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'writing'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -1245,7 +1256,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('catch')}
+            onClick={() => selectTab('catch')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'catch'
                 ? 'bg-sky-600 text-white shadow-xs'
@@ -1257,7 +1268,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('video')}
+            onClick={() => selectTab('video')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'video'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1269,7 +1280,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('marking')}
+            onClick={() => selectTab('marking')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'marking'
                 ? 'bg-emerald-700 text-white shadow-xs'
@@ -1281,7 +1292,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('schedule')}
+            onClick={() => selectTab('schedule')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'schedule'
                 ? 'bg-emerald-600 text-white shadow-xs'
@@ -1293,7 +1304,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('subscribers')}
+            onClick={() => selectTab('subscribers')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'subscribers'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1305,7 +1316,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('telegram')}
+            onClick={() => selectTab('telegram')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'telegram'
                 ? 'bg-sky-600 text-white shadow-xs'
@@ -1317,7 +1328,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('email')}
+            onClick={() => selectTab('email')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'email'
                 ? 'bg-rose-600 text-white shadow-xs'
@@ -1329,7 +1340,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('homeContent')}
+            onClick={() => selectTab('homeContent')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'homeContent'
                 ? 'bg-emerald-600 text-white shadow-xs'
@@ -1341,7 +1352,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('portal')}
+            onClick={() => selectTab('portal')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'portal'
                 ? 'bg-slate-900 text-white shadow-xs'
@@ -1353,7 +1364,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('pdf')}
+            onClick={() => selectTab('pdf')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'pdf'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -1366,7 +1377,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
 
           <button
             onClick={() => {
-              setActiveTab('submissions');
+              selectTab('submissions');
               if (answers1Submissions.length === 0 && !loadingAnswers1) {
                 handleLoadAnswers1();
               }
@@ -1382,7 +1393,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('sheets')}
+            onClick={() => selectTab('sheets')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'sheets'
                 ? 'bg-emerald-600 text-white shadow-xs'
@@ -1397,7 +1408,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('translations')}
+            onClick={() => selectTab('translations')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'translations'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -1409,7 +1420,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('translations2')}
+            onClick={() => selectTab('translations2')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'translations2'
                 ? 'bg-purple-600 text-white shadow-xs'
@@ -1421,7 +1432,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('translations3')}
+            onClick={() => selectTab('translations3')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'translations3'
                 ? 'bg-amber-500 text-slate-950 shadow-xs'
@@ -1433,7 +1444,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('translations4')}
+            onClick={() => selectTab('translations4')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'translations4'
                 ? 'bg-sky-600 text-white shadow-xs'
@@ -1445,7 +1456,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
           </button>
 
           <button
-            onClick={() => setActiveTab('translations5')}
+            onClick={() => selectTab('translations5')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'translations5'
                 ? 'bg-indigo-600 text-white shadow-xs'
@@ -3154,7 +3165,7 @@ export const ALL_CURRICULUM: WordItem[] = ${JSON.stringify(curriculum, null, 2)}
                 courseSchedule || createEmptyCourseSchedule()
               ).classrooms
             }
-            onNavigateToSheets={() => setActiveTab('sheets')}
+            onNavigateToSheets={() => selectTab('sheets')}
           />
         )}
 

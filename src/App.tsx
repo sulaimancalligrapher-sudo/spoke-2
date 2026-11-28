@@ -895,9 +895,12 @@ export default function App() {
     studentName: '',
   });
 
+  const suppressHashChangeUntilRef = useRef<number>(0);
+
   // Check URL hash for admin routing and device sync on mount and hashchange
   useEffect(() => {
     const checkHash = () => {
+      if (Date.now() < suppressHashChangeUntilRef.current) return;
       const hash = window.location.hash;
       const path = window.location.pathname.toLowerCase();
 
@@ -2651,7 +2654,7 @@ export default function App() {
     } catch {}
     if (isAdminAuthenticated || sessionAuthed) {
       if (!isAdminAuthenticated) setIsAdminAuthenticated(true);
-      window.location.hash = 'control';
+      setStoreRouteMode('none');
       setIsAdminView(true);
       setIsPortalPreview(false);
     } else {
@@ -2665,7 +2668,7 @@ export default function App() {
       sessionStorage.setItem('faseeh_admin_auth', 'true');
     } catch {}
     setShowAdminLoginModal(false);
-    window.location.hash = 'control';
+    setStoreRouteMode('none');
     setIsAdminView(true);
     setIsPortalPreview(false);
   };
@@ -2676,13 +2679,206 @@ export default function App() {
       sessionStorage.removeItem('faseeh_admin_auth');
     } catch {}
     setIsAdminView(false);
-    window.location.hash = '';
   };
 
   const handleBackToStudent = () => {
-    window.location.hash = '';
     setIsAdminView(false);
   };
+
+  // ==========================================================
+  // BROWSER / MOBILE BACK & FORWARD HISTORY SYNC (popstate)
+  // ==========================================================
+  type AppNavSnapshot = {
+    __faseehNav: true;
+    screen: 'portal' | 'store' | 'orders' | 'landing' | 'practice' | 'admin' | 'marking';
+    appMode: 'pronunciation' | 'matching' | 'dictation' | 'writing' | 'catch' | 'video';
+    adminTab: typeof adminInitialTab;
+    isPortalPreview: boolean;
+    markingSubKey?: string;
+  };
+
+  const currentNavSnapshot = useMemo<AppNavSnapshot>(() => {
+    if (markingRouteMode) {
+      return {
+        __faseehNav: true,
+        screen: 'marking',
+        appMode,
+        adminTab: adminInitialTab,
+        isPortalPreview: false,
+        markingSubKey,
+      };
+    }
+    if (isAdminView) {
+      return {
+        __faseehNav: true,
+        screen: 'admin',
+        appMode,
+        adminTab: adminInitialTab,
+        isPortalPreview: false,
+      };
+    }
+    if (!currentStudent || isPortalPreview) {
+      return {
+        __faseehNav: true,
+        screen:
+          storeRouteMode === 'orders'
+            ? 'orders'
+            : storeRouteMode === 'store'
+            ? 'store'
+            : 'portal',
+        appMode,
+        adminTab: adminInitialTab,
+        isPortalPreview: Boolean(currentStudent && isPortalPreview),
+      };
+    }
+    return {
+      __faseehNav: true,
+      screen: currentView === 'practice' ? 'practice' : 'landing',
+      appMode,
+      adminTab: adminInitialTab,
+      isPortalPreview: false,
+    };
+  }, [
+    markingRouteMode,
+    markingSubKey,
+    isAdminView,
+    adminInitialTab,
+    currentStudent,
+    isPortalPreview,
+    storeRouteMode,
+    currentView,
+    appMode,
+  ]);
+
+  const navInitializedRef = useRef(false);
+  const isRestoringNavRef = useRef(false);
+  const lastNavSigRef = useRef<string>('');
+
+  const getUrlForNavSnapshot = (snap: AppNavSnapshot): string => {
+    try {
+      const u = new URL(window.location.href);
+      if (snap.screen === 'marking') {
+        u.searchParams.set('page', 'marking');
+        if (snap.markingSubKey) u.searchParams.set('sub', snap.markingSubKey);
+        else u.searchParams.delete('sub');
+        u.hash = '';
+        return `${u.pathname}${u.search}`;
+      }
+      if (u.searchParams.get('page')?.toLowerCase() === 'marking') {
+        u.searchParams.delete('page');
+        u.searchParams.delete('sub');
+      }
+      if (snap.screen === 'admin') {
+        return `${u.pathname}${u.search}#control`;
+      }
+      if (snap.screen === 'store') {
+        return `${u.pathname}${u.search}#store`;
+      }
+      if (snap.screen === 'orders') {
+        return `${u.pathname}${u.search}#store-orders`;
+      }
+      return `${u.pathname}${u.search}`;
+    } catch {
+      return window.location.pathname + window.location.search;
+    }
+  };
+
+  useEffect(() => {
+    const sig = JSON.stringify(currentNavSnapshot);
+    const targetUrl = getUrlForNavSnapshot(currentNavSnapshot);
+    if (!navInitializedRef.current) {
+      navInitializedRef.current = true;
+      lastNavSigRef.current = sig;
+      try {
+        window.history.replaceState(currentNavSnapshot, '', targetUrl);
+      } catch {}
+      return;
+    }
+    if (isRestoringNavRef.current) {
+      isRestoringNavRef.current = false;
+      lastNavSigRef.current = sig;
+      return;
+    }
+    if (sig === lastNavSigRef.current) return;
+    lastNavSigRef.current = sig;
+    try {
+      const currentFull = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (currentFull === targetUrl && !window.history.state?.__faseehNav) {
+        window.history.replaceState(currentNavSnapshot, '', targetUrl);
+      } else {
+        window.history.pushState(currentNavSnapshot, '', targetUrl);
+      }
+    } catch {}
+  }, [currentNavSnapshot]);
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const snap = e.state as AppNavSnapshot | null;
+      if (!snap || !snap.__faseehNav) return;
+
+      suppressHashChangeUntilRef.current = Date.now() + 150;
+      isRestoringNavRef.current = true;
+
+      closeAllLessonModals();
+      setIsStatsOpen(false);
+      setIsSettingsOpen(false);
+      setIsGuideOpen(false);
+      setIsScheduleModalOpen(false);
+      setIsStudentCorrectionsModalOpen(false);
+      setIsVideoCorrectionModalOpen(false);
+      setIsRegistrationModalOpen(false);
+      setIsUnifiedAccessOpen(false);
+      setIsLoginModalOpen(false);
+      setShowAdminLoginModal(false);
+      setActiveProgramRequestItem(null);
+
+      if (snap.screen === 'marking') {
+        setMarkingRouteMode(true);
+        setMarkingSubKey(snap.markingSubKey);
+        setIsAdminView(false);
+        setStoreRouteMode('none');
+        setIsPortalPreview(false);
+        return;
+      }
+
+      setMarkingRouteMode(false);
+      if (snap.screen === 'admin') {
+        let authed = isAdminAuthenticated;
+        if (!authed) {
+          try {
+            authed = sessionStorage.getItem('faseeh_admin_auth') === 'true';
+          } catch {}
+        }
+        if (authed) {
+          setAdminInitialTab(snap.adminTab || 'lessons');
+          setStoreRouteMode('none');
+          setIsAdminView(true);
+          setIsPortalPreview(false);
+        } else {
+          setIsAdminView(false);
+          setShowAdminLoginModal(true);
+        }
+        return;
+      }
+
+      setIsAdminView(false);
+      if (snap.screen === 'store' || snap.screen === 'orders' || snap.screen === 'portal') {
+        setStoreRouteMode(
+          snap.screen === 'orders' ? 'orders' : snap.screen === 'store' ? 'store' : 'none'
+        );
+        setIsPortalPreview(Boolean(currentStudent));
+        return;
+      }
+
+      setStoreRouteMode('none');
+      setIsPortalPreview(Boolean(snap.isPortalPreview));
+      if (snap.appMode) setAppMode(snap.appMode);
+      setCurrentView(snap.screen === 'practice' ? 'practice' : 'landing');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isAdminAuthenticated, currentStudent]);
 
   // STANDALONE TEACHER MARKING PORTAL (?page=marking or #marking)
   if (markingRouteMode) {
@@ -2700,24 +2896,11 @@ export default function App() {
         initialSubmissionKey={markingSubKey}
         onBackToHome={() => {
           setMarkingRouteMode(false);
-          try {
-            const u = new URL(window.location.href);
-            u.searchParams.delete('page');
-            u.searchParams.delete('sub');
-            u.hash = '';
-            window.history.replaceState(null, '', u.pathname + u.search);
-          } catch {
-            window.location.hash = '';
-          }
+          setMarkingSubKey(undefined);
         }}
         onOpenAdminMarkingSettings={() => {
           setMarkingRouteMode(false);
-          try {
-            const u = new URL(window.location.href);
-            u.searchParams.delete('page');
-            u.searchParams.delete('sub');
-            window.history.replaceState(null, '', u.pathname + u.search);
-          } catch {}
+          setMarkingSubKey(undefined);
           handleOpenAdmin('marking');
         }}
       />
@@ -2769,6 +2952,7 @@ export default function App() {
             } catch {}
           }}
           initialTab={adminInitialTab}
+          onTabChange={(nextTab) => setAdminInitialTab(nextTab)}
           writingTemplates={writingTemplates}
           onUpdateWritingTemplates={(updated) => {
             setWritingTemplates(updated);
@@ -2888,7 +3072,6 @@ export default function App() {
             saveLocalRegistrationQuestions(next);
           }}
           onPreviewPublicPortal={() => {
-            window.location.hash = '';
             setStoreRouteMode('none');
             setIsAdminView(false);
             setIsPortalPreview(true);
@@ -2902,7 +3085,6 @@ export default function App() {
             setIsAdminView(false);
             setIsPortalPreview(true);
             setStoreRouteMode('store');
-            window.location.hash = '#store';
           }}
           adminUsers={homeConfig?.adminUsers}
         />
@@ -2953,7 +3135,6 @@ export default function App() {
             onBackToPortal={() => {
               setStoreEntryToast(null);
               setStoreRouteMode('none');
-              window.history.replaceState(null, '', window.location.pathname + window.location.search);
             }}
             onOpenStage1Registration={(progLabel) => {
               setRegistrationPreselectedProgram(progLabel);
@@ -2963,7 +3144,6 @@ export default function App() {
               if (currentStudent) {
                 setIsPortalPreview(false);
                 setStoreRouteMode('none');
-                window.history.replaceState(null, '', window.location.pathname + window.location.search);
               } else {
                 setIsLoginModalOpen(true);
               }
@@ -2997,7 +3177,6 @@ export default function App() {
             onOpenStore={(toastMsg) => {
               setStoreEntryToast(toastMsg || null);
               setStoreRouteMode('store');
-              window.location.hash = '#store';
             }}
             highlightedProgramSlug={highlightedProgramSlug}
           />
@@ -3255,7 +3434,6 @@ export default function App() {
           closeAllLessonModals();
           setStoreRouteMode('store');
           setIsPortalPreview(true);
-          window.location.hash = '#store';
         }}
         showStoreBtn={storeData.settings.show_in_public_portal !== false}
         storeCartCount={storeCartCount}

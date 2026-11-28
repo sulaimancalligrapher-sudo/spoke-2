@@ -79,6 +79,8 @@ export interface BlackboardImageGradingProps {
   extraPhotosCount?: number;
   extraVideosCount?: number;
   extraAttachmentsPreview?: React.ReactNode;
+  hasChanges?: boolean;
+  alreadySaved?: boolean;
 }
 
 export interface MarkingBlackboardHandle {
@@ -1734,19 +1736,46 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
               </button>
 
               {/* 6. زر إرسال تصحيح الصورة */}
-              <button
-                type="button"
-                disabled={imageGrading.saving}
-                onClick={imageGrading.onSubmit}
-                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer mr-auto"
-              >
-                {imageGrading.saving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>إرسال تصحيح الصورة</span>
-              </button>
+              {(() => {
+                const canSendImage = imageGrading.hasChanges !== false;
+                const isDisabled = imageGrading.saving || !canSendImage;
+                return (
+                  <button
+                    type="button"
+                    disabled={isDisabled}
+                    onClick={imageGrading.onSubmit}
+                    title={
+                      !canSendImage
+                        ? 'أجرِ أي تعديل أو إضافة في الصورة أو الدرجة أو الملاحظات لتفعيل زر الإرسال'
+                        : 'حفظ وإرسال تصحيح الصورة'
+                    }
+                    className={`px-5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 mr-auto transition-all ${
+                      imageGrading.saving
+                        ? 'bg-emerald-600/70 text-white cursor-wait opacity-75'
+                        : !canSendImage
+                        ? imageGrading.alreadySaved
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 cursor-not-allowed opacity-90'
+                          : 'bg-slate-200 text-slate-500 border border-slate-300 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer'
+                    }`}
+                  >
+                    {imageGrading.saving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : !canSendImage && imageGrading.alreadySaved ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span>
+                      {imageGrading.saving
+                        ? 'جاري الحفظ...'
+                        : !canSendImage && imageGrading.alreadySaved
+                        ? 'تم حفظ تصحيح الصورة ✓'
+                        : 'إرسال تصحيح الصورة'}
+                    </span>
+                  </button>
+                );
+              })()}
             </div>
 
             {/* Notes Panel (Board Presets + Student Notes Field) */}

@@ -44,6 +44,7 @@ interface MarkingVideoRecorderProps {
   openTrigger?: number;
   /** When true, hides the inline box and only renders the modal when triggered */
   hideInlineTrigger?: boolean;
+  onPendingChange?: (hasPending: boolean) => void;
 }
 
 const MAX_VIDEO_SECONDS = 240; // 4 Minutes max per clip
@@ -105,6 +106,7 @@ export const MarkingVideoRecorder = React.forwardRef<
       autoUploadOnStop = false,
       openTrigger,
       hideInlineTrigger = false,
+      onPendingChange,
     },
     ref
   ) => {
@@ -139,6 +141,10 @@ export const MarkingVideoRecorder = React.forwardRef<
   useEffect(() => {
     setUploadedUrl(existingVideoUrl || '');
   }, [existingVideoUrl]);
+
+  useEffect(() => {
+    onPendingChange?.(Boolean(recordedBlob && !uploadedUrl));
+  }, [recordedBlob, uploadedUrl, onPendingChange]);
 
   const inFlightUploadRef = useRef<Promise<string | null> | null>(null);
   const autoUploadOnStopRef = useRef<boolean>(autoUploadOnStop);
