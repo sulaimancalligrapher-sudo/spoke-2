@@ -425,7 +425,7 @@ export async function fetchMarkingWorkspaceData(
                 ? Number(vc.audioScore)
                 : undefined,
             notes: [vc.imageNotes, vc.audioNotes].filter(Boolean).join('\n'),
-            correctedImageUrl: vc.correctedImage || imgs[0] || undefined,
+            correctedImageUrl: vc.correctedImage || undefined,
             additionalImages: imgs,
             teacherAudioUrl: auds[0] || undefined,
             teacherAudios: auds,

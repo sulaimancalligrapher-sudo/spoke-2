@@ -439,62 +439,101 @@ app.get('/api/proxy-audio', async (req, res) => {
 app.get('/api/proxy-image', async (req, res) => {
   try {
     const rawUrl = String(req.query.url || '').trim();
-    const fileIdParam = String(req.query.id || '').trim();
+    let fileIdParam = String(req.query.id || '').trim();
 
-    let targetUrl = '';
+    const extractDriveId = (u: string): string => {
+      const m1 = u.match(/\/d\/([a-zA-Z0-9_-]{10,})/);
+      if (m1 && m1[1]) return m1[1];
+      const m2 = u.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+      if (m2 && m2[1]) return m2[1];
+      return '';
+    };
+
+    const candidates: string[] = [];
+
+    if (!fileIdParam && rawUrl && (rawUrl.includes('drive.google.com') || rawUrl.includes('googleusercontent.com'))) {
+      fileIdParam = extractDriveId(rawUrl);
+    }
+
     if (fileIdParam) {
-      targetUrl = `https://lh3.googleusercontent.com/d/${encodeURIComponent(fileIdParam)}`;
-    } else if (rawUrl) {
+      const encId = encodeURIComponent(fileIdParam);
+      candidates.push(
+        `https://drive.google.com/thumbnail?id=${encId}&sz=w1600`,
+        `https://lh3.googleusercontent.com/d/${encId}=w1600`,
+        `https://lh3.googleusercontent.com/d/${encId}`,
+        `https://drive.usercontent.google.com/download?id=${encId}&export=download&authuser=0`,
+        `https://drive.google.com/uc?export=view&id=${encId}`
+      );
+    }
+
+    if (rawUrl) {
       let parsed: URL;
       try {
         parsed = new URL(rawUrl);
       } catch {
-        return res.status(400).send('Invalid image URL');
+        if (candidates.length === 0) return res.status(400).send('Invalid image URL');
+        parsed = null as any;
       }
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-        return res.status(400).send('Unsupported protocol');
+      if (parsed) {
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+          return res.status(400).send('Unsupported protocol');
+        }
+        const host = parsed.hostname.toLowerCase();
+        if (
+          host === 'localhost' ||
+          host === '127.0.0.1' ||
+          host === '0.0.0.0' ||
+          host.startsWith('10.') ||
+          host.startsWith('192.168.') ||
+          host.startsWith('169.254.')
+        ) {
+          return res.status(403).send('Disallowed host');
+        }
+        const rawStr = parsed.toString();
+        if (!candidates.includes(rawStr)) {
+          candidates.push(rawStr);
+        }
       }
-      const host = parsed.hostname.toLowerCase();
-      if (
-        host === 'localhost' ||
-        host === '127.0.0.1' ||
-        host === '0.0.0.0' ||
-        host.startsWith('10.') ||
-        host.startsWith('192.168.') ||
-        host.startsWith('169.254.')
-      ) {
-        return res.status(403).send('Disallowed host');
-      }
-      targetUrl = parsed.toString();
-    } else {
+    }
+
+    if (candidates.length === 0) {
       return res.status(400).send('Missing url or id parameter');
     }
 
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8',
-      },
-      redirect: 'follow',
-    });
+    let lastStatus = 404;
+    for (const targetUrl of candidates) {
+      try {
+        const response = await fetch(targetUrl, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8',
+          },
+          redirect: 'follow',
+        });
 
-    if (!response.ok) {
-      return res.status(response.status).send('Could not fetch image');
+        lastStatus = response.status;
+        if (!response.ok) continue;
+
+        const contentType = (response.headers.get('content-type') || 'image/png').toLowerCase();
+        if (contentType.includes('text/html') || contentType.includes('application/json')) {
+          continue;
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        if (buffer.length === 0) continue;
+
+        res.setHeader('Content-Type', contentType.startsWith('image/') ? contentType : 'image/jpeg');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        return res.send(buffer);
+      } catch {
+        // try next mirror
+      }
     }
 
-    const contentType = response.headers.get('content-type') || 'image/png';
-    if (contentType.toLowerCase().includes('text/html')) {
-      return res.status(404).send('Target returned HTML instead of an image');
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.send(buffer);
+    return res.status(lastStatus >= 400 ? lastStatus : 404).send('Could not fetch image');
   } catch (err: any) {
     console.warn('Error in /api/proxy-image:', err);
     return res.status(500).send('Proxy error: ' + err.message);

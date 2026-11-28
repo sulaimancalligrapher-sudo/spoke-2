@@ -59,7 +59,10 @@ import {
   getLocalMarkingConfig,
   saveMarkingCorrectionToSheets,
 } from '../../utils/markingSheets';
-import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
+import {
+  applyWatermarkToImageDataUrl,
+  combineImagesToSingleBase64,
+} from '../../utils/markingCanvasUtils';
 import { dedupeMediaUrls, getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
 import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
 import { MarkingAudioStudio } from './MarkingAudioStudio';
@@ -420,8 +423,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
     setFExtraAudioClips([]);
     setFExtraImagesB64([]);
+    const corrImgUrl = (c?.correctedImageUrl || '').trim();
     setFSavedAddImages(
-      Array.isArray(c?.additionalImages) ? Array.from(new Set(c.additionalImages.filter(Boolean))) : []
+      dedupeMediaUrls([
+        corrImgUrl,
+        ...(Array.isArray(c?.additionalImages) ? c.additionalImages : []),
+      ]).slice(corrImgUrl ? 1 : 0)
     );
     setFSavedImageLinks(
       Array.isArray(c?.imageLinks) ? Array.from(new Set(c.imageLinks.filter(Boolean))) : []
@@ -441,12 +448,33 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     videoRecorderRef.current?.resetPending();
   }, [activeSubmission?.submissionKey]);
 
-  // Keep saved attachments synced if updated externally (e.g. Batch Correction Modal)
+  const correctionSyncKey = useMemo(() => {
+    const c = activeSubmission?.correction;
+    if (!c) return '';
+    return [
+      activeSubmission?.submissionKey || '',
+      c.updatedAt || '',
+      c.correctedImageUrl || '',
+      (c.additionalImages || []).join('|'),
+      (c.imageLinks || []).join('|'),
+      c.teacherAudioUrl || '',
+      (c.teacherAudios || []).join('|'),
+      (c.audioLinks || []).join('|'),
+      c.teacherVideoUrl || '',
+      (c.teacherVideos || []).join('|'),
+    ].join('::');
+  }, [activeSubmission]);
+
+  // Keep saved attachments synced whenever correction payload updates (same-minute saves or Batch Correction Modal)
   useEffect(() => {
     if (!activeSubmission?.correction) return;
     const c = activeSubmission.correction;
+    const corrImgUrl = (c.correctedImageUrl || '').trim();
     setFSavedAddImages(
-      Array.isArray(c.additionalImages) ? Array.from(new Set(c.additionalImages.filter(Boolean))) : []
+      dedupeMediaUrls([
+        corrImgUrl,
+        ...(Array.isArray(c.additionalImages) ? c.additionalImages : []),
+      ]).slice(corrImgUrl ? 1 : 0)
     );
     setFSavedImageLinks(
       Array.isArray(c.imageLinks) ? Array.from(new Set(c.imageLinks.filter(Boolean))) : []
@@ -462,7 +490,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     const dedupedVids = dedupeMediaUrls([c.teacherVideoUrl, ...(c.teacherVideos || [])]);
     setFTeacherVideoUrl(dedupedVids[0] || '');
     setFExtraVideoUrls(dedupedVids.slice(1));
-  }, [activeSubmission?.correction?.updatedAt]);
+  }, [correctionSyncKey]);
 
   // Stats summary
   const stats = useMemo(() => {
@@ -566,18 +594,36 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     );
   };
 
-  const handleUploadExtraImages = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadExtraImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string' && reader.result.startsWith('data:image/')) {
-          setFExtraImagesB64((prev) => [...prev, reader.result as string]);
-        }
-      };
-      reader.readAsDataURL(file);
-    });
     e.target.value = '';
+    if (files.length === 0) return;
+
+    const processed: string[] = [];
+    for (const file of files) {
+      const rawDataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.readAsDataURL(file);
+      });
+      if (!rawDataUrl || !rawDataUrl.startsWith('data:image/')) continue;
+      const optimized = await applyWatermarkToImageDataUrl(
+        rawDataUrl,
+        markingConfig.watermark,
+        {
+          studentId: activeSubmission?.studentId,
+          studentName: activeSubmission?.studentName,
+          lessonTitle: activeSubmission?.itemTitle || 'التصحيح التفاعلي',
+        },
+        homeLogoUrl,
+        1600,
+        0.86
+      );
+      processed.push(optimized);
+    }
+    if (processed.length > 0) {
+      setFExtraImagesB64((prev) => [...prev, ...processed]);
+    }
   };
 
   const handleUploadAudioFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -679,7 +725,24 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       });
 
       if (res.success && res.correction) {
-        applyUpdatedCorrections([res.correction]);
+        const saved = res.correction;
+        applyUpdatedCorrections([saved]);
+        const savedCorrImg = (saved.correctedImageUrl || '').trim();
+        setFSavedAddImages(
+          dedupeMediaUrls([
+            savedCorrImg,
+            ...(Array.isArray(saved.additionalImages) ? saved.additionalImages : []),
+          ]).slice(savedCorrImg ? 1 : 0)
+        );
+        setFSavedImageLinks(
+          Array.isArray(saved.imageLinks) ? Array.from(new Set(saved.imageLinks.filter(Boolean))) : []
+        );
+        const syncedVids = dedupeMediaUrls([
+          saved.teacherVideoUrl,
+          ...(Array.isArray(saved.teacherVideos) ? saved.teacherVideos : []),
+        ]);
+        setFTeacherVideoUrl(syncedVids[0] || '');
+        setFExtraVideoUrls(syncedVids.slice(1));
         setFExtraImagesB64([]);
         setBoardOverrideImageUrl('');
         setFImgFeedback({
@@ -744,7 +807,20 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       });
 
       if (res.success && res.correction) {
-        applyUpdatedCorrections([res.correction]);
+        const saved = res.correction;
+        applyUpdatedCorrections([saved]);
+        setFSavedTeacherAudios(
+          Array.from(
+            new Set(
+              [saved.teacherAudioUrl || '', ...(Array.isArray(saved.teacherAudios) ? saved.teacherAudios : [])]
+                .map((u) => u.trim())
+                .filter(Boolean)
+            )
+          )
+        );
+        setFSavedAudioLinks(
+          Array.isArray(saved.audioLinks) ? Array.from(new Set(saved.audioLinks.filter(Boolean))) : []
+        );
         setFExtraAudioClips([]);
         setFAudioFeedback({
           type: 'ok',

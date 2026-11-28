@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbxjOltRjg6u2pt9y1gq74w3kOEn5AQdwUMGV8Tec7XzwN01APnuEUv03cmhSdZ48YFX3Q/exec';
+  'https://script.google.com/macros/s/AKfycbzOu5zJF5psmaUAArVmdqEkWov1M6cjpXwbCE_E9qzNojOG7h6S3wSVOAPBSRo8VRhVPQ/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4847,7 +4847,7 @@ function readMarkingCorrectionsGS(ss, filterStudentId, filterStudentName) {
       score: row[7] !== "" && row[7] !== null && row[7] !== undefined ? Number(row[7]) : undefined,
       ratingLabel: String(row[8] || "").trim(),
       notes: String(row[9] || "").trim(),
-      correctedImageUrl: corrImg || addImgs[0] || "",
+      correctedImageUrl: corrImg,
       additionalImages: addImgs,
       teacherAudioUrl: tAud || addAuds[0] || "",
       teacherAudios: addAuds,
@@ -5106,7 +5106,7 @@ function mirrorCorrectionToVideoSheetGS(ss, opts) {
 
 function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   var mcSheet = getMarkingCorrectionsSheet(ss);
-  var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Asia/Bangkok", "yyyy/MM/dd HH:mm");
+  var nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || "Asia/Bangkok", "yyyy/MM/dd HH:mm:ss");
   var sKey = String(item.submissionKey || "").trim();
   var exType = String(item.exerciseType || "video").trim();
   var sId = String(item.studentId || "").trim();
@@ -5157,8 +5157,7 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
 
   // Incoming parsed values
   var incCorrImg = String(item.correctedImageUrl || "").trim();
-  var incAddImgs = parseJsonStrArrayGS(item.additionalImages);
-  if (incCorrImg && incAddImgs.indexOf(incCorrImg) === -1) incAddImgs.unshift(incCorrImg);
+  var incAddImgs = mergeUniqueStrArrayGS([], parseJsonStrArrayGS(item.additionalImages));
   var incImgLinks = parseJsonStrArrayGS(item.imageLinks);
 
   var incTAuds = parseJsonStrArrayGS(item.teacherAudios);
@@ -5210,12 +5209,11 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
   if (saveMode === "image_only") {
     corrImg = incCorrImg || prevCorrImg;
     addImgs = Array.isArray(item.additionalImages)
-      ? (incCorrImg ? mergeUniqueStrArrayGS([incCorrImg], incAddImgs) : incAddImgs)
-      : (incCorrImg ? mergeUniqueStrArrayGS([incCorrImg], mergeUniqueStrArrayGS(incAddImgs, prevAddImgs)) : mergeUniqueStrArrayGS(prevAddImgs, incAddImgs));
-    if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
+      ? incAddImgs
+      : mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
     imgLinks = Array.isArray(item.imageLinks) ? incImgLinks : prevImgLinks;
     if (Array.isArray(item.teacherVideos)) {
-      tVideos = incTVids;
+      tVideos = mergeUniqueStrArrayGS([], incTVids);
       tVideo = incTVideo || tVideos[0] || "";
     } else if (incTVids.length > 0) {
       tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
@@ -5234,7 +5232,7 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     tAudio = incTAudio || (tAudios[0] || (Array.isArray(item.teacherAudios) ? "" : prevTAudio));
     audLinks = Array.isArray(item.audioLinks) ? incAudLinks : prevAudLinks;
     if (Array.isArray(item.teacherVideos)) {
-      tVideos = incTVids;
+      tVideos = mergeUniqueStrArrayGS([], incTVids);
       tVideo = incTVideo || tVideos[0] || "";
     } else if (incTVids.length > 0) {
       tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
@@ -5248,7 +5246,6 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     if (incAudStLbl) finalAudStLbl = incAudStLbl;
   } else if (saveMode === "append_image") {
     addImgs = mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
-    if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
     imgLinks = mergeUniqueStrArrayGS(prevImgLinks, incImgLinks);
     tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
     if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
@@ -5268,7 +5265,6 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     if (incAudStLbl) finalAudStLbl = incAudStLbl;
   } else if (saveMode === "append_both") {
     addImgs = mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
-    if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
     imgLinks = mergeUniqueStrArrayGS(prevImgLinks, incImgLinks);
     if (!finalImgStatus && (addImgs.length > 0 || imgLinks.length > 0 || incImgNotes || incTVids.length > 0)) finalImgStatus = incImgStatus || "corrected";
     if (incImgNotes) finalImgNotes = prevImgNotes ? (prevImgNotes + "\\n" + incImgNotes) : incImgNotes;
@@ -5287,7 +5283,7 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
   } else {
     // Full save mode
-    corrImg = incCorrImg || (incAddImgs[0] || "");
+    corrImg = item.correctedImageUrl !== undefined ? incCorrImg : prevCorrImg;
     addImgs = incAddImgs;
     imgLinks = incImgLinks;
     tAudio = incTAudio || (incTAuds[0] || "");
@@ -5359,7 +5355,12 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
       if (item.allowRetry) msgLines.push("🔓 تم فتح محاولة إضافية لك في المنصة.");
       msgLines.push("👨‍🏫 المعلم: " + tName);
       var tgVideos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" || saveMode === "full") ? (incTVids.length > 0 ? incTVids : (saveMode === "full" ? tVideos : [])) : [];
-      var tgPhotos = (saveMode === "image_only" || saveMode === "append_image" || saveMode === "append_both" || saveMode === "full") ? (incAddImgs.length > 0 ? incAddImgs : (saveMode === "full" && corrImg ? [corrImg] : [])) : [];
+      var tgPhotos = [];
+      if (saveMode === "image_only" || saveMode === "append_image" || saveMode === "append_both" || saveMode === "full") {
+        if (incCorrImg) tgPhotos.push(incCorrImg);
+        else if (saveMode === "full" && corrImg) tgPhotos.push(corrImg);
+        tgPhotos = mergeUniqueStrArrayGS(tgPhotos, incAddImgs);
+      }
       var tgAudios = (saveMode === "audio_only" || saveMode === "append_audio" || saveMode === "append_both" || saveMode === "full") ? (incTAuds.length > 0 ? incTAuds : (saveMode === "full" ? tAudios : [])) : [];
       tgSent = sendTelegramRichCorrectionGS(ss, stuChatId, msgLines.join("\\n"), tgVideos, tgPhotos, tgAudios).ok;
     }
@@ -9444,8 +9445,7 @@ function doPost(e) {
           if (upBImg) sharedAddImgs.push(upBImg);
         }
       }
-      if (sharedImgUrl && sharedAddImgs.indexOf(sharedImgUrl) === -1) sharedAddImgs.unshift(sharedImgUrl);
-      if (!sharedImgUrl && sharedAddImgs.length > 0) sharedImgUrl = sharedAddImgs[0];
+      sharedAddImgs = mergeUniqueStrArrayGS([], sharedAddImgs);
 
       if (data.sharedTeacherAudioBase64) {
         sharedAudUrl = uploadVideoBase64ToDriveGS(data.sharedTeacherAudioBase64, "batch_voice", "audio/mp3", "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t");

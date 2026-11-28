@@ -415,9 +415,10 @@ export const VideoCorrectionModal: React.FC<VideoCorrectionModalProps> = ({
               <div className="space-y-4">
                 {filteredCorrections.map((entry, idx) => {
                   const mainImg = resolveVideoQuestionImage(entry.correctedImage);
-                  const extras = (entry.additionalImages || [])
+                  const rawExtras = (entry.additionalImages || [])
                     .map((u) => resolveVideoQuestionImage(u))
                     .filter(Boolean);
+                  const extras = dedupeMediaUrls([mainImg, ...rawExtras]).slice(mainImg ? 1 : 0);
                   const matchedLesson = lessons.find((l) => l.title.trim() === entry.lessonTitle.trim());
                   return (
                     <div

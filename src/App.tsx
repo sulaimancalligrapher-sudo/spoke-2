@@ -1140,7 +1140,8 @@ export default function App() {
             parsedSheets.webhookUrl.includes('AKfycbyqkLw2qbPSAEzXgaq') ||
             parsedSheets.webhookUrl.includes('AKfycbxlYR9nhzBvTc63xCSsU') ||
             parsedSheets.webhookUrl.includes('AKfycbxpOZFT1T4lWwuDmK8WYrJ0At10Fj8v4UeWUQCQun9sb90J7PoH2_C8sQNGaN4hbOqslQ') ||
-            parsedSheets.webhookUrl.includes('AKfycbzlbWYra1WwqJcXpnsVKBmsZfxgugiELvnJ64gk4ya7KGHkn-H121CRsO3bKKBq3Co_cQ')
+            parsedSheets.webhookUrl.includes('AKfycbzlbWYra1WwqJcXpnsVKBmsZfxgugiELvnJ64gk4ya7KGHkn-H121CRsO3bKKBq3Co_cQ') ||
+            parsedSheets.webhookUrl.includes('AKfycbzxrxQzzCvgmAkXqR34tY9P2jT1llG6qnMIixZRrtYl6X1t2SaOFw3IQWuXz2sxGopZ6Q')
               ? DEFAULT_WEBHOOK_URL
               : parsedSheets.webhookUrl;
 

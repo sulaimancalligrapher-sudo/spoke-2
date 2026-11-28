@@ -213,6 +213,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
     const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
     const [bgLoading, setBgLoading] = useState<boolean>(false);
     const [bgLoadError, setBgLoadError] = useState<boolean>(false);
+    const [bgReloadTick, setBgReloadTick] = useState<number>(0);
 
     const [boardDims, setBoardDims] = useState<{ width: number; height: number }>({
       width: DEFAULT_BOARD_W,
@@ -345,11 +346,15 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
         return;
       }
 
-      const proxied = toSafeCanvasImageSrc(activeBaseImageUrl);
-      if (!proxied) {
+      const baseProxied = toSafeCanvasImageSrc(activeBaseImageUrl);
+      if (!baseProxied) {
         setBgLoading(false);
         return;
       }
+      const proxied =
+        bgReloadTick > 0 && baseProxied.startsWith('/api/proxy-image')
+          ? `${baseProxied}${baseProxied.includes('?') ? '&' : '?'}r=${bgReloadTick}`
+          : baseProxied;
 
       let cancelled = false;
       setBgLoading(true);
@@ -383,7 +388,7 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
       return () => {
         cancelled = true;
       };
-    }, [activeBaseImageUrl]);
+    }, [activeBaseImageUrl, bgReloadTick]);
 
     // Keep offscreen annotation canvas matched to boardDims
     useEffect(() => {
@@ -1481,9 +1486,16 @@ export const MarkingBlackboard = forwardRef<MarkingBlackboardHandle, MarkingBlac
           )}
 
           {bgLoadError && activeBaseImageUrl && (
-            <div className="absolute top-3 right-3 z-10 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-1.5">
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>تعذر تحميل الصورة داخل السبورة — يمكنك الكتابة مباشرة أو فتحها</span>
+            <div className="absolute top-3 right-3 z-10 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-2">
+              <ImageIcon className="w-3.5 h-3.5 shrink-0" />
+              <span>تعذر تحميل الصورة داخل السبورة</span>
+              <button
+                type="button"
+                onClick={() => setBgReloadTick((t) => t + 1)}
+                className="px-2 py-0.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 cursor-pointer"
+              >
+                إعادة تحميل
+              </button>
               <a
                 href={activeBaseImageUrl}
                 target="_blank"
