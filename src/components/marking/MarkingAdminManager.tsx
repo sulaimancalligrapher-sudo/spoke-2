@@ -19,6 +19,8 @@ import {
   MessageSquareText,
   RotateCcw,
   Stamp,
+  FolderOpen,
+  HardDrive,
 } from 'lucide-react';
 import {
   AdminUserRecord,
@@ -41,6 +43,7 @@ import {
 } from '../../utils/markingSheets';
 import { DEFAULT_WATERMARK_SETTINGS } from '../../utils/markingCanvasUtils';
 import { MarkingWorkspace } from './MarkingWorkspace';
+import { MarkingMediaLibrary } from './MarkingMediaLibrary';
 
 interface MarkingAdminManagerProps {
   webhookUrl: string;
@@ -63,7 +66,7 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
   platformTitle,
   homeLogoUrl,
 }) => {
-  const [subTab, setSubTab] = useState<'workspace' | 'settings'>('workspace');
+  const [subTab, setSubTab] = useState<'workspace' | 'settings' | 'media'>('workspace');
   const [config, setConfig] = useState<MarkingConfig>(() => getLocalMarkingConfig());
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -252,6 +255,19 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
               <Sliders className="w-3.5 h-3.5" />
               <span>الإعدادات والنصوص والاستيكرات</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setSubTab('media')}
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer ${
+                subTab === 'media'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>ملفات Drive و Cloudinary</span>
+            </button>
           </div>
         </div>
 
@@ -317,23 +333,23 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
         />
       )}
 
-      {/* SUBTAB 2: SETTINGS (CLOUDINARY, TELEGRAM, PRESET TEXTS, STICKERS) */}
+      {/* SUBTAB 2: SETTINGS (VIDEO STORAGE PROVIDER, CLOUDINARY, TELEGRAM, PRESET TEXTS, STICKERS) */}
       {subTab === 'settings' && (
         <form
           onSubmit={handleSaveConfig}
           className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-6"
         >
-          {/* Cloudinary Credentials */}
+          {/* Video Storage Provider Switch + Cloudinary Credentials */}
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Cloud className="w-5 h-5 text-sky-600" />
                 <div>
                   <h3 className="text-sm font-extrabold text-slate-900">
-                    بيانات حساب Cloudinary (لتخزين وبث فيديوهات التصحيح MP4)
+                    مكان حفظ فيديوهات التصحيح وإعدادات Cloudinary
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    الصق نفس قيم حساب Cloudinary الخاصة بك من مشروع marking3 ليتم رفع فيديو الكاميرا / OBS وتشغيله في تيليغرام والجوال
+                    اختر مكان حفظ فيديوهات الشرح المرسلة من المعلم (Google Drive أو Cloudinary MP4)، وتُشغل كلاهما مباشرة داخل الصفحة
                   </p>
                 </div>
               </div>
@@ -348,11 +364,66 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
               </button>
             </div>
 
+            {/* Explicit Provider Selector */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setConfig((prev) => ({ ...prev, videoStorageProvider: 'drive' }))}
+                className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex items-start gap-2.5 ${
+                  (config.videoStorageProvider || 'drive') === 'drive'
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <HardDrive className="w-5 h-5 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="text-xs font-extrabold">
+                    Google Drive (مجلد تصحيحات المعلم)
+                  </div>
+                  <div
+                    className={`text-[11px] font-semibold ${
+                      (config.videoStorageProvider || 'drive') === 'drive'
+                        ? 'text-emerald-50'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    يحفظ في مجلد Drive ويُبث داخل الصفحة عبر الوسيط السريع بدون تنزيل إجباري
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfig((prev) => ({ ...prev, videoStorageProvider: 'cloudinary' }))}
+                className={`p-3 rounded-xl border text-right transition-all cursor-pointer flex items-start gap-2.5 ${
+                  config.videoStorageProvider === 'cloudinary'
+                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                    : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <Cloud className="w-5 h-5 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="text-xs font-extrabold">
+                    Cloudinary (تخزين وبث MP4 سحابي)
+                  </div>
+                  <div
+                    className={`text-[11px] font-semibold ${
+                      config.videoStorageProvider === 'cloudinary'
+                        ? 'text-sky-50'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    مناسب للمقاطع الكبيرة حتى 80 MB وصيغة MP4 السريعة عبر الجوال وتيليغرام
+                  </div>
+                </div>
+              </button>
+            </div>
+
             {showCloudinaryHelp && (
               <div className="p-3.5 rounded-2xl bg-sky-50 border border-sky-200 text-xs text-sky-950 space-y-1 leading-relaxed">
-                <div>1- أدخل <strong>Cloud Name</strong> كما يظهر في لوحة Cloudinary أو في كود marking3.</div>
+                <div>1- أدخل <strong>Cloud Name</strong> كما يظهر في لوحة Cloudinary.</div>
                 <div>2- أدخل <strong>Upload Preset</strong> وتأكد من أنه مضبوط على وضع <strong>Unsigned</strong> في Cloudinary Settings → Upload.</div>
-                <div>3- سيتم تخزين الفيديوهات في Cloudinary بصيغة MP4 سريعة التشغيل، بينما تحفظ التسجيلات الصوتية وصور التصحيح في Google Drive تلقائياً.</div>
+                <div>3- التبديل بين Google Drive و Cloudinary أعلاه يحدد مباشرة أين تُرفع فيديوهات المعلم الجديدة عند التصحيح الفردي أو الجماعي.</div>
               </div>
             )}
 
@@ -950,6 +1021,9 @@ export const MarkingAdminManager: React.FC<MarkingAdminManagerProps> = ({
           )}
         </form>
       )}
+
+      {/* SUBTAB 3: MEDIA LIBRARY BROWSER (DRIVE & CLOUDINARY) */}
+      {subTab === 'media' && <MarkingMediaLibrary webhookUrl={webhookUrl} config={config} />}
     </div>
   );
 };

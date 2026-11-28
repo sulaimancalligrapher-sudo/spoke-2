@@ -867,7 +867,10 @@ export interface WatermarkSettings {
   textBgOpacity: number;
 }
 
+export type VideoStorageProvider = 'drive' | 'cloudinary';
+
 export interface MarkingConfig {
+  videoStorageProvider?: VideoStorageProvider;
   cloudinaryCloudName: string;
   cloudinaryUploadPreset: string;
   cloudinaryFolder: string;
@@ -880,6 +883,26 @@ export interface MarkingConfig {
   presetTexts?: MarkingPresetText[];
   stickers?: MarkingSticker[];
   watermark?: WatermarkSettings;
+}
+
+export interface MarkingMediaFileItem {
+  id: string;
+  name: string;
+  url: string;
+  mimeType?: string;
+  size?: number;
+  createdAt?: string;
+  source: 'drive' | 'cloudinary' | 'sheet';
+  folderKind?: 'teacher' | 'student';
+  mediaKind: 'video' | 'audio' | 'image' | 'pdf' | 'other';
+  publicId?: string;
+  cloudinaryResourceType?: 'video' | 'image' | 'raw';
+  referencedIn?: Array<{
+    submissionKey: string;
+    studentName: string;
+    studentId?: string;
+    itemTitle: string;
+  }>;
 }
 
 export interface TeacherCorrectionRecord {

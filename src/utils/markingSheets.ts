@@ -1,5 +1,6 @@
 import {
   MarkingConfig,
+  MarkingMediaFileItem,
   MarkingPresetText,
   MarkingSticker,
   StudentAchievementSummary,
@@ -40,6 +41,7 @@ export const DEFAULT_MARKING_STICKERS: MarkingSticker[] = [
 ];
 
 export const DEFAULT_MARKING_CONFIG: MarkingConfig = {
+  videoStorageProvider: 'drive',
   cloudinaryCloudName: '',
   cloudinaryUploadPreset: '',
   cloudinaryFolder: 'faseeh_marking',
@@ -334,11 +336,28 @@ export async function fetchMarkingWorkspaceData(
     };
   }
 
+  const remoteCloudName =
+    typeof data.config?.cloudinaryCloudName === 'string' &&
+    data.config.cloudinaryCloudName.trim() !== ''
+      ? data.config.cloudinaryCloudName.trim()
+      : localCfg.cloudinaryCloudName;
+  const remoteUploadPreset =
+    typeof data.config?.cloudinaryUploadPreset === 'string' &&
+    data.config.cloudinaryUploadPreset.trim() !== ''
+      ? data.config.cloudinaryUploadPreset.trim()
+      : localCfg.cloudinaryUploadPreset;
+  const remoteProvider =
+    data.config?.videoStorageProvider === 'cloudinary' ||
+    data.config?.videoStorageProvider === 'drive'
+      ? data.config.videoStorageProvider
+      : localCfg.videoStorageProvider || 'drive';
+
   const remoteCfg: MarkingConfig = {
     ...localCfg,
     ...(data.config || {}),
-    cloudinaryCloudName: data.config?.cloudinaryCloudName ?? localCfg.cloudinaryCloudName,
-    cloudinaryUploadPreset: data.config?.cloudinaryUploadPreset ?? localCfg.cloudinaryUploadPreset,
+    videoStorageProvider: remoteProvider,
+    cloudinaryCloudName: remoteCloudName,
+    cloudinaryUploadPreset: remoteUploadPreset,
     presetTexts:
       Array.isArray(data.config?.presetTexts) && data.config.presetTexts.length > 0
         ? data.config.presetTexts
@@ -904,3 +923,128 @@ export async function fetchStudentMarkingCorrections(
 
   return [];
 }
+
+export async function fetchMarkingDriveMediaFiles(
+  webhookUrl: string
+): Promise<{ success: boolean; files: MarkingMediaFileItem[]; error?: string }> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  if (!url.startsWith('http')) {
+    return { success: false, files: [], error: 'رابط Google Apps Script غير مضبوط.' };
+  }
+  const sep = url.includes('?') ? '&' : '?';
+  const targetUrl = `${url}${sep}action=list_marking_media_files&_t=${Date.now()}`;
+  let data: any = null;
+  try {
+    const proxyRes = await fetch(`/api/google-sheets?url=${encodeURIComponent(targetUrl)}`);
+    if (proxyRes.ok) data = await proxyRes.json().catch(() => null);
+  } catch {}
+  if (!data || !data.success) {
+    try {
+      const directRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (directRes.ok) data = await directRes.json().catch(() => null);
+    } catch {}
+  }
+
+  if (data?.success && Array.isArray(data.files)) {
+    return {
+      success: true,
+      files: data.files as MarkingMediaFileItem[],
+    };
+  }
+  return {
+    success: false,
+    files: [],
+    error: data?.error || 'تعذر جلب ملفات Google Drive. تأكد من تحديث ونشر Apps Script الجديد.',
+  };
+}
+
+export async function deleteMarkingMediaFileFromSheetsAndDrive(
+  webhookUrl: string,
+  payload: { fileId?: string; url?: string }
+): Promise<{ success: boolean; trashedDrive?: boolean; cleanedRows?: number; error?: string }> {
+  const url = (webhookUrl || DEFAULT_WEBHOOK_URL).trim();
+  const res = await callGoogleSheetsPost(url, {
+    action: 'delete_marking_media_file',
+    fileId: payload.fileId || '',
+    url: payload.url || '',
+  });
+  const raw: any = res;
+  const d: any = res.data || raw;
+  if (d?.success) {
+    return {
+      success: true,
+      trashedDrive: Boolean(d.trashedDrive),
+      cleanedRows: Number(d.cleanedRows || 0),
+    };
+  }
+  return {
+    success: false,
+    error: d?.error || res.error || 'تعذر حذف الملف من Drive / الشيت.',
+  };
+}
+
+export async function fetchCloudinaryLibraryResources(params?: {
+  cloudName?: string;
+}): Promise<{
+  success: boolean;
+  configured: boolean;
+  files: MarkingMediaFileItem[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/cloudinary/resources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cloudName: params?.cloudName || '',
+      }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!data) {
+      return { success: false, configured: false, files: [], error: 'استجابة غير صالحة من الخادم.' };
+    }
+    return {
+      success: Boolean(data.success),
+      configured: Boolean(data.configured),
+      files: Array.isArray(data.files) ? (data.files as MarkingMediaFileItem[]) : [],
+      error: data.error,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      configured: false,
+      files: [],
+      error: err?.message || 'تعذر الاتصال بخدمة Cloudinary في الخادم.',
+    };
+  }
+}
+
+export async function deleteCloudinaryLibraryResource(params: {
+  publicId: string;
+  resourceType?: 'video' | 'image' | 'raw';
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/cloudinary/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.success) {
+      return { success: true };
+    }
+    return {
+      success: false,
+      error: data?.error || 'تعذر حذف الملف من Cloudinary.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'تعذر حذف الملف من Cloudinary.',
+    };
+  }
+}
+

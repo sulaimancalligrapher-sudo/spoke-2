@@ -36,6 +36,8 @@ import {
   Upload,
   X,
   MessageSquare,
+  ExternalLink,
+  Link2,
 } from 'lucide-react';
 import {
   AdminUserRecord,
@@ -58,7 +60,7 @@ import {
   saveMarkingCorrectionToSheets,
 } from '../../utils/markingSheets';
 import { combineImagesToSingleBase64 } from '../../utils/markingCanvasUtils';
-import { getDirectImageUrl } from '../../utils/mediaUrl';
+import { getAlternativeAudioUrls, getDirectImageUrl } from '../../utils/mediaUrl';
 import { MarkingBlackboard, MarkingBlackboardHandle } from './MarkingBlackboard';
 import { MarkingAudioStudio } from './MarkingAudioStudio';
 import { MarkingPhotoCapture } from './MarkingPhotoCapture';
@@ -190,6 +192,10 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
   >([]);
 
   const [fExtraImagesB64, setFExtraImagesB64] = useState<string[]>([]);
+  const [fSavedAddImages, setFSavedAddImages] = useState<string[]>([]);
+  const [fSavedImageLinks, setFSavedImageLinks] = useState<string[]>([]);
+  const [fSavedTeacherAudios, setFSavedTeacherAudios] = useState<string[]>([]);
+  const [fSavedAudioLinks, setFSavedAudioLinks] = useState<string[]>([]);
   const [stitchExtraImages, setStitchExtraImages] = useState<boolean>(false);
   const [fTeacherVideoUrl, setFTeacherVideoUrl] = useState<string>('');
   const [fExtraVideoUrls, setFExtraVideoUrls] = useState<string[]>([]);
@@ -265,15 +271,14 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       setMarkingConfig(res.config || DEFAULT_MARKING_CONFIG);
       if (res.success) {
         const videoOnly = res.submissions.filter((s) => s.exerciseType === 'video');
-        const effectiveList = videoOnly.length > 0 ? videoOnly : res.submissions;
-        setSubmissions(effectiveList);
+        setSubmissions(videoOnly);
         if (initialSubmissionKey) {
-          const match = res.submissions.find((s) => s.submissionKey === initialSubmissionKey);
+          const match = videoOnly.find((s) => s.submissionKey === initialSubmissionKey);
           if (match) setSelectedKey(match.submissionKey);
         } else {
           // Keep current selection if still valid, otherwise stay blank so teacher picks manually
           setSelectedKey((prev) =>
-            prev && effectiveList.some((s) => s.submissionKey === prev) ? prev : ''
+            prev && videoOnly.some((s) => s.submissionKey === prev) ? prev : ''
           );
         }
       } else {
@@ -415,6 +420,19 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
 
     setFExtraAudioClips([]);
     setFExtraImagesB64([]);
+    setFSavedAddImages(
+      Array.isArray(c?.additionalImages) ? Array.from(new Set(c.additionalImages.filter(Boolean))) : []
+    );
+    setFSavedImageLinks(
+      Array.isArray(c?.imageLinks) ? Array.from(new Set(c.imageLinks.filter(Boolean))) : []
+    );
+    const mergedSavedAuds = Array.from(
+      new Set([c?.teacherAudioUrl || '', ...(c?.teacherAudios || [])].map((u) => u.trim()).filter(Boolean))
+    );
+    setFSavedTeacherAudios(mergedSavedAuds);
+    setFSavedAudioLinks(
+      Array.isArray(c?.audioLinks) ? Array.from(new Set(c.audioLinks.filter(Boolean))) : []
+    );
     setFTeacherVideoUrl(c?.teacherVideoUrl || '');
     setFExtraVideoUrls(
       Array.isArray(c?.teacherVideos)
@@ -424,6 +442,32 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
     setFAllowRetry(Boolean(c?.allowRetry));
     setFSendTelegram(markingConfig.notifyStudentOnCorrection !== false);
   }, [activeSubmission?.submissionKey]);
+
+  // Keep saved attachments synced if updated externally (e.g. Batch Correction Modal)
+  useEffect(() => {
+    if (!activeSubmission?.correction) return;
+    const c = activeSubmission.correction;
+    setFSavedAddImages(
+      Array.isArray(c.additionalImages) ? Array.from(new Set(c.additionalImages.filter(Boolean))) : []
+    );
+    setFSavedImageLinks(
+      Array.isArray(c.imageLinks) ? Array.from(new Set(c.imageLinks.filter(Boolean))) : []
+    );
+    setFSavedTeacherAudios(
+      Array.from(
+        new Set([c.teacherAudioUrl || '', ...(c.teacherAudios || [])].map((u) => u.trim()).filter(Boolean))
+      )
+    );
+    setFSavedAudioLinks(
+      Array.isArray(c.audioLinks) ? Array.from(new Set(c.audioLinks.filter(Boolean))) : []
+    );
+    setFTeacherVideoUrl(c.teacherVideoUrl || c.teacherVideos?.[0] || '');
+    setFExtraVideoUrls(
+      Array.isArray(c.teacherVideos)
+        ? c.teacherVideos.filter((v) => v && v !== (c.teacherVideoUrl || c.teacherVideos?.[0]))
+        : []
+    );
+  }, [activeSubmission?.correction?.updatedAt]);
 
   // Stats summary
   const stats = useMemo(() => {
@@ -630,10 +674,11 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           ? activeSubmission.correction?.correctedImageUrl
           : undefined,
         correctedImageBase64: annotatedBase64,
-        additionalImages: activeSubmission.correction?.additionalImages,
+        additionalImages: fSavedAddImages,
         additionalImagesBase64: preparedExtraImages,
-        teacherVideoUrl: uniqueVideos[0] || undefined,
-        teacherVideos: uniqueVideos.length > 0 ? uniqueVideos : undefined,
+        imageLinks: fSavedImageLinks,
+        teacherVideoUrl: uniqueVideos[0] || '',
+        teacherVideos: uniqueVideos,
         allowRetry: fAllowRetry || fImgStatus === 'retry',
         sendTelegram: fSendTelegram,
         teacherName,
@@ -678,7 +723,7 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
       ].filter(Boolean);
       const uniqueVideos = Array.from(new Set(allVideos));
       const parsedScore = fAudioScore.trim() !== '' ? Number(fAudioScore) : undefined;
-      const existingAudUrl = (activeSubmission.correction?.teacherAudioUrl || '').trim();
+      const existingAudUrl = fSavedTeacherAudios[0] || '';
       const primaryAudioB64 =
         !existingAudUrl && fExtraAudioClips.length > 0 ? fExtraAudioClips[0].base64 : undefined;
       const extraAudioB64s = !existingAudUrl
@@ -705,12 +750,13 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
         audioStickerLabel: fAudioStickerLabel || undefined,
         stickerSymbol: fAudioStickerSymbol || undefined,
         stickerLabel: fAudioStickerLabel || undefined,
-        teacherAudioUrl: existingAudUrl || undefined,
+        teacherAudioUrl: existingAudUrl,
         teacherAudioBase64: primaryAudioB64,
-        teacherAudios: activeSubmission.correction?.teacherAudios,
+        teacherAudios: fSavedTeacherAudios,
         teacherAudiosBase64: extraAudioB64s.length > 0 ? extraAudioB64s : undefined,
-        teacherVideoUrl: uniqueVideos[0] || undefined,
-        teacherVideos: uniqueVideos.length > 0 ? uniqueVideos : undefined,
+        audioLinks: fSavedAudioLinks,
+        teacherVideoUrl: uniqueVideos[0] || '',
+        teacherVideos: uniqueVideos,
         allowRetry: fAllowRetry || fAudioStatus === 'retry',
         sendTelegram: fSendTelegram,
         teacherName,
@@ -1308,6 +1354,15 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
           </div>
         )}
 
+        {!loading && !loadError && submissions.length === 0 && (
+          <div className="p-4 rounded-2xl bg-sky-50 border border-sky-200 text-sky-950 text-xs font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-sky-600 shrink-0" />
+            <span>
+              لا توجد تسليمات مسجلة في قسم الفيديو التفاعلي (ورقة «فيديو_الإجابات») حتى الآن.
+            </span>
+          </div>
+        )}
+
         {/* Streamlined Card 3 (Active Student Summary: Strictly Name + ID + Lesson + Achievement Report Button) */}
         {activeSubmission && (
           <div className="bg-white rounded-2xl border border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -1408,17 +1463,99 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     onTriggerVideo: () => setVideoModalTrigger((c) => c + 1),
                     onTriggerPhoto: () => setPhotoModalTrigger((c) => c + 1),
                     onTriggerUploadImage: () => extraImageUploadInputRef.current?.click(),
-                    extraPhotosCount: fExtraImagesB64.length,
+                    extraPhotosCount:
+                      fSavedAddImages.length + fSavedImageLinks.length + fExtraImagesB64.length,
                     extraVideosCount:
                       (fTeacherVideoUrl ? 1 : 0) + fExtraVideoUrls.length,
                     extraAttachmentsPreview: (
-                      fExtraImagesB64.length > 0 || fTeacherVideoUrl || fExtraVideoUrls.length > 0
+                      fSavedAddImages.length > 0 ||
+                      fSavedImageLinks.length > 0 ||
+                      fExtraImagesB64.length > 0 ||
+                      fTeacherVideoUrl ||
+                      fExtraVideoUrls.length > 0
                     ) ? (
-                      <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                      <div className="space-y-3 pt-2 border-t border-slate-100">
+                        {fSavedAddImages.length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-bold text-emerald-800">
+                              صور وملفات التصحيح المحفوظة ({fSavedAddImages.length}):
+                            </div>
+                            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                              {fSavedAddImages.map((imgUrl, idx) => (
+                                <div
+                                  key={`${imgUrl}-${idx}`}
+                                  className="relative group rounded-xl overflow-hidden border border-emerald-200 bg-slate-50 aspect-square"
+                                >
+                                  <img
+                                    src={getDirectImageUrl(imgUrl)}
+                                    alt={`محفوظ ${idx + 1}`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                  <a
+                                    href={imgUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="absolute bottom-1 right-1 p-1 rounded-lg bg-slate-900/80 text-white"
+                                    title="فتح الصورة"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFSavedAddImages((p) => p.filter((_, i) => i !== idx))
+                                    }
+                                    className="absolute top-1 left-1 p-1 rounded-lg bg-rose-600 text-white cursor-pointer"
+                                    title="إزالة الصورة المحفوظة (اضغط إرسال لتأكيد الحفظ)"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {fSavedImageLinks.length > 0 && (
+                          <div className="space-y-1">
+                            <div className="text-[11px] font-bold text-slate-700">
+                              روابط وملفات مرفقة مع الصورة ({fSavedImageLinks.length}):
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {fSavedImageLinks.map((lnk, idx) => (
+                                <div
+                                  key={`${lnk}-${idx}`}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[11px]"
+                                >
+                                  <Link2 className="w-3 h-3 text-emerald-700 shrink-0" />
+                                  <a
+                                    href={lnk}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-mono text-indigo-700 hover:underline max-w-[200px] truncate"
+                                  >
+                                    {lnk}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setFSavedImageLinks((p) => p.filter((_, i) => i !== idx))
+                                    }
+                                    className="text-rose-600 hover:text-rose-800 cursor-pointer"
+                                    title="إزالة الرابط"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         {fExtraImagesB64.length > 0 && (
                           <div className="space-y-1.5">
                             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-slate-700">
-                              <span>صور التوضيح المرفقة ({fExtraImagesB64.length}):</span>
+                              <span>صور جديدة بانتظار الإرسال ({fExtraImagesB64.length}):</span>
                               {fExtraImagesB64.length > 1 && (
                                 <label className="inline-flex items-center gap-1.5 cursor-pointer">
                                   <input
@@ -1473,8 +1610,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                                     label={`فيديو #${idx + 1}`}
                                     compact
                                     onRemove={() => {
-                                      if (vUrl === fTeacherVideoUrl) setFTeacherVideoUrl('');
-                                      else setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                                      if (vUrl === fTeacherVideoUrl) {
+                                        setFTeacherVideoUrl(fExtraVideoUrls[0] || '');
+                                        setFExtraVideoUrls((p) => p.slice(1));
+                                      } else {
+                                        setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                                      }
                                     }}
                                   />
                                 ))}
@@ -1504,8 +1645,8 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
               </div>
             )}
 
-            {/* Inline Correction Video Player Preview inside the page (Drive / YouTube / Cloudinary) */}
-            {(fTeacherVideoUrl || fExtraVideoUrls.length > 0) && (
+            {/* Inline video block shown ONLY when blackboard is hidden to prevent duplication */}
+            {!shouldShowBlackboard && (fTeacherVideoUrl || fExtraVideoUrls.length > 0) && (
               <div className="bg-white rounded-2xl border border-indigo-200 p-4 space-y-2.5">
                 <div className="text-xs font-extrabold text-indigo-950 flex items-center gap-1.5">
                   <Video className="w-4 h-4 text-indigo-600" />
@@ -1521,8 +1662,12 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                         label={`فيديو التصحيح #${idx + 1}`}
                         compact
                         onRemove={() => {
-                          if (vUrl === fTeacherVideoUrl) setFTeacherVideoUrl('');
-                          else setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                          if (vUrl === fTeacherVideoUrl) {
+                            setFTeacherVideoUrl(fExtraVideoUrls[0] || '');
+                            setFExtraVideoUrls((p) => p.slice(1));
+                          } else {
+                            setFExtraVideoUrls((p) => p.filter((u) => u !== vUrl));
+                          }
                         }}
                       />
                     ))}
@@ -1617,16 +1762,16 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                   className={`px-4 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors ${
                     audioExplainOpen
                       ? 'bg-rose-600 text-white border-rose-600'
-                      : fExtraAudioClips.length > 0 || activeSubmission.correction?.teacherAudioUrl
+                      : fExtraAudioClips.length > 0 || fSavedTeacherAudios.length > 0 || fSavedAudioLinks.length > 0
                       ? 'bg-rose-50 text-rose-900 border-rose-300 hover:bg-rose-100'
                       : 'bg-slate-50 text-slate-800 border-slate-300 hover:bg-slate-100'
                   }`}
                 >
                   <Mic className="w-4 h-4" />
                   <span>شرح توضيحية</span>
-                  {(fExtraAudioClips.length > 0 || activeSubmission.correction?.teacherAudioUrl) && (
-                    <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono">
-                      {fExtraAudioClips.length + (activeSubmission.correction?.teacherAudioUrl ? 1 : 0)}
+                  {(fExtraAudioClips.length > 0 || fSavedTeacherAudios.length > 0 || fSavedAudioLinks.length > 0) && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-mono tabular-nums">
+                      {fExtraAudioClips.length + fSavedTeacherAudios.length + fSavedAudioLinks.length}
                     </span>
                   )}
                   <ChevronDown
@@ -1696,16 +1841,77 @@ export const MarkingWorkspace: React.FC<MarkingWorkspaceProps> = ({
                     </button>
                   </div>
 
-                  {activeSubmission.correction?.teacherAudioUrl && (
-                    <div className="p-2.5 rounded-xl bg-white border border-indigo-200 space-y-1.5">
+                  {fSavedTeacherAudios.length > 0 && (
+                    <div className="p-2.5 rounded-xl bg-white border border-indigo-200 space-y-2">
                       <div className="text-[11px] font-bold text-indigo-900">
-                        تسجيل المعلم المحفوظ سابقاً:
+                        تسجيلات المعلم المحفوظة ({fSavedTeacherAudios.length}):
                       </div>
-                      <audio
-                        controls
-                        src={activeSubmission.correction.teacherAudioUrl}
-                        className="w-full h-9"
-                      />
+                      {fSavedTeacherAudios.map((audUrl, idx) => {
+                        const resolvedAud = getAlternativeAudioUrls(audUrl)[0] || audUrl;
+                        return (
+                          <div key={`${audUrl}-${idx}`} className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-indigo-700 shrink-0 tabular-nums">
+                              #{idx + 1}
+                            </span>
+                            <audio controls src={resolvedAud} className="flex-1 h-9 min-w-0" />
+                            <a
+                              href={audUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 shrink-0"
+                              title="فتح الرابط"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFSavedTeacherAudios((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              className="p-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 cursor-pointer shrink-0"
+                              title="إزالة المقطع المحفوظ (اضغط إرسال للتأكيد)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {fSavedAudioLinks.length > 0 && (
+                    <div className="p-2.5 rounded-xl bg-white border border-slate-200 space-y-1.5">
+                      <div className="text-[11px] font-bold text-slate-700">
+                        روابط صوتية مرفقة ({fSavedAudioLinks.length}):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {fSavedAudioLinks.map((lnk, idx) => (
+                          <div
+                            key={`${lnk}-${idx}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[11px]"
+                          >
+                            <Link2 className="w-3 h-3 text-indigo-700 shrink-0" />
+                            <a
+                              href={lnk}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono text-indigo-700 hover:underline max-w-[200px] truncate"
+                            >
+                              {lnk}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFSavedAudioLinks((prev) => prev.filter((_, i) => i !== idx))
+                              }
+                              className="text-rose-600 hover:text-rose-800 cursor-pointer"
+                              title="إزالة الرابط"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

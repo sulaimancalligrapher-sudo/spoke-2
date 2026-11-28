@@ -1,5 +1,5 @@
-import React from 'react';
-import { ExternalLink, Trash2, Video } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ExternalLink, RefreshCw, Trash2, Video } from 'lucide-react';
 import { extractYouTubeVideoId } from '../../video/videoSheets';
 import { extractDriveFileId } from '../../utils/mediaUrl';
 import { toCloudinaryMp4Url } from '../../utils/markingSheets';
@@ -30,6 +30,12 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
   className = '',
 }) => {
   const cleanUrl = (url || '').trim();
+  const [useProxyStream, setUseProxyStream] = useState(true);
+
+  useEffect(() => {
+    setUseProxyStream(true);
+  }, [cleanUrl]);
+
   if (!cleanUrl) return null;
 
   const ytId = extractYouTubeVideoId(cleanUrl);
@@ -44,8 +50,24 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
         <div className="flex items-center gap-1.5 text-slate-800 min-w-0">
           <Video className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
           <span className="truncate">{label}</span>
+          {driveId && (
+            <span className="px-1.5 py-0.5 rounded bg-slate-200/70 text-slate-600 text-[10px] font-bold shrink-0">
+              Drive
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {driveId && (
+            <button
+              type="button"
+              onClick={() => setUseProxyStream((v) => !v)}
+              className="text-slate-600 hover:text-slate-900 inline-flex items-center gap-1 cursor-pointer"
+              title="التبديل بين المشغل المباشر ومشغل Drive"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span>{useProxyStream ? 'مشغل Drive' : 'بث مباشر'}</span>
+            </button>
+          )}
           {openExternalUrl && !cleanUrl.startsWith('blob:') && (
             <a
               href={openExternalUrl}
@@ -81,13 +103,26 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
             allowFullScreen
           />
         ) : driveId ? (
-          <iframe
-            src={`https://drive.google.com/file/d/${driveId}/preview`}
-            title={label}
-            className={`w-full ${frameHeightClass}`}
-            allow="autoplay; fullscreen"
-            allowFullScreen
-          />
+          useProxyStream ? (
+            <video
+              key={`proxy-${driveId}`}
+              src={`/api/proxy-video?id=${encodeURIComponent(driveId)}`}
+              controls
+              playsInline
+              preload="metadata"
+              onError={() => setUseProxyStream(false)}
+              className={`w-full ${compact ? 'max-h-48' : 'max-h-80'} bg-slate-950`}
+            />
+          ) : (
+            <iframe
+              key={`iframe-${driveId}`}
+              src={`https://drive.google.com/file/d/${driveId}/preview`}
+              title={label}
+              className={`w-full ${frameHeightClass}`}
+              allow="autoplay; fullscreen"
+              allowFullScreen
+            />
+          )
         ) : (
           <video
             src={playableMp4}
@@ -101,3 +136,4 @@ export const CorrectionVideoPlayer: React.FC<CorrectionVideoPlayerProps> = ({
     </div>
   );
 };
+

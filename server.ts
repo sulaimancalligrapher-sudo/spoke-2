@@ -502,6 +502,143 @@ app.get('/api/proxy-image', async (req, res) => {
 });
 
 /**
+ * Proxy & stream Google Drive video with HTTP Range support for smooth inline HTML5 playback
+ */
+app.get('/api/proxy-video', async (req, res) => {
+  try {
+    const fileId = String(req.query.id || '').trim();
+    if (!fileId || !/^[a-zA-Z0-9_-]{10,120}$/.test(fileId)) {
+      return res.status(400).send('Invalid or missing Drive file ID');
+    }
+
+    const rawRange = typeof req.headers.range === 'string' ? req.headers.range.trim() : '';
+    const validRange =
+      rawRange && /^bytes=\d*-\d*(,\s*\d*-\d*)*$/.test(rawRange) ? rawRange : '';
+
+    const buildHeaders = (withRange: boolean): Record<string, string> => {
+      const h: Record<string, string> = {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        Accept: '*/*',
+      };
+      if (withRange && validRange) {
+        h.Range = validRange;
+      }
+      return h;
+    };
+
+    const driveEndpoints = [
+      `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t&authuser=0`,
+      `https://drive.google.com/uc?export=download&confirm=t&id=${encodeURIComponent(fileId)}`,
+    ];
+
+    let finalResponse: globalThis.Response | null = null;
+
+    for (const endpoint of driveEndpoints) {
+      try {
+        const r = await fetch(endpoint, {
+          headers: buildHeaders(true),
+          redirect: 'follow',
+        });
+
+        if (r.ok || r.status === 206) {
+          const contentType = (r.headers.get('content-type') || '').toLowerCase();
+          if (contentType.includes('text/html')) {
+            const html = await r.text();
+            const confirmMatch = html.match(/confirm=([0-9A-Za-z_-]+)/);
+            const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/);
+            if (confirmMatch && confirmMatch[1]) {
+              const confirmedUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(
+                fileId
+              )}&export=download&confirm=${encodeURIComponent(confirmMatch[1])}${
+                uuidMatch?.[1] ? `&uuid=${encodeURIComponent(uuidMatch[1])}` : ''
+              }`;
+              const rConfirm = await fetch(confirmedUrl, {
+                headers: buildHeaders(true),
+                redirect: 'follow',
+              });
+              if (
+                (rConfirm.ok || rConfirm.status === 206) &&
+                !(rConfirm.headers.get('content-type') || '').toLowerCase().includes('text/html')
+              ) {
+                finalResponse = rConfirm;
+                break;
+              }
+            }
+          } else {
+            finalResponse = r;
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('Drive video proxy try failed:', e);
+      }
+    }
+
+    if (!finalResponse || (!finalResponse.ok && finalResponse.status !== 206)) {
+      return res
+        .status(404)
+        .send('Could not stream video from Google Drive. Ensure file sharing is enabled.');
+    }
+
+    const rawCt = (finalResponse.headers.get('content-type') || '').toLowerCase();
+    const resolvedCt =
+      !rawCt || rawCt.includes('application/octet-stream') || rawCt.includes('text/html')
+        ? 'video/mp4'
+        : rawCt;
+
+    const status = finalResponse.status === 206 ? 206 : 200;
+    res.status(status);
+    res.setHeader('Content-Type', resolvedCt);
+    res.setHeader('Accept-Ranges', finalResponse.headers.get('accept-ranges') || 'bytes');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    const contentLength = finalResponse.headers.get('content-length');
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    const contentRange = finalResponse.headers.get('content-range');
+    if (contentRange) res.setHeader('Content-Range', contentRange);
+
+    if (!finalResponse.body) {
+      const arrBuf = await finalResponse.arrayBuffer();
+      return res.send(Buffer.from(arrBuf));
+    }
+
+    const reader = finalResponse.body.getReader();
+    let aborted = false;
+    res.on('close', () => {
+      aborted = true;
+      reader.cancel().catch(() => {});
+    });
+
+    while (!aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.byteLength > 0) {
+        const canContinue = res.write(Buffer.from(value));
+        if (!canContinue && !aborted) {
+          await new Promise<void>((resolve) => {
+            res.once('drain', resolve);
+            res.once('close', resolve);
+          });
+        }
+      }
+    }
+    if (!res.writableEnded) {
+      res.end();
+    }
+    return;
+  } catch (err: any) {
+    console.warn('Error in /api/proxy-video:', err);
+    if (!res.headersSent) {
+      return res.status(500).send('Video proxy error: ' + (err?.message || 'Unknown error'));
+    }
+    res.end();
+    return;
+  }
+});
+
+/**
  * Universal Arabic TTS Audio Stream endpoint
  * Fetches Google Translate TTS on server side without client-side Referer block
  */
@@ -909,6 +1046,157 @@ app.all('/api/google-sheets', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Proxy Error: ' + (err?.message || 'Failed to communicate with Google Sheets'),
+    });
+  }
+});
+
+/**
+ * Cloudinary Admin API proxy (strictly uses server-side environment secrets)
+ */
+app.post('/api/cloudinary/resources', async (req, res) => {
+  try {
+    const requestedCloud = String(req.body?.cloudName || '').trim();
+    const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || requestedCloud).trim();
+    const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim();
+    const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim();
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.json({
+        success: false,
+        configured: false,
+        files: [],
+        error: 'مفاتيح Admin API لـ Cloudinary (CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET) غير مضافة في أسرار الخادم (.env).',
+      });
+    }
+
+    if (!/^[a-zA-Z0-9_-]{2,80}$/.test(cloudName)) {
+      return res.status(400).json({
+        success: false,
+        configured: false,
+        files: [],
+        error: 'اسم سحابة Cloudinary غير صالح.',
+      });
+    }
+
+    const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
+    const types: Array<'video' | 'image' | 'raw'> = ['video', 'image', 'raw'];
+    const combined: any[] = [];
+
+    for (const rType of types) {
+      const apiUrl = `https://api.cloudinary.com/v1_1/${encodeURIComponent(
+        cloudName
+      )}/resources/${rType}?max_results=80`;
+      const resp = await fetch(apiUrl, {
+        headers: {
+          Authorization: authHeader,
+          Accept: 'application/json',
+        },
+      });
+      if (!resp.ok) continue;
+      const data = await resp.json().catch(() => null);
+      if (data && Array.isArray(data.resources)) {
+        for (const item of data.resources) {
+          const publicId = String(item.public_id || '').trim();
+          const secureUrl = String(item.secure_url || item.url || '').trim();
+          if (!publicId || !secureUrl) continue;
+          const fmt = String(item.format || '').toLowerCase();
+          combined.push({
+            id: `cld-${rType}-${publicId}`,
+            name: `${publicId}${fmt ? `.${fmt}` : ''}`,
+            url: secureUrl,
+            mimeType:
+              rType === 'video'
+                ? `video/${fmt || 'mp4'}`
+                : rType === 'image'
+                ? `image/${fmt || 'png'}`
+                : fmt === 'pdf'
+                ? 'application/pdf'
+                : 'application/octet-stream',
+            size: typeof item.bytes === 'number' ? item.bytes : undefined,
+            createdAt: String(item.created_at || ''),
+            source: 'cloudinary',
+            mediaKind:
+              rType === 'video'
+                ? 'video'
+                : rType === 'image'
+                ? 'image'
+                : fmt === 'pdf'
+                ? 'pdf'
+                : 'other',
+            publicId,
+            cloudinaryResourceType: rType,
+          });
+        }
+      }
+    }
+
+    combined.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return res.json({
+      success: true,
+      configured: true,
+      files: combined,
+    });
+  } catch (err: any) {
+    console.warn('Error in /api/cloudinary/resources:', err);
+    return res.status(500).json({
+      success: false,
+      configured: true,
+      files: [],
+      error: err?.message || 'تعذر جلب موارد Cloudinary.',
+    });
+  }
+});
+
+app.post('/api/cloudinary/delete', async (req, res) => {
+  try {
+    const publicId = String(req.body?.publicId || '').trim();
+    const resourceTypeRaw = String(req.body?.resourceType || 'video').trim();
+    const resourceType: 'video' | 'image' | 'raw' =
+      resourceTypeRaw === 'image' || resourceTypeRaw === 'raw' ? resourceTypeRaw : 'video';
+
+    const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+    const apiKey = (process.env.CLOUDINARY_API_KEY || '').trim();
+    const apiSecret = (process.env.CLOUDINARY_API_SECRET || '').trim();
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.status(400).json({
+        success: false,
+        error: 'مفاتيح Admin API لـ Cloudinary غير مضبوطة في الخادم.',
+      });
+    }
+    if (!/^[a-zA-Z0-9_-]{2,80}$/.test(cloudName)) {
+      return res.status(400).json({ success: false, error: 'اسم سحابة Cloudinary غير صالح.' });
+    }
+    if (!publicId || publicId.length > 300 || !/^[a-zA-Z0-9_\-./]+$/.test(publicId)) {
+      return res.status(400).json({ success: false, error: 'معرف الملف (publicId) غير صالح.' });
+    }
+
+    const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
+    const deleteUrl = `https://api.cloudinary.com/v1_1/${encodeURIComponent(
+      cloudName
+    )}/resources/${resourceType}/upload?public_ids[]=${encodeURIComponent(publicId)}`;
+
+    const resp = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: {
+        Authorization: authHeader,
+        Accept: 'application/json',
+      },
+    });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok) {
+      return res.status(resp.status).json({
+        success: false,
+        error: data?.error?.message || 'تعذر حذف الملف من Cloudinary.',
+      });
+    }
+
+    return res.json({ success: true, result: data });
+  } catch (err: any) {
+    console.warn('Error in /api/cloudinary/delete:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'تعذر حذف الملف من Cloudinary.',
     });
   }
 });

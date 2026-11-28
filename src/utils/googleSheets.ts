@@ -51,7 +51,7 @@ import {
 export const DEFAULT_DRIVE_AUDIO_FOLDER_ID = '1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t'; // مجلد أصوات وشرح المعلم
 export const STUDENT_AUDIO_DRIVE_FOLDER_ID = '1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA'; // مجلد تسجيلات أصوات الطلاب
 export const DEFAULT_WEBHOOK_URL =
-  'https://script.google.com/macros/s/AKfycbwm1t2zpQ0t7WLQ3hWXyr6P5d4DG3NbBo1J-8YpkZs9CpsmHIr7D0kMfvyVzlnF5Fh7_A/exec';
+  'https://script.google.com/macros/s/AKfycbzxrxQzzCvgmAkXqR34tY9P2jT1llG6qnMIixZRrtYl6X1t2SaOFw3IQWuXz2sxGopZ6Q/exec';
 
 /**
  * Convert any Google Drive image / gif / webp / svg link to direct viewable high-res thumbnail
@@ -4656,6 +4656,7 @@ function getMarkingConfigSheet(ss) {
     sheet = ss.insertSheet(MARKING_CONFIG_SHEET_NAME);
     sheet.appendRow(["المفتاح", "القيمة"]);
     sheet.getRange(1, 1, 1, 2).setBackground("#0f172a").setFontColor("#ffffff").setFontWeight("bold");
+    sheet.appendRow(["videoStorageProvider", "drive"]);
     sheet.appendRow(["cloudinaryCloudName", ""]);
     sheet.appendRow(["cloudinaryUploadPreset", ""]);
     sheet.appendRow(["cloudinaryFolder", "faseeh_marking"]);
@@ -4671,6 +4672,7 @@ function readMarkingConfigGS(ss) {
   var sheet = getMarkingConfigSheet(ss);
   var rows = sheet.getDataRange().getValues();
   var cfg = {
+    videoStorageProvider: "drive",
     cloudinaryCloudName: "",
     cloudinaryUploadPreset: "",
     cloudinaryFolder: "faseeh_marking",
@@ -4685,7 +4687,8 @@ function readMarkingConfigGS(ss) {
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0] || "").trim();
     var v = String(rows[i][1] || "").trim();
-    if (k === "cloudinaryCloudName") cfg.cloudinaryCloudName = v;
+    if (k === "videoStorageProvider") cfg.videoStorageProvider = (v === "cloudinary" ? "cloudinary" : "drive");
+    else if (k === "cloudinaryCloudName") cfg.cloudinaryCloudName = v;
     else if (k === "cloudinaryUploadPreset") cfg.cloudinaryUploadPreset = v;
     else if (k === "cloudinaryFolder" && v) cfg.cloudinaryFolder = v;
     else if (k === "teacherTelegramChatId") cfg.teacherTelegramChatId = v;
@@ -4710,7 +4713,9 @@ function writeMarkingConfigGS(ss, cfg) {
   if (sheet.getLastRow() > 1) {
     sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
   }
+  var providerVal = (String(cfg.videoStorageProvider || "").trim() === "cloudinary") ? "cloudinary" : "drive";
   var rows = [
+    ["videoStorageProvider", providerVal],
     ["cloudinaryCloudName", String(cfg.cloudinaryCloudName || "").trim()],
     ["cloudinaryUploadPreset", String(cfg.cloudinaryUploadPreset || "").trim()],
     ["cloudinaryFolder", String(cfg.cloudinaryFolder || "faseeh_marking").trim()],
@@ -5068,19 +5073,19 @@ function mirrorCorrectionToVideoSheetGS(ss, opts) {
 
     var rowImgStatus = imgDone ? ((opts.correctedImageUrl || (opts.additionalImages && opts.additionalImages.length > 0) || opts.imageScore !== "" || opts.imageNotes) ? imgBadge : prevImgStatus) : prevImgStatus;
     var rowImgScore = imgDone ? (opts.imageScore !== "" && opts.imageScore !== undefined ? String(opts.imageScore) : prevImgScore) : prevImgScore;
-    var rowCorrImg = imgDone ? (opts.correctedImageUrl || prevCorrImg) : prevCorrImg;
-    var rowAddImgs = imgDone ? (opts.additionalImages || prevAddImgs) : prevAddImgs;
+    var rowCorrImg = imgDone ? (opts.correctedImageUrl !== undefined ? opts.correctedImageUrl : prevCorrImg) : prevCorrImg;
+    var rowAddImgs = imgDone ? (Array.isArray(opts.additionalImages) ? opts.additionalImages : prevAddImgs) : prevAddImgs;
     var rowImgDate = imgDone ? (opts.nowStr || prevImgDate) : prevImgDate;
     var rowImgNotes = imgDone ? (imgNotesFull || prevImgNotes) : prevImgNotes;
-    var rowImgLinks = imgDone ? (opts.imageLinks || prevImgLinks) : prevImgLinks;
+    var rowImgLinks = imgDone ? (Array.isArray(opts.imageLinks) ? opts.imageLinks : prevImgLinks) : prevImgLinks;
 
     var rowAudStatus = audDone ? (((opts.teacherAudios && opts.teacherAudios.length > 0) || opts.audioScore !== "" || opts.audioNotes) ? audBadge : prevAudStatus) : prevAudStatus;
     var rowAudScore = audDone ? (opts.audioScore !== "" && opts.audioScore !== undefined ? String(opts.audioScore) : prevAudScore) : prevAudScore;
-    var rowTAuds = audDone ? (opts.teacherAudios || prevTAuds) : prevTAuds;
-    var rowTVids = (imgDone || audDone) ? (opts.teacherVideos && opts.teacherVideos.length > 0 ? opts.teacherVideos : prevTVids) : prevTVids;
+    var rowTAuds = audDone ? (Array.isArray(opts.teacherAudios) ? opts.teacherAudios : prevTAuds) : prevTAuds;
+    var rowTVids = (imgDone || audDone) ? (Array.isArray(opts.teacherVideos) ? opts.teacherVideos : prevTVids) : prevTVids;
     var rowAudDate = audDone ? (opts.nowStr || prevAudDate) : prevAudDate;
     var rowAudNotes = audDone ? (audNotesFull || prevAudNotes) : prevAudNotes;
-    var rowAudLinks = audDone ? (opts.audioLinks || prevAudLinks) : prevAudLinks;
+    var rowAudLinks = audDone ? (Array.isArray(opts.audioLinks) ? opts.audioLinks : prevAudLinks) : prevAudLinks;
 
     var rowData = [
       lTitle, sId, sName,
@@ -5201,11 +5206,18 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
 
   if (saveMode === "image_only") {
     corrImg = incCorrImg || prevCorrImg;
-    addImgs = incCorrImg ? mergeUniqueStrArrayGS([incCorrImg], mergeUniqueStrArrayGS(incAddImgs, prevAddImgs)) : mergeUniqueStrArrayGS(prevAddImgs, incAddImgs);
+    addImgs = Array.isArray(item.additionalImages)
+      ? (incCorrImg ? mergeUniqueStrArrayGS([incCorrImg], incAddImgs) : incAddImgs)
+      : (incCorrImg ? mergeUniqueStrArrayGS([incCorrImg], mergeUniqueStrArrayGS(incAddImgs, prevAddImgs)) : mergeUniqueStrArrayGS(prevAddImgs, incAddImgs));
     if (!corrImg && addImgs.length > 0) corrImg = addImgs[0];
-    imgLinks = incImgLinks.length > 0 ? incImgLinks : prevImgLinks;
-    if (incTVids.length > 0) tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
-    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    imgLinks = Array.isArray(item.imageLinks) ? incImgLinks : prevImgLinks;
+    if (Array.isArray(item.teacherVideos)) {
+      tVideos = incTVids;
+      tVideo = incTVideo || tVideos[0] || "";
+    } else if (incTVids.length > 0) {
+      tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+      if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    }
     finalImgStatus = incImgStatus || "corrected";
     if (incImgScore !== "") finalImgScore = incImgScore;
     finalImgRating = incImgRating || prevImgRating;
@@ -5213,11 +5225,18 @@ function upsertMarkingCorrectionGS(ss, item, defaultTeacherName) {
     if (incImgStSym) finalImgStSym = incImgStSym;
     if (incImgStLbl) finalImgStLbl = incImgStLbl;
   } else if (saveMode === "audio_only") {
-    tAudios = incTAuds.length > 0 ? incTAuds : prevTAuds;
-    tAudio = incTAudio || (tAudios[0] || prevTAudio);
-    audLinks = incAudLinks.length > 0 ? incAudLinks : prevAudLinks;
-    if (incTVids.length > 0) tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
-    if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    tAudios = Array.isArray(item.teacherAudios)
+      ? incTAuds
+      : (incTAuds.length > 0 ? incTAuds : prevTAuds);
+    tAudio = incTAudio || (tAudios[0] || (Array.isArray(item.teacherAudios) ? "" : prevTAudio));
+    audLinks = Array.isArray(item.audioLinks) ? incAudLinks : prevAudLinks;
+    if (Array.isArray(item.teacherVideos)) {
+      tVideos = incTVids;
+      tVideo = incTVideo || tVideos[0] || "";
+    } else if (incTVids.length > 0) {
+      tVideos = mergeUniqueStrArrayGS(prevTVids, incTVids);
+      if (!tVideo && tVideos.length > 0) tVideo = tVideos[0];
+    }
     finalAudStatus = incAudStatus || "corrected";
     if (incAudScore !== "") finalAudScore = incAudScore;
     finalAudRating = incAudRating || prevAudRating;
@@ -5665,6 +5684,189 @@ function uploadVideoBase64ToDriveGS(base64Data, filePrefix, mimeType, folderId) 
     return "https://drive.google.com/uc?export=view&id=" + fid;
   }
   return "https://drive.google.com/file/d/" + fid + "/view";
+}
+
+function extractDriveFileIdGS(rawUrl) {
+  var s = String(rawUrl || "").trim();
+  if (!s) return "";
+  var m1 = s.match(new RegExp("/file/d/([a-zA-Z0-9_-]+)"));
+  if (m1 && m1[1]) return m1[1];
+  var m2 = s.match(new RegExp("[?&]id=([a-zA-Z0-9_-]+)"));
+  if (m2 && m2[1]) return m2[1];
+  var m3 = s.match(new RegExp("lh3\\.googleusercontent\\.com/d/([a-zA-Z0-9_-]+)"));
+  if (m3 && m3[1]) return m3[1];
+  return "";
+}
+
+function detectMediaKindGS(mimeType, name) {
+  var m = String(mimeType || "").toLowerCase();
+  var n = String(name || "").toLowerCase();
+  if (m.indexOf("video/") === 0 || n.indexOf(".mp4") !== -1 || n.indexOf(".webm") !== -1 || n.indexOf(".mov") !== -1) return "video";
+  if (m.indexOf("audio/") === 0 || n.indexOf(".mp3") !== -1 || n.indexOf(".wav") !== -1 || n.indexOf(".m4a") !== -1 || n.indexOf(".ogg") !== -1) return "audio";
+  if (m.indexOf("image/") === 0 || n.indexOf(".png") !== -1 || n.indexOf(".jpg") !== -1 || n.indexOf(".jpeg") !== -1 || n.indexOf(".webp") !== -1) return "image";
+  if (m.indexOf("pdf") !== -1 || n.indexOf(".pdf") !== -1) return "pdf";
+  return "other";
+}
+
+function listMarkingDriveFilesGS(ss) {
+  var folders = [
+    { id: "1YuCKWxGjQn9E2EAKqoKN-7-Kl_UeDC4t", kind: "teacher" },
+    { id: "1o80NgUVp64TwTt_yRn3I83c6gy8Ce1iA", kind: "student" }
+  ];
+  var results = [];
+  for (var fi = 0; fi < folders.length; fi++) {
+    try {
+      var folder = DriveApp.getFolderById(folders[fi].id);
+      var iter = folder.getFiles();
+      var count = 0;
+      while (iter.hasNext() && count < 120) {
+        var f = iter.next();
+        if (f.isTrashed()) continue;
+        count++;
+        var fId = f.getId();
+        var fName = f.getName();
+        var fMime = f.getMimeType();
+        var mKind = detectMediaKindGS(fMime, fName);
+        var fUrl = mKind === "image"
+          ? ("https://drive.google.com/uc?export=view&id=" + fId)
+          : ("https://drive.google.com/file/d/" + fId + "/view");
+        results.push({
+          id: fId,
+          name: fName,
+          url: fUrl,
+          mimeType: fMime,
+          size: f.getSize(),
+          createdAt: f.getDateCreated() ? f.getDateCreated().toISOString() : "",
+          source: "drive",
+          folderKind: folders[fi].kind,
+          mediaKind: mKind
+        });
+      }
+    } catch (fErr) {}
+  }
+  results.sort(function(a, b) {
+    return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+  });
+  return results;
+}
+
+function deleteMarkingDriveFileGS(ss, rawFileId, rawFileUrl) {
+  var cleanFileId = String(rawFileId || "").trim();
+  var cleanUrl = String(rawFileUrl || "").trim();
+  if (!cleanFileId && cleanUrl) {
+    cleanFileId = extractDriveFileIdGS(cleanUrl);
+  }
+  var trashedDrive = false;
+  if (cleanFileId) {
+    try {
+      var fileObj = DriveApp.getFileById(cleanFileId);
+      if (fileObj && !fileObj.isTrashed()) {
+        fileObj.setTrashed(true);
+        trashedDrive = true;
+      }
+    } catch (tErr) {}
+  }
+
+  var matchesTarget = function(val) {
+    var s = String(val || "").trim();
+    if (!s) return false;
+    if (cleanUrl && s === cleanUrl) return true;
+    if (cleanFileId && s.indexOf(cleanFileId) !== -1) return true;
+    return false;
+  };
+
+  var cleanJsonArrayCell = function(rawCell) {
+    var arr = parseJsonStrArrayGS(rawCell);
+    var next = [];
+    var changed = false;
+    for (var i = 0; i < arr.length; i++) {
+      if (matchesTarget(arr[i])) {
+        changed = true;
+      } else {
+        next.push(arr[i]);
+      }
+    }
+    return { changed: changed, value: JSON.stringify(next), arr: next };
+  };
+
+  var cleanedRows = 0;
+  try {
+    var mcSh = getMarkingCorrectionsSheet(ss);
+    var mcLR = mcSh.getLastRow();
+    if (mcLR > 1) {
+      var mcCols = Math.max(21, Math.min(35, mcSh.getLastColumn()));
+      var mcVals = mcSh.getRange(2, 1, mcLR - 1, mcCols).getValues();
+      for (var r = 0; r < mcVals.length; r++) {
+        var row = mcVals[r];
+        var rowChanged = false;
+        if (matchesTarget(row[10])) { row[10] = ""; rowChanged = true; }
+        if (matchesTarget(row[11])) { row[11] = ""; rowChanged = true; }
+        if (matchesTarget(row[12])) { row[12] = ""; rowChanged = true; }
+        if (mcCols >= 17) {
+          var qRes = cleanJsonArrayCell(row[16]);
+          if (qRes.changed) { row[16] = qRes.value; if (!row[10] && qRes.arr.length > 0) row[10] = qRes.arr[0]; rowChanged = true; }
+        }
+        if (mcCols >= 18) {
+          var rRes = cleanJsonArrayCell(row[17]);
+          if (rRes.changed) { row[17] = rRes.value; if (!row[11] && rRes.arr.length > 0) row[11] = rRes.arr[0]; rowChanged = true; }
+        }
+        if (mcCols >= 19) {
+          var sRes = cleanJsonArrayCell(row[18]);
+          if (sRes.changed) { row[18] = sRes.value; if (!row[12] && sRes.arr.length > 0) row[12] = sRes.arr[0]; rowChanged = true; }
+        }
+        if (mcCols >= 28) {
+          var ilRes = cleanJsonArrayCell(row[27]);
+          if (ilRes.changed) { row[27] = ilRes.value; rowChanged = true; }
+        }
+        if (mcCols >= 35) {
+          var alRes = cleanJsonArrayCell(row[34]);
+          if (alRes.changed) { row[34] = alRes.value; rowChanged = true; }
+        }
+        if (rowChanged) {
+          mcSh.getRange(r + 2, 1, 1, mcCols).setValues([row]);
+          cleanedRows++;
+        }
+      }
+    }
+  } catch (mcCleanErr) {}
+
+  try {
+    var vcSh = getVideoCorrectionsSheet(ss);
+    var vcLR = vcSh.getLastRow();
+    if (vcLR > 1) {
+      var vcCols = Math.max(15, Math.min(17, vcSh.getLastColumn()));
+      var vcVals = vcSh.getRange(2, 1, vcLR - 1, vcCols).getValues();
+      for (var vr = 0; vr < vcVals.length; vr++) {
+        var vrow = vcVals[vr];
+        var vChanged = false;
+        if (matchesTarget(vrow[5])) { vrow[5] = ""; vChanged = true; }
+        var vai = cleanJsonArrayCell(vrow[6]);
+        if (vai.changed) { vrow[6] = vai.value; if (!vrow[5] && vai.arr.length > 0) vrow[5] = vai.arr[0]; vChanged = true; }
+        var vau = cleanJsonArrayCell(vrow[11]);
+        if (vau.changed) { vrow[11] = vau.value; vChanged = true; }
+        var vvd = cleanJsonArrayCell(vrow[12]);
+        if (vvd.changed) { vrow[12] = vvd.value; vChanged = true; }
+        if (vcCols >= 16) {
+          var vil = cleanJsonArrayCell(vrow[15]);
+          if (vil.changed) { vrow[15] = vil.value; vChanged = true; }
+        }
+        if (vcCols >= 17) {
+          var val = cleanJsonArrayCell(vrow[16]);
+          if (val.changed) { vrow[16] = val.value; vChanged = true; }
+        }
+        if (vChanged) {
+          vcSh.getRange(vr + 2, 1, 1, vcCols).setValues([vrow]);
+          cleanedRows++;
+        }
+      }
+    }
+  } catch (vcCleanErr) {}
+
+  return {
+    success: true,
+    trashedDrive: trashedDrive,
+    cleanedRows: cleanedRows
+  };
 }
 
 function readVideoLessonsListGS(ss) {
@@ -8290,6 +8492,15 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (e && e.parameter && e.parameter.action === "list_marking_media_files") {
+      var driveMediaFiles = listMarkingDriveFilesGS(ss);
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        markingHandled: true,
+        files: driveMediaFiles
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var sheet = getLessonsSheet(ss);
     
     var lastRow = sheet.getLastRow();
@@ -9337,6 +9548,16 @@ function doPost(e) {
         success: true,
         markingHandled: true,
         count: bDelCount
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (data.action === "delete_marking_media_file") {
+      var delMediaRes = deleteMarkingDriveFileGS(ss, data.fileId || "", data.url || "");
+      return ContentService.createTextOutput(JSON.stringify({
+        success: Boolean(delMediaRes.success),
+        markingHandled: true,
+        trashedDrive: Boolean(delMediaRes.trashedDrive),
+        cleanedRows: Number(delMediaRes.cleanedRows || 0)
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

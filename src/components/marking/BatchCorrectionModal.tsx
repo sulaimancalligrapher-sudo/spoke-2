@@ -78,10 +78,10 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
 }) => {
   const [workspaceMode, setWorkspaceMode] = useState<'bulk' | 'sheet'>(initialMode);
 
-  const videoScopedSubmissions = useMemo(() => {
-    const vids = submissions.filter((s) => s.exerciseType === 'video');
-    return vids.length > 0 ? vids : submissions;
-  }, [submissions]);
+  const videoScopedSubmissions = useMemo(
+    () => submissions.filter((s) => s.exerciseType === 'video'),
+    [submissions]
+  );
 
   const presetTexts = useMemo(
     () =>
@@ -584,8 +584,22 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
         score: eScore.trim() !== '' ? Number(eScore) : undefined,
         ratingLabel: eRating,
         notes: eNotes.trim(),
+        imageStatus: eClearImage ? undefined : c?.imageStatus,
+        imageScore: eClearImage ? undefined : c?.imageScore,
+        imageRatingLabel: eClearImage ? undefined : c?.imageRatingLabel,
+        imageNotes: eClearImage ? '' : c?.imageNotes,
+        imageStickerSymbol: eClearImage ? '' : c?.imageStickerSymbol,
+        imageStickerLabel: eClearImage ? '' : c?.imageStickerLabel,
+        imageLinks: eClearImage ? [] : c?.imageLinks,
         correctedImageUrl: eClearImage ? '' : c?.correctedImageUrl,
         additionalImages: eClearImage ? [] : c?.additionalImages,
+        audioStatus: eClearAudio ? undefined : c?.audioStatus,
+        audioScore: eClearAudio ? undefined : c?.audioScore,
+        audioRatingLabel: eClearAudio ? undefined : c?.audioRatingLabel,
+        audioNotes: eClearAudio ? '' : c?.audioNotes,
+        audioStickerSymbol: eClearAudio ? '' : c?.audioStickerSymbol,
+        audioStickerLabel: eClearAudio ? '' : c?.audioStickerLabel,
+        audioLinks: eClearAudio ? [] : c?.audioLinks,
         teacherAudioUrl: eClearAudio ? '' : c?.teacherAudioUrl,
         teacherAudios: eClearAudio ? [] : c?.teacherAudios,
         teacherVideoUrl: eClearVideo ? '' : c?.teacherVideoUrl,
@@ -1812,44 +1826,81 @@ export const BatchCorrectionModal: React.FC<BatchCorrectionModalProps> = ({
                             </td>
                             <td className="py-2.5 px-3">
                               {c ? (
-                                <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
-                                  {c.correctedImageUrl && (
-                                    <a
-                                      href={c.correctedImageUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-emerald-700 hover:underline inline-flex items-center gap-0.5"
-                                    >
-                                      <span>لوحة</span>
-                                      <ExternalLink className="w-2.5 h-2.5" />
-                                    </a>
-                                  )}
-                                  {c.teacherAudioUrl && (
-                                    <a
-                                      href={c.teacherAudioUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-rose-700 hover:underline inline-flex items-center gap-0.5"
-                                    >
-                                      <span>صوت</span>
-                                      <ExternalLink className="w-2.5 h-2.5" />
-                                    </a>
-                                  )}
-                                  {c.teacherVideoUrl && (
-                                    <a
-                                      href={c.teacherVideoUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-indigo-700 hover:underline inline-flex items-center gap-0.5"
-                                    >
-                                      <span>فيديو</span>
-                                      <ExternalLink className="w-2.5 h-2.5" />
-                                    </a>
-                                  )}
-                                  {!c.correctedImageUrl &&
-                                    !c.teacherAudioUrl &&
-                                    !c.teacherVideoUrl && <span className="text-slate-400">نص فقط</span>}
-                                </div>
+                                (() => {
+                                  const imgUrls = Array.from(
+                                    new Set(
+                                      [c.correctedImageUrl || '', ...(c.additionalImages || [])].filter(Boolean)
+                                    )
+                                  );
+                                  const audUrls = Array.from(
+                                    new Set(
+                                      [c.teacherAudioUrl || '', ...(c.teacherAudios || [])].filter(Boolean)
+                                    )
+                                  );
+                                  const vidUrls = Array.from(
+                                    new Set(
+                                      [c.teacherVideoUrl || '', ...(c.teacherVideos || [])].filter(Boolean)
+                                    )
+                                  );
+                                  const extLinks = [
+                                    ...(c.imageLinks || []),
+                                    ...(c.audioLinks || []),
+                                  ].filter(Boolean);
+                                  const hasAny =
+                                    imgUrls.length > 0 ||
+                                    audUrls.length > 0 ||
+                                    vidUrls.length > 0 ||
+                                    extLinks.length > 0;
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
+                                      {imgUrls.length > 0 && (
+                                        <a
+                                          href={imgUrls[0]}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-emerald-700 hover:underline inline-flex items-center gap-0.5"
+                                        >
+                                          <span>صور ({imgUrls.length})</span>
+                                          <ExternalLink className="w-2.5 h-2.5" />
+                                        </a>
+                                      )}
+                                      {audUrls.length > 0 && (
+                                        <a
+                                          href={audUrls[0]}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-rose-700 hover:underline inline-flex items-center gap-0.5"
+                                        >
+                                          <span>صوت ({audUrls.length})</span>
+                                          <ExternalLink className="w-2.5 h-2.5" />
+                                        </a>
+                                      )}
+                                      {vidUrls.length > 0 && (
+                                        <a
+                                          href={vidUrls[0]}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-indigo-700 hover:underline inline-flex items-center gap-0.5"
+                                        >
+                                          <span>فيديو ({vidUrls.length})</span>
+                                          <ExternalLink className="w-2.5 h-2.5" />
+                                        </a>
+                                      )}
+                                      {extLinks.length > 0 && (
+                                        <a
+                                          href={extLinks[0]}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-sky-700 hover:underline inline-flex items-center gap-0.5"
+                                        >
+                                          <span>روابط ({extLinks.length})</span>
+                                          <ExternalLink className="w-2.5 h-2.5" />
+                                        </a>
+                                      )}
+                                      {!hasAny && <span className="text-slate-400">نص فقط</span>}
+                                    </div>
+                                  );
+                                })()
                               ) : (
                                 <span className="text-slate-400">—</span>
                               )}

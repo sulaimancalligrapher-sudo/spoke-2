@@ -475,12 +475,20 @@ export const MarkingVideoRecorder = React.forwardRef<
       setUploading(true);
       setUploadProgress(5);
 
+      const storageProvider = markingConfig.videoStorageProvider || 'drive';
       const hasCloudinaryNow =
         Boolean(markingConfig.cloudinaryCloudName?.trim()) &&
         Boolean(markingConfig.cloudinaryUploadPreset?.trim());
 
       try {
-        if (hasCloudinaryNow) {
+        if (storageProvider === 'cloudinary') {
+          if (!hasCloudinaryNow) {
+            setErrorMsg(
+              'تم اختيار الحفظ في Cloudinary، لكن لم يتم ضبط Cloud Name و Upload Preset في إعدادات التصحيح.'
+            );
+            setUploading(false);
+            return null;
+          }
           const res = await uploadVideoToCloudinary(blobToUpload, markingConfig, (pct) =>
             setUploadProgress(pct)
           );
@@ -506,9 +514,9 @@ export const MarkingVideoRecorder = React.forwardRef<
           return null;
         }
 
-        if (blobToUpload.size > 10 * 1024 * 1024) {
+        if (blobToUpload.size > 18 * 1024 * 1024) {
           setErrorMsg(
-            'حجم الفيديو كبير للرفع المباشر إلى Drive. يرجى ضبط حساب Cloudinary في إعدادات التصحيح لرفع الفيديو بسرعة وبصيغة MP4.'
+            'حجم الفيديو كبير للرفع المباشر إلى Google Drive (الحد 18 MB). يمكنك تقليل مدة التسجيل أو التبديل إلى Cloudinary من إعدادات التصحيح.'
           );
           setUploading(false);
           return null;
@@ -575,9 +583,11 @@ export const MarkingVideoRecorder = React.forwardRef<
     [recordedBlob, uploadVideoBlob]
   );
 
+  const activeProvider = markingConfig.videoStorageProvider || 'drive';
   const hasCloudinary =
     Boolean(markingConfig.cloudinaryCloudName?.trim()) &&
     Boolean(markingConfig.cloudinaryUploadPreset?.trim());
+  const usingCloudinary = activeProvider === 'cloudinary';
 
   const fmtTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -611,9 +621,11 @@ export const MarkingVideoRecorder = React.forwardRef<
                 <span>{title}</span>
               </div>
               <div className="text-[11px] text-slate-500 font-semibold">
-                {hasCloudinary
-                  ? `Cloudinary (${markingConfig.cloudinaryCloudName}) · متوافق مع الجوال وكاميرا OBS`
-                  : 'سيُحفظ المقطع عبر Google Drive (أو Cloudinary بعد تفعيله في الإعدادات)'}
+                {usingCloudinary
+                  ? hasCloudinary
+                    ? `مكان الحفظ: Cloudinary (${markingConfig.cloudinaryCloudName}) · متوافق مع الجوال وOBS`
+                    : 'مكان الحفظ: Cloudinary (يرجى إكمال Cloud Name و Upload Preset من الإعدادات)'
+                  : 'مكان الحفظ: Google Drive (مجلد تصحيحات المعلم · تشغيل مباشر داخل الصفحة)'}
               </div>
             </div>
 
@@ -691,9 +703,11 @@ export const MarkingVideoRecorder = React.forwardRef<
                   <span className="truncate">{title}</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 font-semibold truncate">
-                  {hasCloudinary
-                    ? `Cloudinary (${markingConfig.cloudinaryCloudName}) · حد أقصى 4 دقائق`
-                    : 'رفع عبر Google Drive (حد 10 MB) أو ضبط Cloudinary للملفات الكبيرة'}
+                  {usingCloudinary
+                    ? hasCloudinary
+                      ? `الحفظ في Cloudinary (${markingConfig.cloudinaryCloudName}) · حد أقصى 4 دقائق`
+                      : 'الحفظ في Cloudinary — تأكد من إدخال Cloud Name و Upload Preset'
+                    : 'الحفظ في Google Drive (مجلد المعلم) · حد حتى 18 MB'}
                 </p>
               </div>
               <button
